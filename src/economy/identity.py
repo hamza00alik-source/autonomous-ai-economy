@@ -145,6 +145,13 @@ class ParticipantRegistry:
         item["metadata"] = json.loads(item.pop("metadata_json"))
         return item
 
+    @staticmethod
+    def _key_used_in_history(db: sqlite3.Connection, public_key: str) -> bool:
+        return bool(db.execute(
+            "SELECT 1 FROM participant_key_history WHERE old_public_key=? OR new_public_key=?",
+            (public_key, public_key),
+        ).fetchone())
+
     def create_human(self, handle: str, display_name: str,
                      account_control_method: str = "unverified",
                      metadata: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -188,6 +195,8 @@ class ParticipantRegistry:
         challenge = "AAE-AGENT-ENROLL-V1:" + secrets.token_urlsafe(32)
         expires = _iso(_now() + timedelta(seconds=self.challenge_ttl_seconds))
         with self._connect() as db:
+            if self._key_used_in_history(db, public_key):
+                raise ValueError("public key has already appeared in participant key history")
             if operator_id:
                 owner = db.execute("SELECT status FROM participants WHERE participant_id=?",
                                     (operator_id,)).fetchone()
@@ -218,6 +227,9 @@ class ParticipantRegistry:
             if datetime.fromisoformat(row["expires_at"]) <= _now():
                 db.rollback()
                 raise ValueError("enrollment challenge expired")
+            if self._key_used_in_history(db, row["public_key"]):
+                db.rollback()
+                raise ValueError("public key has already appeared in participant key history")
             if not verifier(row["public_key"], row["challenge"].encode("utf-8"), signature):
                 db.rollback()
                 raise ValueError("agent key proof is invalid")
@@ -245,6 +257,8 @@ class ParticipantRegistry:
         challenge = "AAE-PARTICIPANT-KEY-BIND-V1:" + secrets.token_urlsafe(32)
         expires = _iso(_now() + timedelta(seconds=self.challenge_ttl_seconds))
         with self._connect() as db:
+            if self._key_used_in_history(db, public_key):
+                raise ValueError("public key has already appeared in participant key history")
             row = db.execute(
                 "SELECT participant_type,status,public_key FROM participants WHERE participant_id=?",
                 (participant_id,),
@@ -291,6 +305,9 @@ class ParticipantRegistry:
             if participant["participant_type"] == "agent":
                 db.rollback()
                 raise ValueError("agent keys are bound during enrollment")
+            if self._key_used_in_history(db, row["public_key"]):
+                db.rollback()
+                raise ValueError("public key has already appeared in participant key history")
             if not verifier(row["public_key"], row["challenge"].encode("utf-8"), signature):
                 db.rollback()
                 raise ValueError("participant key proof is invalid")
@@ -327,6 +344,8 @@ class ParticipantRegistry:
                 raise ValueError("participant must be active and have an existing signing key")
             if participant["public_key"] == new_public_key:
                 raise ValueError("new public key must differ from current key")
+            if self._key_used_in_history(db, new_public_key):
+                raise ValueError("new public key has already appeared in participant key history")
             if db.execute("SELECT 1 FROM participants WHERE public_key=?",
                           (new_public_key,)).fetchone():
                 raise ValueError("new public key is already bound")
@@ -366,6 +385,9 @@ class ParticipantRegistry:
                     or participant["public_key"] != row["old_public_key"]):
                 db.rollback()
                 raise ValueError("participant is inactive or current key has changed")
+            if self._key_used_in_history(db, row["new_public_key"]):
+                db.rollback()
+                raise ValueError("new public key has already appeared in participant key history")
             message = row["challenge"].encode("utf-8")
             if not verifier(row["old_public_key"], message, old_signature):
                 db.rollback()
