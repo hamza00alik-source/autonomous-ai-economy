@@ -15,6 +15,7 @@ class TaskAgreementTests(unittest.TestCase):
         self.path = Path(self.tmp.name) / "participants.sqlite3"
         self.registry = ParticipantRegistry(self.path)
         self.provider = self._agent("provider", b"p" * 32)
+        self.other_provider = self._agent("other-provider", b"o" * 32)
         self.buyer = self._human("buyer", b"b" * 32)
         self.catalog = ServiceCatalog(self.path, verifier=lambda *_: True)
         payload = self.catalog.listing_payload(
@@ -32,7 +33,9 @@ class TaskAgreementTests(unittest.TestCase):
             draft["listing_id"], approval_ref="owner-approved",
             approval_verifier=lambda *_: True,
         )
-        self.store = TaskAgreementStore(self.path, verifier=lambda *_: True)
+        self.store = TaskAgreementStore(
+            self.path, verifier=lambda key, payload, signature: signature != "bad"
+        )
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -114,7 +117,7 @@ class TaskAgreementTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "active listing owned by the provider"):
             self.store.create_offer(
                 task_id="wrong-provider", listing_id=self.listing["listing_id"],
-                buyer_id=self.buyer["participant_id"], provider_id=self.buyer["participant_id"],
+                buyer_id=self.buyer["participant_id"], provider_id=self.other_provider["participant_id"],
                 title="Work", scope="Scope", acceptance_criteria="Criteria",
                 signature="buyer-signature",
             )
