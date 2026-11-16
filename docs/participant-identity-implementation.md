@@ -58,7 +58,7 @@ economy capability-grant --subject AGENT_ID --issuer OWNER_ID --action task:subm
 economy authorize --subject AGENT_ID --action task:submit --resource project:demo
 ```
 
-High-risk actions (publishing, spending, transfers, custody, contracts, private-data export, permission escalation and ownership changes) return `require_approval` unless an approval reference is supplied and a matching scoped capability exists.
+High-risk actions (publishing, spending, transfers, custody, contracts, private-data export, permission escalation and ownership changes) always return `require_approval` in this prototype, even if an approval reference string is supplied. The reference is not validated. Do not execute a high-risk action based on this prototype decision; integrate a signed, scoped, expiring, single-use approval verifier first.
 
 ## Important security limitations
 
