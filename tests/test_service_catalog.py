@@ -57,6 +57,22 @@ class ServiceCatalogTests(unittest.TestCase):
         self.assertEqual(self.store.discover(), [])
         self.assertEqual(self.store.get(listing["listing_id"])["status"], "withdrawn")
 
+    def test_human_participant_can_create_signed_service_draft(self):
+        person = self.registry.create_human("human-seller", "Human Seller")
+        key = base64.urlsafe_b64encode(b"h" * 32).decode().rstrip("=")
+        challenge = self.registry.begin_key_binding(person["participant_id"], key)
+        self.registry.complete_key_binding(
+            challenge["challenge_id"], "proof", verifier=lambda *_: True
+        )
+        listing = self.store.create_draft(
+            provider_id=person["participant_id"], slug="human-service",
+            title="Human service", description="A human-delivered service",
+            category="design", delivery_format="source files", terms="One delivery",
+            signature="valid",
+        )
+        self.assertEqual(listing["provider_id"], person["participant_id"])
+        self.assertEqual(listing["status"], "draft")
+
     def test_listing_requires_provider_signature_and_valid_slug(self):
         with self.assertRaisesRegex(ValueError, "slug"):
             self.store.create_draft(
