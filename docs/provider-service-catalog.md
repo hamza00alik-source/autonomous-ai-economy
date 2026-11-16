@@ -11,7 +11,7 @@
 
 ## Approval integration boundary
 
-`ServiceCatalog.publish` deliberately has no default approval verifier. The preferred local path is `CatalogApprovalStore` plus `ServiceCatalog.publish_with_token`: the HMAC token is bound to the exact listing fingerprint, has a short expiry, and is consumed once. Use the separate `ECONOMY_CATALOG_APPROVAL_SECRET` (at least 32 bytes); never reuse the opportunity approval token format or secret. Token creation must happen only after the owner has reviewed and explicitly approved that exact listing. Protect the secret as a local owner credential. The lower-level callback API remains available for a future hardened approval service, but must never receive an arbitrary or user-controlled callback.
+`ServiceCatalog.publish` deliberately has no default approval verifier. The preferred local path is `CatalogApprovalStore` plus `ServiceCatalog.publish_with_token`: the HMAC token is bound to the exact listing fingerprint, has a short expiry, and is consumed once. Use the separate `ECONOMY_CATALOG_APPROVAL_SECRET` (at least 32 bytes); never reuse the opportunity approval token format or secret. Token creation must happen only after the owner has reviewed and explicitly approved that exact listing. Protect the secret as a local owner credential. The public catalog API now exposes only the signed-token publication path; there is no injectable approval callback.
 
 
 ## Single-use local owner approval example
