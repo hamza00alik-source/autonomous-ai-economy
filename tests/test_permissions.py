@@ -54,6 +54,10 @@ class PermissionTests(unittest.TestCase):
                                  currency="EUR", approval_ref="x")["decision"],
             "deny"
         )
+        self.assertEqual(
+            self.store.authorize("agent_1", "spend", "treasury")["decision"],
+            "deny"
+        )
 
     def test_negative_amount_is_always_denied(self):
         self.store.grant("agent_1", "owner_1", "spend", "treasury",
