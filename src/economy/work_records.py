@@ -163,6 +163,9 @@ class WorkRecordStore:
             row = db.execute("SELECT * FROM work_receipts WHERE receipt_id=?", (receipt_id,)).fetchone()
             if row is None or actor_id not in {row["provider_id"], row["buyer_id"]}:
                 raise ValueError("only a work participant may dispute this receipt")
+            if db.execute("SELECT 1 FROM work_disputes WHERE receipt_id=? AND status='open'",
+                          (receipt_id,)).fetchone():
+                raise ValueError("this receipt already has an open dispute")
             if row["status"] not in {"submitted", "accepted"}:
                 raise ValueError("receipt cannot be disputed in its current state")
             key = self._participant_key(db, actor_id)
@@ -170,9 +173,6 @@ class WorkRecordStore:
             refs = sorted(set(evidence_refs))
             if any(not ref.startswith(("https://", "task:", "artifact:")) for ref in refs):
                 raise ValueError("dispute evidence references must use https, task:, or artifact:")
-            if db.execute("SELECT 1 FROM work_disputes WHERE receipt_id=? AND status='open'",
-                          (receipt_id,)).fetchone():
-                raise ValueError("this receipt already has an open dispute")
             payload = self.dispute_payload(receipt_id, dispute_id, actor_id, reason, refs)
             if not self.verifier(key, payload, signature):
                 raise ValueError("dispute signature is invalid")
