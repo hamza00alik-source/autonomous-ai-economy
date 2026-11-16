@@ -64,6 +64,9 @@ class IdentityTests(unittest.TestCase):
             self.registry.complete_key_binding(
                 challenge["challenge_id"], "bad", verifier=lambda *_: False
             )
+        self.registry.complete_key_binding(
+            challenge["challenge_id"], "valid", verifier=lambda *_: True
+        )
         other = self.registry.create_human("erin", "Erin")
         challenge2 = self.registry.begin_key_binding(other["participant_id"], public_key)
         with self.assertRaisesRegex(ValueError, "already bound"):
