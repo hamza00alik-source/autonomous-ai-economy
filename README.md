@@ -57,7 +57,7 @@ See [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.m
 1. Private controller, agent registry, task protocol, and auditable ledger.
 2. Evidence-first opportunity intake and validation (implemented; live research integrations pending).
 3. Deterministic specialist workflow for research intake, analysis, product drafting, QA, and listing drafts (implemented; external AI and publishing integrations pending).
-4. Persistent SQLite task queue, one-shot worker, idempotent enqueue, bounded retries, and task event history (implemented; hosted scheduling and crash recovery pending).\n5. First real customer revenue experiment.
+4. Persistent SQLite task queue, one-shot worker, idempotent enqueue, bounded retries, and task event history (implemented; hosted scheduling pending; automatic recovery from expired worker leases implemented).\n5. First real customer revenue experiment.
 5. First real customer revenue experiment.
 6. Hardened payment adapters and owner-approved treasury operations.
 7. Optional decentralized agent registration, service contracts, reputation, and settlement.
