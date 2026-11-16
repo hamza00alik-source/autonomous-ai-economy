@@ -21,6 +21,8 @@ from .source_review import SourceReviewStore, REVIEW_KINDS
 from .source_dossier import build_source_dossier
 from .shared_brain import SharedBrain
 from .collective_learning import CollectiveLearningEngine
+from .identity import ParticipantRegistry
+from .permissions import CapabilityStore
 
 
 def demo(data_dir: Path) -> None:
@@ -170,6 +172,47 @@ def main() -> None:
 
     learning_summary = sub.add_parser("learning-summary", help="summarize observed outcomes and emitted learning proposals")
     learning_summary.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    participant_human = sub.add_parser("participant-create-human", help="create a local basic human account record; not KYC")
+    participant_human.add_argument("--handle", required=True)
+    participant_human.add_argument("--display-name", required=True)
+    participant_human.add_argument("--account-control", choices=["unverified", "email", "passkey", "external_credential"], default="unverified")
+    participant_human.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    participant_list = sub.add_parser("participant-list", help="list local active participants")
+    participant_list.add_argument("--type", choices=["human", "agent", "organization"])
+    participant_list.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    agent_challenge = sub.add_parser("agent-enrollment-challenge", help="create a one-time challenge for an agent public key")
+    agent_challenge.add_argument("--handle", required=True)
+    agent_challenge.add_argument("--display-name", required=True)
+    agent_challenge.add_argument("--public-key", required=True, help="Ed25519 public key, URL-safe base64")
+    agent_challenge.add_argument("--operator-id")
+    agent_challenge.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    agent_complete = sub.add_parser("agent-enrollment-complete", help="verify an agent's Ed25519 challenge signature")
+    agent_complete.add_argument("--challenge-id", required=True)
+    agent_complete.add_argument("--signature", required=True, help="base64url Ed25519 signature of the exact challenge string")
+    agent_complete.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    capability_grant = sub.add_parser("capability-grant", help="grant one explicitly scoped capability")
+    capability_grant.add_argument("--subject", required=True)
+    capability_grant.add_argument("--issuer", required=True)
+    capability_grant.add_argument("--action", required=True)
+    capability_grant.add_argument("--resource", required=True)
+    capability_grant.add_argument("--expires-at")
+    capability_grant.add_argument("--max-amount-minor", type=int)
+    capability_grant.add_argument("--currency")
+    capability_grant.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    authorize = sub.add_parser("authorize", help="evaluate and audit one capability request")
+    authorize.add_argument("--subject", required=True)
+    authorize.add_argument("--action", required=True)
+    authorize.add_argument("--resource", required=True)
+    authorize.add_argument("--amount-minor", type=int)
+    authorize.add_argument("--currency")
+    authorize.add_argument("--approval-ref")
+    authorize.add_argument("--data-dir", type=Path, default=Path("./data"))
 
     args = parser.parse_args()
     if args.command == "demo":
