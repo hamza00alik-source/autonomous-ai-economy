@@ -6,6 +6,7 @@ from pathlib import Path
 from economy.identity import ParticipantRegistry
 from economy.service_catalog import ServiceCatalog
 from economy.task_agreements import TaskAgreementStore
+from economy.work_records import WorkRecordStore
 
 
 class TaskAgreementTests(unittest.TestCase):
@@ -88,6 +89,26 @@ class TaskAgreementTests(unittest.TestCase):
             signature="buyer-withdrawal",
         )
         self.assertEqual(self.store.get(withdrawn["task_id"])["status"], "withdrawn")
+
+    def test_work_receipt_requires_accepted_task_agreement(self):
+        offer = self._offer("task-linked")
+        receipts = WorkRecordStore(self.path, verifier=lambda *_: True)
+        with self.assertRaisesRegex(ValueError, "accepted task agreement"):
+            receipts.submit(
+                task_id=offer["task_id"], provider_id=self.provider["participant_id"],
+                buyer_id=self.buyer["participant_id"], summary="Delivered",
+                evidence_refs=["artifact:delivery"], signature="provider-signature",
+            )
+        self.store.respond(
+            offer["task_id"], provider_id=self.provider["participant_id"],
+            decision="accept", signature="provider-acceptance",
+        )
+        receipt = receipts.submit(
+            task_id=offer["task_id"], provider_id=self.provider["participant_id"],
+            buyer_id=self.buyer["participant_id"], summary="Delivered",
+            evidence_refs=["artifact:delivery"], signature="provider-signature",
+        )
+        self.assertEqual(receipt["status"], "submitted")
 
     def test_offer_must_reference_active_listing_owned_by_provider(self):
         with self.assertRaisesRegex(ValueError, "active listing owned by the provider"):
