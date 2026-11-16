@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,6 +44,20 @@ class TaskStoreTests(unittest.TestCase):
         final = self.store.fail(second["task_id"], "missing agent")
         self.assertEqual(final["status"], "failed")
         self.assertEqual(final["attempts"], 2)
+
+ 
+    def test_expired_worker_lease_is_recovered(self):
+        task = self.store.enqueue("Crash test", "Recover an interrupted task", "opportunity-researcher")
+        claimed = self.store.claim()
+        with sqlite3.connect(self.store.path) as db:
+            db.execute("UPDATE tasks SET lease_until='2000-01-01T00:00:00+00:00' WHERE task_id=?",
+                       (task["task_id"],))
+        recovered = self.store.claim()
+        self.assertEqual(recovered["task_id"], task["task_id"])
+        self.assertEqual(recovered["status"], "running")
+        self.assertEqual(recovered["attempts"], 2)
+        kinds = [e["event_type"] for e in self.store.events(task["task_id"])]
+        self.assertIn("lease_expired_retry", kinds)
 
     def test_invalid_attempt_limit_rejected(self):
         with self.assertRaises(ValueError):
