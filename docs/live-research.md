@@ -31,6 +31,17 @@ This is a narrow public-news discovery integration, not a general web search eng
 A separate provider interface and marketplace/source adapters can be added later. Any provider requiring credentials, paid API usage, or a metered service must remain disabled until the owner explicitly approves its cost and credentials setup.
 
 
+## Combined two-source discovery
+
+Run both configured providers for the same search:
+
+```bash
+economy research-all "small business invoice software"
+economy research-all "indie game asset packs" --limit 20
+```
+
+This calls Google News RSS and the Hacker News Search API separately, then saves both sets of candidates to the shared review queue. The command preserves provider-specific records rather than merging similar results. The two feeds are different discovery surfaces, but overlapping syndicated stories or links are possible; their co-occurrence is not independent corroboration.
+
 ## Independent community-discussion source: Hacker News
 
 A second, separately operated discovery source is available through the public Hacker News Search API powered by Algolia. It requires no API key or paid plan.
