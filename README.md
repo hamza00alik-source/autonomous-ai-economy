@@ -60,7 +60,7 @@ A separate brand is being researched. Early collision screening rejected Synthor
 - Google News RSS and Hacker News discovery, manual allowlisted source retrieval, owner-classified source snapshots and source-reviewed opportunity dossiers.
 - Opportunity prioritization, unit-economics scenario calculation, Shared Brain and evidence-linked collective learning.
 
-These capabilities do not browse autonomously, contact buyers, publish, spend, process payments, or execute real financial transactions.
+These capabilities do not browse autonomously, contact buyers, publish to external marketplaces, spend, process payments, or execute real financial transactions. Local catalog activation is private prototype state, not external publication.
 
 ## Architecture
 
