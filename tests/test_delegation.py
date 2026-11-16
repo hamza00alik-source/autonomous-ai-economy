@@ -100,6 +100,29 @@ class DelegationTests(unittest.TestCase):
         )
         self.assertEqual(result["decision"], "deny")
 
+    def test_agent_key_rotation_invalidates_delegations_signed_by_old_key(self):
+        self._create_root()
+        self.store.create(
+            delegation_id="child-before-rotation", delegator_id=self.agent["participant_id"],
+            delegate_id=self.worker["participant_id"], action="task:submit",
+            resource="project:alpha", expires_at=self.expiry, parent_id="root",
+            signature="valid",
+        )
+        new_key = base64.urlsafe_b64encode(b"z" * 32).decode().rstrip("=")
+        challenge = self.registry.begin_key_rotation(self.agent["participant_id"], new_key)
+        self.registry.complete_key_rotation(
+            challenge["challenge_id"], "valid-old", "valid-new",
+            verifier=lambda _key, _message, signature: signature in {"valid-old", "valid-new"},
+        )
+        self.assertEqual(self.store.authorize(
+            "root", delegate_id=self.agent["participant_id"],
+            action="task:submit", resource="project:alpha",
+        )["decision"], "allow")
+        self.assertEqual(self.store.authorize(
+            "child-before-rotation", delegate_id=self.worker["participant_id"],
+            action="task:submit", resource="project:alpha",
+        )["decision"], "deny")
+
     def test_high_risk_delegation_never_executes_without_separate_approval(self):
         self._create_root(action="spend", resource="treasury:main", delegation_id="spend-root",
                           max_amount_minor=500, currency="USD")
