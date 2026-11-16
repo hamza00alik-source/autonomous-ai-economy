@@ -37,7 +37,11 @@ The demo uses simulated records only. It does not connect to a wallet or payment
 
 The deterministic specialist workflow is implemented in `src/economy/specialist_agents.py`. It organizes researcher-supplied evidence, evaluates opportunities, requires both owner approval and evidence validation before product drafting, runs a structural QA check, and prepares an unpublished listing draft only after QA passes. These agents do not browse, contact buyers, publish, or spend. See [specialist workflow](docs/specialist-workflow.md).
 
-## Persistent queue and worker\n\nThe SQLite task queue survives process restarts and exposes `economy enqueue`, `economy worker-once`, `economy tasks`, and `economy task <id>`. It records task events, supports idempotency keys, and bounds retries. The worker executes at most one deterministic local task per invocation. It is not an always-on hosted service; see [durable queue](docs/durable-queue.md) for important crash-recovery and deployment limits.\n\n## Opportunity validation
+## Persistent queue and worker
+
+The SQLite task queue survives process restarts and exposes `economy enqueue`, `economy worker-once`, `economy tasks`, and `economy task <id>`. It records task events, supports idempotency keys, and bounds retries. The worker executes at most one deterministic local task per invocation. It is not an always-on hosted service; see [durable queue](docs/durable-queue.md) for important crash-recovery and deployment limits.
+
+## Opportunity validation
 
 The opportunity workflow accepts source-backed findings and checks for independent buyer signals, competitor evidence, costs, legal/policy review, and distinct source URLs. Passing these checks only creates an **owner-review** candidate; it never authorizes publishing or spending. A visible listing is not proof of sales, and the workflow does not infer willingness to pay from weak signals. See [research validation](docs/research-validation.md).
 
@@ -57,7 +61,7 @@ See [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.m
 1. Private controller, agent registry, task protocol, and auditable ledger.
 2. Evidence-first opportunity intake and validation (implemented; live research integrations pending).
 3. Deterministic specialist workflow for research intake, analysis, product drafting, QA, and listing drafts (implemented; external AI and publishing integrations pending).
-4. Persistent SQLite task queue, one-shot worker, idempotent enqueue, bounded retries, and task event history (implemented; hosted scheduling pending; automatic recovery from expired worker leases implemented).\n5. First real customer revenue experiment.
+4. Persistent SQLite task queue, one-shot worker, idempotent enqueue, bounded retries, and task event history (implemented; hosted scheduling pending; automatic recovery from expired worker leases implemented).
 5. First real customer revenue experiment.
 6. Hardened payment adapters and owner-approved treasury operations.
 7. Optional decentralized agent registration, service contracts, reputation, and settlement.
