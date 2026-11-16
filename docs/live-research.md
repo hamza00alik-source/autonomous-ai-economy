@@ -31,6 +31,18 @@ This is a narrow public-news discovery integration, not a general web search eng
 A separate provider interface and marketplace/source adapters can be added later. Any provider requiring credentials, paid API usage, or a metered service must remain disabled until the owner explicitly approves its cost and credentials setup.
 
 
+## Manual original-source retrieval
+
+A discovery result is only a lead. To inspect a specific original page, use the manual owner-invoked fetch command:
+
+```bash
+economy research-fetch "https://publisher.example/article" --allowed-host publisher.example
+```
+
+The exact hostname must be explicitly allowlisted by the operator. The fetcher requires HTTPS on the default port, rejects URL credentials, checks DNS answers are public IPs, rejects cross-host redirects, allows only HTML/XHTML/plain text, applies a 12-second timeout and a 1 MB response cap, and extracts a bounded text sample while excluding script/style content. It returns the fetched URL, timestamp, response metadata, SHA-256 content hash, and extracted text.
+
+**Security and evidence boundary:** This is a defense-in-depth prototype, not a hardened browser sandbox. DNS checks cannot fully eliminate DNS-rebinding and network-layer risks in a general-purpose client. Only fetch domains you trust, preferably from a controlled environment. Retrieved text is untrusted; it may be inaccurate, manipulated, promotional, or maliciously crafted. The command does not execute page scripts, follow cross-host redirects, create evidence records, classify buyer signals, or prove a claim. Owner review and independent corroboration remain mandatory.
+
 ## Combined two-source discovery
 
 Run both configured providers for the same search:
