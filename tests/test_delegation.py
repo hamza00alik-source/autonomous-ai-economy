@@ -98,6 +98,14 @@ class DelegationTests(unittest.TestCase):
         )
         self.assertEqual(result["decision"], "deny")
 
+    def test_high_risk_delegation_never_executes_without_separate_approval(self):
+        self._create_root(action="spend", resource="treasury:main", delegation_id="spend-root")
+        result = self.store.authorize(
+            "spend-root", delegate_id=self.agent["participant_id"],
+            action="spend", resource="treasury:main", amount_minor=100, currency="USD",
+        )
+        self.assertEqual(result["decision"], "require_approval")
+
     def test_amount_and_currency_ceiling_enforced(self):
         self.store.create(
             delegation_id="budget", delegator_id=self.owner["participant_id"],
