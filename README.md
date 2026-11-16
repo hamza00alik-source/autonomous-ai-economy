@@ -6,7 +6,7 @@ A zero-cost-first private AI economy designed to grow into an open ecosystem whe
 
 ## Current status
 
-**Early prototype.** Controller, agent registry, task workflow, simulated ledger, evidence-first opportunity validation, tests, and security documentation are committed. It does not yet perform live web research, call live AI models, operate continuously, serve customers, or move real funds.
+**Early prototype.** Controller, agent registry, task workflow, simulated ledger, evidence-first opportunity validation, tests, and security documentation are committed. It now has a narrow public-news RSS discovery command, but not general web research or source verification. It does not call live AI models, operate continuously, serve customers, or move real funds.
 
 ## Principles
 
