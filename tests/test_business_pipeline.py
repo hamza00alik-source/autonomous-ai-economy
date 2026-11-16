@@ -1,5 +1,8 @@
+import tempfile
 import unittest
+from pathlib import Path
 
+from economy.approvals import OwnerApprovalStore, create_approval_token
 from economy.opportunities import Evidence, EvidenceKind, Opportunity
 from economy.business_pipeline import OpportunityToListingPipeline
 
@@ -16,18 +19,40 @@ class BusinessPipelineTests(unittest.TestCase):
                            "A structured practice planner", "PDF", 0,
                            legal_risk_notes="No third-party IP used.", evidence=evidence)
 
-    def test_pipeline_stops_for_owner_approval(self):
-        result = OpportunityToListingPipeline().run(self.opportunity())
-        self.assertEqual(result.status, "awaiting_owner_approval")
-        self.assertIsNone(result.product)
-        self.assertIsNone(result.listing)
+    def test_pipeline_stops_without_authenticated_owner_approval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pipeline = OpportunityToListingPipeline(OwnerApprovalStore(Path(directory) / "approvals.sqlite3"))
+            result = pipeline.run(self.opportunity())
+            self.assertEqual(result.status, "awaiting_owner_approval")
+            self.assertIsNone(result.product)
+            self.assertIsNone(result.listing)
 
-    def test_pipeline_prepares_unpublished_listing_after_approval(self):
-        result = OpportunityToListingPipeline().run(self.opportunity(), owner_approved=True)
-        self.assertEqual(result.status, "listing_draft_ready")
-        self.assertTrue(result.qa.passed)
-        self.assertFalse(result.listing.published)
-        self.assertFalse(result.listing.customer_contacted)
+    def test_pipeline_prepares_unpublished_listing_after_signed_approval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            opportunity = self.opportunity()
+            secret = "local-test-secret-" + ("x" * 40)
+            store = OwnerApprovalStore(Path(directory) / "approvals.sqlite3")
+            token = create_approval_token(opportunity, secret)
+            result = OpportunityToListingPipeline(store).run(
+                opportunity, approval_token=token, approval_secret=secret
+            )
+            self.assertEqual(result.status, "listing_draft_ready")
+            self.assertTrue(result.qa.passed)
+            self.assertFalse(result.listing.published)
+            self.assertFalse(result.listing.customer_contacted)
+
+    def test_pipeline_rejects_replayed_approval(self):
+        with tempfile.TemporaryDirectory() as directory:
+            opportunity = self.opportunity()
+            secret = "local-test-secret-" + ("x" * 40)
+            store = OwnerApprovalStore(Path(directory) / "approvals.sqlite3")
+            token = create_approval_token(opportunity, secret)
+            pipeline = OpportunityToListingPipeline(store)
+            self.assertEqual(pipeline.run(opportunity, approval_token=token, approval_secret=secret).status,
+                             "listing_draft_ready")
+            replay = pipeline.run(opportunity, approval_token=token, approval_secret=secret)
+            self.assertEqual(replay.status, "awaiting_owner_approval")
+            self.assertIn("already been used", replay.blockers[0])
 
     def test_pipeline_blocks_insufficient_evidence(self):
         opportunity = self.opportunity()
@@ -35,7 +60,10 @@ class BusinessPipelineTests(unittest.TestCase):
                                   opportunity.problem, opportunity.proposed_solution,
                                   opportunity.delivery_format, opportunity.estimated_startup_cost_minor,
                                   legal_risk_notes=opportunity.legal_risk_notes)
-        result = OpportunityToListingPipeline().run(opportunity, owner_approved=True)
+        with tempfile.TemporaryDirectory() as directory:
+            result = OpportunityToListingPipeline(OwnerApprovalStore(Path(directory) / "approvals.sqlite3")).run(
+                opportunity, approval_token="irrelevant", approval_secret="x" * 48
+            )
         self.assertEqual(result.status, "blocked_research")
         self.assertIsNone(result.product)
 
