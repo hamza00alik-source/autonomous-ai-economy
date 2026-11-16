@@ -133,6 +133,8 @@ class CapabilityStore:
             for row in rows:
                 if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) <= now:
                     continue
+                if row["max_amount_minor"] is not None and amount_minor is None:
+                    continue
                 if amount_minor is not None:
                     if row["max_amount_minor"] is None or amount_minor > row["max_amount_minor"]:
                         continue
