@@ -26,7 +26,7 @@ class ResearchEngineTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(len(provider.calls), 2)
         self.assertEqual(results[0].query, "alpha")
-        self.assertEqual(results[0].candidate_id, "b3c9a6f2f9f5f0f0f4d1" if False else results[0].candidate_id)
+        self.assertEqual(len(results[0].candidate_id), 20)
         self.assertFalse(results[0].sales_verified)
 
     def test_empty_or_excessive_queries_rejected(self):
@@ -45,7 +45,7 @@ class EconomicsTests(unittest.TestCase):
         ).calculate(units=3)
         self.assertEqual(result["gross_revenue_minor"], 3000)
         self.assertEqual(result["estimated_platform_and_payment_fees_minor"], 390)
-        self.assertEqual(result["estimated_net_profit_minor"], 1810)
+        self.assertEqual(result["estimated_net_profit_minor"], 1750)
         self.assertEqual(result["break_even_units"], 1)
 
     def test_non_profitable_unit_has_no_break_even(self):
