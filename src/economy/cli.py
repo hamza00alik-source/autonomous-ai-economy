@@ -18,6 +18,7 @@ from .hacker_news import HackerNewsSearchProvider
 from .research_federation import MultiSourceResearch
 from .source_verification import OriginalSourceFetcher
 from .source_review import SourceReviewStore, REVIEW_KINDS
+from .source_dossier import build_source_dossier
 
 
 def demo(data_dir: Path) -> None:
@@ -89,6 +90,18 @@ def main() -> None:
 
     source_review_list = sub.add_parser("source-review-list", help="list owner-classified source snapshots")
     source_review_list.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    source_dossier = sub.add_parser("source-dossier", help="compile owner-reviewed sources into a conservative opportunity research draft")
+    source_dossier.add_argument("--title", required=True)
+    source_dossier.add_argument("--buyer-segment", required=True)
+    source_dossier.add_argument("--problem", required=True)
+    source_dossier.add_argument("--proposed-solution", required=True)
+    source_dossier.add_argument("--delivery-format", required=True)
+    source_dossier.add_argument("--startup-cost-minor", type=int, required=True)
+    source_dossier.add_argument("--currency", default="USD")
+    source_dossier.add_argument("--legal-risk-notes", default="")
+    source_dossier.add_argument("--output", type=Path, required=True)
+    source_dossier.add_argument("--data-dir", type=Path, default=Path("./data"))
 
     research_list = sub.add_parser("research-list", help="list saved discovery leads")
     research_list.add_argument("--status", choices=["unverified", "owner_reviewed"])
@@ -182,6 +195,27 @@ def main() -> None:
         print(json.dumps(result, indent=2))
     elif args.command == "source-review-list":
         print(json.dumps(SourceReviewStore(args.data_dir / "research.sqlite3").list_reviews(), indent=2))
+    elif args.command == "source-dossier":
+        dossier = build_source_dossier(
+            SourceReviewStore(args.data_dir / "research.sqlite3"),
+            title=args.title,
+            buyer_segment=args.buyer_segment,
+            problem=args.problem,
+            proposed_solution=args.proposed_solution,
+            delivery_format=args.delivery_format,
+            estimated_startup_cost_minor=args.startup_cost_minor,
+            currency=args.currency,
+            legal_risk_notes=args.legal_risk_notes,
+        )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(dossier, indent=2), encoding="utf-8")
+        print(json.dumps({
+            "output": str(args.output),
+            "source_count": len(dossier["source_reviews"]),
+            "excluded_source_count": len(dossier["excluded_source_reviews"]),
+            "validation": dossier["validation"],
+            "notice": dossier["notice"],
+        }, indent=2))
     elif args.command == "research-list":
         store = ResearchCandidateStore(args.data_dir / "research.sqlite3")
         print(json.dumps(store.list_candidates(args.status), indent=2))
