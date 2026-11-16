@@ -128,6 +128,18 @@ class WorkRecordStore:
                                            buyer_id=buyer_id, summary=summary,
                                            evidence_refs=refs)
         with self._connect() as db:
+            agreement_table = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_agreements'"
+            ).fetchone()
+            if agreement_table:
+                agreement = db.execute(
+                    "SELECT buyer_id,provider_id,status FROM task_agreements WHERE task_id=?",
+                    (task_id,),
+                ).fetchone()
+                if (agreement is None or agreement["status"] != "accepted"
+                        or agreement["buyer_id"] != buyer_id
+                        or agreement["provider_id"] != provider_id):
+                    raise ValueError("work receipt must match an accepted task agreement")
             key = self._participant_key(db, provider_id)
             self._participant_key(db, buyer_id)
             if not self.verifier(key, _canonical(payload), signature):
