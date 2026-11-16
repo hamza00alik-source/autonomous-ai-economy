@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from economy.permissions import CapabilityStore
+from economy.identity import ParticipantRegistry
 
 
 class PermissionTests(unittest.TestCase):
@@ -51,6 +52,38 @@ class PermissionTests(unittest.TestCase):
         self.assertEqual(
             self.store.authorize("agent_1", "spend", "treasury", amount_minor=50,
                                  currency="EUR", approval_ref="x")["decision"],
+            "deny"
+        )
+
+    def test_negative_amount_is_always_denied(self):
+        self.store.grant("agent_1", "owner_1", "spend", "treasury",
+                         max_amount_minor=100, currency="USD")
+        self.assertEqual(
+            self.store.authorize("agent_1", "spend", "treasury",
+                                 amount_minor=-1, currency="USD")["decision"],
+            "deny"
+        )
+
+    def test_amount_ceiling_requires_currency_and_valid_expiry(self):
+        with self.assertRaisesRegex(ValueError, "supplied together"):
+            self.store.grant("agent_1", "owner_1", "spend", "treasury",
+                             max_amount_minor=100)
+        with self.assertRaisesRegex(ValueError, "future timezone-aware"):
+            self.store.grant("agent_1", "owner_1", "task:submit", "project",
+                             expires_at="2030-01-01T00:00:00")
+
+    def test_suspended_participant_cannot_use_existing_capability(self):
+        registry = ParticipantRegistry(Path(self.tmp.name) / "participants.sqlite3")
+        person = registry.create_human("participant", "Participant")
+        participant_id = person["participant_id"]
+        self.store.grant(participant_id, "owner", "task:submit", "project:one")
+        self.assertEqual(
+            self.store.authorize(participant_id, "task:submit", "project:one")["decision"],
+            "allow"
+        )
+        registry.set_status(participant_id, "suspended")
+        self.assertEqual(
+            self.store.authorize(participant_id, "task:submit", "project:one")["decision"],
             "deny"
         )
 
