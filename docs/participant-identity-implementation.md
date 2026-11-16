@@ -29,6 +29,7 @@ Create a basic human account record:
 
 ```bash
 economy participant-create-human --handle alice --display-name "Alice Example"
+economy participant-create-organization --handle example-org --display-name "Example Organization"
 economy participant-list
 ```
 
