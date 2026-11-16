@@ -96,9 +96,9 @@ class CapabilityStore:
                   context: dict[str, Any] | None = None) -> dict[str, str]:
         """Return allow/deny/require_approval and persist every decision.
 
-        High-risk actions always require an approval reference in addition to a
-        matching capability. This prototype does not itself validate the approval
-        reference; production must bind it to a signed, single-use approval service.
+        High-risk actions always return require_approval, even if a reference string
+        is supplied. This prototype has no approval-token verifier wired into this
+        policy engine; a caller must not treat an unverified reference as authority.
         """
         decision, reason, grant_id = "deny", "no matching active capability", None
         with self._connect() as db:
@@ -117,8 +117,8 @@ class CapabilityStore:
                     if row["currency"] and row["currency"] != (currency or "").upper():
                         continue
                 grant_id = row["grant_id"]
-                if action in HIGH_RISK_ACTIONS and not approval_ref:
-                    decision, reason = "require_approval", "high-risk action requires separate authorized approval"
+                if action in HIGH_RISK_ACTIONS:
+                    decision, reason = "require_approval", "high-risk action requires a separately verified approval; this prototype cannot validate approval references"
                 else:
                     decision, reason = "allow", "matching active scoped capability"
                 break
