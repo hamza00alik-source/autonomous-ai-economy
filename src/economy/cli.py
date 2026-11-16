@@ -1,9 +1,14 @@
 import argparse
+import json
 from pathlib import Path
+
 from .agents import AgentRegistry, RuleBasedAgent
 from .controller import EconomyController
 from .ledger import AppendOnlyLedger
 from .models import LedgerEntry
+from .task_store import TaskStore
+from .worker import run_once
+
 
 def demo(data_dir: Path) -> None:
     registry = AgentRegistry()
@@ -19,14 +24,50 @@ def demo(data_dir: Path) -> None:
     print(result.result)
     print(f"Simulated ledger balance: ${ledger.balance_minor() / 100:.2f}")
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Autonomous AI Economy prototype")
     sub = parser.add_subparsers(dest="command", required=True)
+
     demo_parser = sub.add_parser("demo", help="run a safe local simulation")
     demo_parser.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    enqueue = sub.add_parser("enqueue", help="persist a task for the local worker")
+    enqueue.add_argument("title")
+    enqueue.add_argument("objective")
+    enqueue.add_argument("agent")
+    enqueue.add_argument("--idempotency-key")
+    enqueue.add_argument("--max-attempts", type=int, default=3)
+    enqueue.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    worker = sub.add_parser("worker-once", help="claim and execute at most one queued task")
+    worker.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    tasks = sub.add_parser("tasks", help="list persisted tasks")
+    tasks.add_argument("--status", choices=["queued", "running", "completed", "failed"])
+    tasks.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    task = sub.add_parser("task", help="show one task and its audit events")
+    task.add_argument("task_id")
+    task.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     args = parser.parse_args()
     if args.command == "demo":
         demo(args.data_dir)
+    elif args.command == "enqueue":
+        result = TaskStore(args.data_dir / "economy.sqlite3").enqueue(
+            args.title, args.objective, args.agent, args.idempotency_key, args.max_attempts
+        )
+        print(json.dumps(result, indent=2))
+    elif args.command == "worker-once":
+        result = run_once(TaskStore(args.data_dir / "economy.sqlite3"))
+        print(json.dumps(result, indent=2) if result else "Queue empty.")
+    elif args.command == "tasks":
+        print(json.dumps(TaskStore(args.data_dir / "economy.sqlite3").list_tasks(args.status), indent=2))
+    elif args.command == "task":
+        store = TaskStore(args.data_dir / "economy.sqlite3")
+        print(json.dumps({"task": store.get(args.task_id), "events": store.events(args.task_id)}, indent=2))
+
 
 if __name__ == "__main__":
     main()
