@@ -18,11 +18,21 @@ A quick public-web screen on 17 November 2026 found clear existing uses for seve
 
 Sources: public search results for Synthora, Autonex, Econova and Auronex; see research notes in the project conversation. This preliminary screen is not a complete global company, domain, app-store, social-handle, GitHub or trademark search.
 
-## Working shortlist
+## Working shortlist and expanded collision screen
 
-1. **ECORYN** — provisional lead for further screening; pronounceability and spelling need user testing.
-2. Generate at least 8 additional coined candidates from the brand brief and run exact-match and phonetic searches before selection.
-3. Keep a candidate only if it has no material same-sector collision, confusingly similar spelling/pronunciation, undesirable cross-language meaning, or obvious domain/handle conflict.
+The following coined candidates were also checked with exact-match web searches and rejected as already used or too close to existing software/AI businesses:
+
+- **Veylora** — existing AI ecosystem and AI/blockchain/fintech software businesses.
+- **Orvanta** — existing AI orchestration and business-solutions brands.
+- **Aevoryn** — existing technology company usage.
+- **Aevaryn** — existing technology company and product portfolio.
+- **Nexoryn** — multiple active software/technology businesses, including a Pakistan-based company.
+- **Orynex** — existing software/product engineering business.
+- **Kynora** — existing AI software/app usage.
+
+**ECORYN** remains the only current provisional lead from this limited screen because no obvious exact-match result surfaced in the searches performed. This is not proof of availability. Before recommending it as a final choice, test its pronunciation, spelling, meanings and phonetic variants, then check company registries, domains, social handles and trademark databases.
+
+Next naming pass should generate fresh candidates from less crowded linguistic roots rather than repeatedly modifying common AI/eco/nexus/ora/oryn suffixes. Keep a candidate only if it has no material same-sector collision, confusingly similar spelling/pronunciation, undesirable cross-language meaning, or obvious domain/handle conflict.
 
 No candidate is approved as the final product name yet.
 
