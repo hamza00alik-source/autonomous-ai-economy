@@ -66,9 +66,10 @@ class IdentityTests(unittest.TestCase):
             )
         other = self.registry.create_human("erin", "Erin")
         challenge2 = self.registry.begin_key_binding(other["participant_id"], public_key)
-        self.registry.complete_key_binding(
-            challenge2["challenge_id"], "valid", verifier=lambda *_: True
-        )
+        with self.assertRaisesRegex(ValueError, "already bound"):
+            self.registry.complete_key_binding(
+                challenge2["challenge_id"], "valid", verifier=lambda *_: True
+            )
 
     def test_invalid_agent_signature_rejected(self):
         public_key = base64.urlsafe_b64encode(b"y" * 32).decode().rstrip("=")
