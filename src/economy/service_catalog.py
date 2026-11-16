@@ -221,34 +221,26 @@ class ServiceCatalog:
              event, detail, datetime.now(timezone.utc).isoformat()),
         )
 
-    def publish(self, listing_id: str, *, approval_ref: str,
-                approval_verifier: Callable[[str, bytes], bool] | None = None) -> dict[str, Any]:
-        if not approval_ref or approval_verifier is None:
-            raise ValueError("a separately configured owner approval verifier is required")
+    def publish_with_token(self, listing_id: str, *, approval_token: str,
+                           approval_secret: str | bytes) -> dict[str, Any]:
+        approval_store = CatalogApprovalStore(self.path)
         with self._connect() as db:
             row = db.execute("SELECT * FROM service_listings WHERE listing_id=?", (listing_id,)).fetchone()
             if row is None or row["status"] != "draft":
                 raise ValueError("draft listing not found")
             payload = json.loads(row["payload_json"])
             approval_payload = self.publication_payload(listing_id, payload)
-            if not approval_verifier(approval_ref, approval_payload):
-                raise ValueError("owner approval is invalid, expired, mismatched or already consumed")
+            valid, reason = approval_store.consume(
+                approval_token, listing_id, approval_payload, approval_secret
+            )
+            if not valid:
+                raise ValueError(reason)
             now = datetime.now(timezone.utc).isoformat()
             db.execute("UPDATE service_listings SET status='active',updated_at=? WHERE listing_id=?",
                        (now, listing_id))
-            self._event(db, listing_id, "owner", "published", "owner approval verifier accepted exact listing fingerprint")
+            self._event(db, listing_id, "owner", "published",
+                        "single-use owner approval verified for exact listing fingerprint")
         return self.get(listing_id)
-
-    def publish_with_token(self, listing_id: str, *, approval_token: str,
-                           approval_secret: str | bytes) -> dict[str, Any]:
-        approval_store = CatalogApprovalStore(self.path)
-        def verify(token: str, payload: bytes) -> bool:
-            valid, _reason = approval_store.consume(
-                token, listing_id, payload, approval_secret
-            )
-            return valid
-        return self.publish(listing_id, approval_ref=approval_token,
-                            approval_verifier=verify)
 
     def withdraw(self, listing_id: str, *, provider_id: str, signature: str) -> None:
         with self._connect() as db:
