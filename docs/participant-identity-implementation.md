@@ -6,6 +6,7 @@
 - Basic human account records explicitly marked by their account-control method; no automatic legal-identity or KYC claim.
 - Agent enrollment using a one-time, expiring challenge signed by an Ed25519 private key.
 - Existing human and organization participants can bind an Ed25519 public key through a separate one-time, expiring proof-of-possession challenge.
+- Key rotation requires signatures from both the current and replacement keys; retired keys are retained in history and cannot be reused.
 - Public keys only are stored; the registry never generates or stores private keys.
 - Optional operator/principal reference to an already registered active participant.
 - Explicitly scoped identity claims with issuer, status, expiry and evidence reference.
@@ -61,6 +62,15 @@ economy participant-key-bind --challenge-id CHALLENGE_ID --signature SIGNATURE_B
 
 The participant signs the exact UTF-8 challenge returned by the first command. The key is bound only after successful proof of possession.
 
+Signing-key rotation requires both the current and new private keys:
+
+```bash
+economy participant-key-rotation-challenge --participant-id HUMAN_OR_AGENT_ID --new-public-key NEW_PUBLIC_KEY_BASE64
+economy participant-key-rotation-complete --challenge-id CHALLENGE_ID --old-signature OLD_KEY_SIGNATURE --new-signature NEW_KEY_SIGNATURE
+```
+
+Both signatures cover the exact challenge string. Rotation preserves the participant ID but changes its active signing key. Descendant delegations signed by a rotated agent key become inactive; the owner must reissue them. Rotating a trusted root also requires updating the out-of-band trusted-root key configuration and reissuing root delegations.
+
 Capability example (local prototype administration only):
 
 ```bash
@@ -79,6 +89,7 @@ This is a single-host local prototype, not a production public identity service:
 - Signed bounded agent delegation is implemented in a separate local module with trusted-root pinning, scope narrowing, expiry, depth limits and ancestor revocation; see [signed delegation](signed-delegation.md).
 - Identity claim rows are records, not proof that the issuer or evidence is genuine. No external VC/DID resolver or KYC provider is integrated.
 - Signed work receipts, buyer acceptance, dispute records and conservative reputation counts are implemented in a separate local module; see [work receipts, reputation and disputes](work-receipts-reputation-disputes.md). Appeals and independent work verification remain future work.
+- Key-loss recovery is not implemented; rotation requires control of both old and new keys. A future recovery flow must be separately authorized and audited.
 - SQLite files are not encrypted or tamper-proof. Protect the host and backups.
 - No payment, wallet, escrow, custody, treasury or external transaction function is enabled.
 
