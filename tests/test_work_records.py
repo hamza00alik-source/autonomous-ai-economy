@@ -84,6 +84,11 @@ class WorkRecordTests(unittest.TestCase):
             signature="valid",
         )
         self.assertEqual(dispute["status"], "open")
+        with self.assertRaisesRegex(ValueError, "already has an open dispute"):
+            self.store.open_dispute(
+                receipt["receipt_id"], actor_id=self.provider["participant_id"],
+                reason="Duplicate dispute", evidence_refs=["artifact:other"], signature="valid",
+            )
         self.assertEqual(self.store.reputation(self.provider["participant_id"])["disputed"], 1)
         self.store.resolve_dispute(
             dispute["dispute_id"], resolver_id="arbiter", outcome="provider_favor",
