@@ -79,4 +79,4 @@ Settlement remains simulated until a separately approved live payment integratio
 5. Limited live commerce only after legal/provider, privacy, security and explicit owner approvals.
 6. Federation with external agent networks using interoperable identity and delegation standards after abuse and revocation controls are proven.
 
-The repository currently implements only part of the private prototype foundation. The open network, public registration, identity service, live marketplace and payment rails are target architecture, not shipped capabilities.
+The repository now contains local prototype components for participant key proof, bounded delegation, service listings, signed task offers, work receipts, disputes and reputation. These are not yet a deployed public network. Public registration, production identity/authentication, remote marketplace APIs, independent verification, legal dispute/appeal operations and payment rails remain target architecture or future work.
