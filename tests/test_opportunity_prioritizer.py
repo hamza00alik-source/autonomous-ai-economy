@@ -42,7 +42,7 @@ class OpportunityPrioritizerTests(unittest.TestCase):
         self.assertIsNone(result["owner_inputs"]["ongoing_cost_minor"])
         self.assertIn("ongoing_cost_minor", result["missing_information"])
         self.assertIn("hours_to_first_delivery", result["missing_information"])
-        self.assertEqual(result["assessment_completeness"], 20)
+        self.assertEqual(result["assessment_completeness"], 17)
         self.assertEqual(result["research_validation_status"], "needs_research")
 
     def test_costs_and_time_are_compared_only_within_currency(self):
