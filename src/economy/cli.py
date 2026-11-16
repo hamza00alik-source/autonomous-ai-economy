@@ -14,6 +14,7 @@ from .research_engine import ResearchDiscoveryEngine
 from .economics import UnitEconomics
 from .opportunities import Evidence, EvidenceKind, Opportunity
 from .opportunity_ranker import rank_readiness
+from .hacker_news import HackerNewsSearchProvider
 
 
 def demo(data_dir: Path) -> None:
@@ -61,6 +62,11 @@ def main() -> None:
     research.add_argument("query")
     research.add_argument("--limit", type=int, default=10)
     research.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    research_hn = sub.add_parser("research-hn", help="discover public Hacker News discussions (unverified community leads)")
+    research_hn.add_argument("query")
+    research_hn.add_argument("--limit", type=int, default=10)
+    research_hn.add_argument("--data-dir", type=Path, default=Path("./data"))
 
     research_list = sub.add_parser("research-list", help="list saved discovery leads")
     research_list.add_argument("--status", choices=["unverified", "owner_reviewed"])
@@ -113,6 +119,16 @@ def main() -> None:
             "candidate_count": len(candidates),
             "persistence": saved,
             "notice": "Discovery leads only. Verify original sources independently; this is not proof of buyer demand or completed sales.",
+            "candidates": [item.to_dict() for item in candidates],
+        }, indent=2))
+    elif args.command == "research-hn":
+        candidates = HackerNewsSearchProvider().search(args.query, limit=args.limit)
+        saved = ResearchCandidateStore(args.data_dir / "research.sqlite3").save_many(candidates)
+        print(json.dumps({
+            "query": args.query,
+            "candidate_count": len(candidates),
+            "persistence": saved,
+            "notice": "Hacker News community discussions are qualitative leads only. Points/comments are platform engagement, not buyer intent, sales, or willingness to pay. Verify original discussions and independent evidence.",
             "candidates": [item.to_dict() for item in candidates],
         }, indent=2))
     elif args.command == "research-list":
