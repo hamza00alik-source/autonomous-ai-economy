@@ -74,6 +74,9 @@ class DelegationStore:
                 CREATE INDEX IF NOT EXISTS idx_delegation_delegate
                     ON signed_delegations(delegate_id, status);
             """)
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(signed_delegations)")}
+            if "signer_public_key" not in columns:
+                db.execute("ALTER TABLE signed_delegations ADD COLUMN signer_public_key TEXT")
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
@@ -90,7 +93,10 @@ class DelegationStore:
         if row is None or row["status"] != "active":
             raise ValueError("delegator must be an active registered participant")
         if participant_id in self.trusted_roots:
-            return self.trusted_roots[participant_id]
+            trusted_key = self.trusted_roots[participant_id]
+            if row["public_key"] and row["public_key"] != trusted_key:
+                raise ValueError("trusted root key configuration must match the participant's current key")
+            return trusted_key
         if not row["public_key"]:
             raise ValueError("delegator has no registered signing key")
         return row["public_key"]
@@ -176,10 +182,15 @@ class DelegationStore:
                 if not self.verifier(delegator_key, _canonical(payload), signature):
                     raise ValueError("delegation signature is invalid")
                 db.execute(
-                    """INSERT INTO signed_delegations VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'active',?)""",
+                    """INSERT INTO signed_delegations
+                    (delegation_id,delegator_id,delegate_id,action,resource,expires_at,
+                     max_amount_minor,currency,parent_id,depth,payload_json,signature,
+                     status,created_at,signer_public_key)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'active',?,?)""",
                     (delegation_id, delegator_id, delegate_id, action, resource,
                      expiry.isoformat(), max_amount_minor, currency_value, parent_id,
-                     depth, json.dumps(payload, sort_keys=True), signature, _now().isoformat()),
+                     depth, json.dumps(payload, sort_keys=True), signature,
+                     _now().isoformat(), delegator_key),
                 )
                 db.commit()
                 return {**payload, "signature": signature, "status": "active"}
@@ -197,10 +208,22 @@ class DelegationStore:
             return False
         for participant_id in (row["delegator_id"], row["delegate_id"]):
             participant = db.execute(
-                "SELECT status FROM participants WHERE participant_id=?", (participant_id,)
+                "SELECT status,public_key FROM participants WHERE participant_id=?", (participant_id,)
             ).fetchone()
             if participant is None or participant["status"] != "active":
                 return False
+        signer = db.execute(
+            "SELECT public_key FROM participants WHERE participant_id=?",
+            (row["delegator_id"],),
+        ).fetchone()
+        expected_signer_key = (self.trusted_roots.get(row["delegator_id"])
+                               if not row["parent_id"] else
+                               (signer["public_key"] if signer else None))
+        if (not row["signer_public_key"] or not expected_signer_key
+                or row["signer_public_key"] != expected_signer_key):
+            return False
+        if signer and signer["public_key"] and signer["public_key"] != expected_signer_key:
+            return False
         if row["parent_id"]:
             parent = db.execute(
                 "SELECT * FROM signed_delegations WHERE delegation_id=?", (row["parent_id"],)
