@@ -16,7 +16,7 @@ The built-in worker is intentionally one-shot. Run it repeatedly only under a sc
 ## Current limits
 
 - SQLite is suitable for a single-host prototype; it is not a distributed queue.
-- A process crash after claiming a task can leave it marked `running`. Automatic lease recovery and multi-host coordination are not implemented yet.
+- Worker claims now have a configurable lease (default 300 seconds). When a lease expires, the next claim attempt automatically requeues the task if retry budget remains, or marks it failed after the budget is exhausted. A task may be executed more than once after a crash, so task handlers must remain idempotent. Multi-host coordination and heartbeat renewal are not implemented.
 - Retries are bounded; this version does not use exponential backoff.
 - The included agents are deterministic local stubs. They do not browse, call an LLM, contact customers, publish listings, spend money, or move funds.
 - The event table is append-only through this API, but the local database file is not tamper-proof or cryptographically signed.
