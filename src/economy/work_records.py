@@ -58,6 +58,8 @@ class WorkRecordStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_work_provider ON work_receipts(provider_id,status);
                 CREATE INDEX IF NOT EXISTS idx_dispute_receipt ON work_disputes(receipt_id,status);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_dispute_per_receipt
+                    ON work_disputes(receipt_id) WHERE status='open';
             """)
 
     def _connect(self) -> sqlite3.Connection:
@@ -82,6 +84,15 @@ class WorkRecordStore:
         return {"version": "1", "event": "work_submitted", "task_id": task_id,
                 "provider_id": provider_id, "buyer_id": buyer_id,
                 "summary": summary, "evidence_refs": sorted(set(evidence_refs))}
+
+    @staticmethod
+    def submission_signing_bytes(*, task_id: str, provider_id: str, buyer_id: str,
+                                 summary: str, evidence_refs: list[str]) -> bytes:
+        payload = WorkRecordStore.submission_payload(
+            task_id=task_id, provider_id=provider_id, buyer_id=buyer_id,
+            summary=summary, evidence_refs=evidence_refs,
+        )
+        return _canonical(payload)
 
     @staticmethod
     def acceptance_payload(receipt_id: str, buyer_id: str, provider_id: str) -> bytes:
@@ -157,6 +168,11 @@ class WorkRecordStore:
             key = self._participant_key(db, actor_id)
             dispute_id = "dispute_" + uuid.uuid4().hex
             refs = sorted(set(evidence_refs))
+            if any(not ref.startswith(("https://", "task:", "artifact:")) for ref in refs):
+                raise ValueError("dispute evidence references must use https, task:, or artifact:")
+            if db.execute("SELECT 1 FROM work_disputes WHERE receipt_id=? AND status='open'",
+                          (receipt_id,)).fetchone():
+                raise ValueError("this receipt already has an open dispute")
             payload = self.dispute_payload(receipt_id, dispute_id, actor_id, reason, refs)
             if not self.verifier(key, payload, signature):
                 raise ValueError("dispute signature is invalid")
