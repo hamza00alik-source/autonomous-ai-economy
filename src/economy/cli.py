@@ -179,6 +179,11 @@ def main() -> None:
     participant_human.add_argument("--account-control", choices=["unverified", "email", "passkey", "external_credential"], default="unverified")
     participant_human.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+    participant_organization = sub.add_parser("participant-create-organization", help="create a local organization participant record")
+    participant_organization.add_argument("--handle", required=True)
+    participant_organization.add_argument("--display-name", required=True)
+    participant_organization.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     participant_list = sub.add_parser("participant-list", help="list local active participants")
     participant_list.add_argument("--type", choices=["human", "agent", "organization"])
     participant_list.add_argument("--data-dir", type=Path, default=Path("./data"))
@@ -406,6 +411,9 @@ def main() -> None:
     elif args.command == "participant-create-human":
         registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
         print(json.dumps(registry.create_human(args.handle, args.display_name, args.account_control), indent=2))
+    elif args.command == "participant-create-organization":
+        registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
+        print(json.dumps(registry.create_organization(args.handle, args.display_name), indent=2))
     elif args.command == "participant-list":
         print(json.dumps(ParticipantRegistry(args.data_dir / "participants.sqlite3").list_participants(args.type), indent=2))
     elif args.command == "agent-enrollment-challenge":
