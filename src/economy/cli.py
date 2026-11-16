@@ -16,6 +16,7 @@ from .opportunities import Evidence, EvidenceKind, Opportunity
 from .opportunity_ranker import rank_readiness
 from .hacker_news import HackerNewsSearchProvider
 from .research_federation import MultiSourceResearch
+from .source_verification import OriginalSourceFetcher
 
 
 def demo(data_dir: Path) -> None:
@@ -73,6 +74,10 @@ def main() -> None:
     research_hn.add_argument("query")
     research_hn.add_argument("--limit", type=int, default=10)
     research_hn.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    research_fetch = sub.add_parser("research-fetch", help="manually fetch one allowlisted original source; never creates buyer evidence")
+    research_fetch.add_argument("url")
+    research_fetch.add_argument("--allowed-host", action="append", required=True, help="exact hostname allowed; repeat only for explicitly trusted hosts")
 
     research_list = sub.add_parser("research-list", help="list saved discovery leads")
     research_list.add_argument("--status", choices=["unverified", "owner_reviewed"])
@@ -147,6 +152,12 @@ def main() -> None:
             "persistence": saved,
             "notice": "Hacker News community discussions are qualitative leads only. Points/comments are platform engagement, not buyer intent, sales, or willingness to pay. Verify original discussions and independent evidence.",
             "candidates": [item.to_dict() for item in candidates],
+        }, indent=2))
+    elif args.command == "research-fetch":
+        result = OriginalSourceFetcher().fetch(args.url, allowed_hosts=args.allowed_host)
+        print(json.dumps({
+            "source": result.to_dict(),
+            "notice": "Retrieved page content is untrusted research material. A successful fetch does not establish accuracy, buyer intent, independent corroboration, or sales; no evidence record is created.",
         }, indent=2))
     elif args.command == "research-list":
         store = ResearchCandidateStore(args.data_dir / "research.sqlite3")
