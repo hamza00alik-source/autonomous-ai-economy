@@ -20,6 +20,7 @@ from .source_verification import OriginalSourceFetcher
 from .source_review import SourceReviewStore, REVIEW_KINDS
 from .source_dossier import build_source_dossier
 from .shared_brain import SharedBrain
+from .collective_learning import CollectiveLearningEngine
 
 
 def demo(data_dir: Path) -> None:
@@ -159,6 +160,17 @@ def main() -> None:
     brain_recall.add_argument("--limit", type=int, default=8)
     brain_recall.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+    learning_record = sub.add_parser("learning-record", help="record an observed outcome; repeated patterns create unapproved brain proposals")
+    learning_record.add_argument("--pattern", required=True, help="stable name for the workflow or experiment being observed")
+    learning_record.add_argument("--outcome", required=True, choices=["worked", "failed", "mixed"])
+    learning_record.add_argument("--observation", required=True, help="specific observed result, not a prediction")
+    learning_record.add_argument("--observed-by", required=True, help="agent or owner who recorded the outcome")
+    learning_record.add_argument("--evidence-ref", action="append", required=True, help="source or task record reference; repeat as needed")
+    learning_record.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    learning_summary = sub.add_parser("learning-summary", help="summarize observed outcomes and emitted learning proposals")
+    learning_summary.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     args = parser.parse_args()
     if args.command == "demo":
         demo(args.data_dir)
@@ -272,6 +284,19 @@ def main() -> None:
             currency=args.currency,
         )
         print(json.dumps(model.calculate(args.units), indent=2))
+    elif args.command == "learning-record":
+        brain = SharedBrain(args.data_dir / "brain.sqlite3")
+        engine = CollectiveLearningEngine(args.data_dir / "learning.sqlite3", brain)
+        result = engine.record_outcome(
+            pattern_key=args.pattern, outcome_label=args.outcome,
+            observation=args.observation, observed_by=args.observed_by,
+            evidence_refs=args.evidence_ref,
+        )
+        print(json.dumps(result, indent=2))
+    elif args.command == "learning-summary":
+        brain = SharedBrain(args.data_dir / "brain.sqlite3")
+        engine = CollectiveLearningEngine(args.data_dir / "learning.sqlite3", brain)
+        print(json.dumps(engine.summarize(), indent=2))
     elif args.command == "brain-propose":
         brain = SharedBrain(args.data_dir / "brain.sqlite3")
         result = brain.propose(
