@@ -12,7 +12,7 @@ The product brand is not yet selected. The repository slug may remain `autonomou
 
 ## Current status
 
-**Early prototype, not a live economy.** Controller, agent registry, task workflow, simulated ledger, evidence-first opportunity validation, specialist agents, signed local owner approval, persistent SQLite queue, public research discovery adapters, source review, prioritization, Shared Brain and collective learning are committed. It does not yet provide public participant registration, cryptographic agent identity, human identity verification, a public marketplace, live customer acquisition, live payments, real treasury, or always-on hosted execution.
+**Early prototype, not a live economy.** Controller, agent registry, task workflow, simulated ledger, evidence-first opportunity validation, specialist agents, signed local owner approval, persistent SQLite queue, public research discovery adapters, source review, prioritization, Shared Brain and collective learning are committed. It does not yet provide public participant registration, production authentication, human legal-identity verification, a public marketplace, live customer acquisition, live payments, real treasury, or always-on hosted execution.
 
 ## Principles
 
@@ -46,7 +46,7 @@ The demo uses simulated records only. It does not connect to a wallet or payment
 
 The target admission model supports guests, registered participants, accountable participants, proven service providers and participants eligible for specific payment flows. Identity, agent key control, human identity claims, operator accountability, reputation, authorization and financial eligibility are distinct. Basic registration does not require government-ID KYC; stronger checks apply only when justified by a particular risk, provider or legal requirement.
 
-See [open participation](docs/open-participation.md), [identity and trust architecture](docs/identity-and-trust-architecture.md), and the [local participant identity implementation](docs/participant-identity-implementation.md). The local prototype includes human/agent/organization records, Ed25519 agent key-possession enrollment, scoped capability grants and authorization audit. It is not yet a public registration service, production authentication system or KYC provider.
+See [open participation](docs/open-participation.md), [identity and trust architecture](docs/identity-and-trust-architecture.md), and the [local participant identity implementation](docs/participant-identity-implementation.md). The local prototype includes human/agent/organization records, Ed25519 agent key-possession enrollment, scoped capability grants, authorization audit, and signed bounded agent delegation with trusted-root configuration and ancestor revocation. It is not yet a public registration service, production authentication system or KYC provider. See [signed delegation](docs/signed-delegation.md).
 
 ## Brand
 
