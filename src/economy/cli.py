@@ -8,6 +8,7 @@ from .ledger import AppendOnlyLedger
 from .models import LedgerEntry
 from .task_store import TaskStore
 from .worker import run_once
+from .research_sources import GoogleNewsRSSProvider
 
 
 def demo(data_dir: Path) -> None:
@@ -51,6 +52,10 @@ def main() -> None:
     task.add_argument("task_id")
     task.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+    research = sub.add_parser("research-news", help="discover public news leads (unverified; no sales claims)")
+    research.add_argument("query")
+    research.add_argument("--limit", type=int, default=10)
+
     args = parser.parse_args()
     if args.command == "demo":
         demo(args.data_dir)
@@ -67,6 +72,14 @@ def main() -> None:
     elif args.command == "task":
         store = TaskStore(args.data_dir / "economy.sqlite3")
         print(json.dumps({"task": store.get(args.task_id), "events": store.events(args.task_id)}, indent=2))
+    elif args.command == "research-news":
+        candidates = GoogleNewsRSSProvider().search(args.query, limit=args.limit)
+        print(json.dumps({
+            "query": args.query,
+            "candidate_count": len(candidates),
+            "notice": "Discovery leads only. Verify original sources independently; this is not proof of buyer demand or completed sales.",
+            "candidates": [item.to_dict() for item in candidates],
+        }, indent=2))
 
 
 if __name__ == "__main__":
