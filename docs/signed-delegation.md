@@ -12,6 +12,7 @@ This module adds a bounded, cryptographically signed delegation chain from a tru
 - Delegates must be active registered agent participants with an enrolled Ed25519 public key.
 - Child action/resource scopes cannot exceed the parent. A child cannot outlive its parent or exceed its amount/currency ceiling.
 - Delegation depth is bounded (default maximum depth: 5).
+- Each delegation stores the public key that signed it. Key rotation invalidates delegations signed by the retired key; descendants then fail closed.
 - Revocation is signed by the delegator. Revoking an ancestor invalidates descendants at authorization time.
 - Participant suspension/revocation invalidates any chain containing that participant.
 - A delegation only conveys the stated operational scope. It does not grant treasury ownership, legal authority, or permission to perform a high-risk action.
@@ -50,7 +51,7 @@ Authorization checks the complete stored chain and participant statuses. Revocat
 ## Important limits
 
 - This is a local SQLite prototype; it is not a network identity or delegation service.
-- The trusted-root public-key mapping is injected by the local application and is not yet managed through a hardened owner console or remote key rotation process.
+- The trusted-root public-key mapping is injected by the local application and is not yet managed through a hardened owner console. Root-key rotation requires an out-of-band configuration update and re-issuing root delegations.
 - SQLite is not tamper-proof. An attacker with database write access may alter stored rows; production must use stronger audit integrity and protected storage.
 - The module does not replace the existing high-risk approval gate. Publishing, spending, custody, transfers, contracts, ownership changes and other high-risk actions remain blocked pending a separately verified approval service.
 - The current capability CLI still has local-admin semantics and does not authenticate the issuer. Do not expose it to the internet or treat it as production authority.
