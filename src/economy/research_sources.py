@@ -31,6 +31,10 @@ class ResearchCandidate:
     source_kind: str = "news_discovery_lead"
     verification_status: str = "unverified"
     sales_verified: bool = False
+    points: int | None = None
+    comments: int | None = None
+    author: str = ""
+    external_url: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
