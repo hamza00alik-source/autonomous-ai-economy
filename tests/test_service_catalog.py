@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from economy.identity import ParticipantRegistry
-from economy.service_catalog import ServiceCatalog
+from economy.service_catalog import CatalogApprovalStore, ServiceCatalog
 
 
 class ServiceCatalogTests(unittest.TestCase):
@@ -45,6 +45,31 @@ class ServiceCatalogTests(unittest.TestCase):
                                     approval_verifier=lambda ref, payload: ref == "approved" and bool(payload))
         self.assertEqual(active["status"], "active")
         self.assertEqual(len(self.store.discover(query="research")), 1)
+
+    def test_hmac_approval_token_is_exact_listing_bound_and_single_use(self):
+        listing = self._draft()
+        payload = self.store.publication_payload(listing["listing_id"], listing["payload"])
+        secret = "x" * 48
+        token = CatalogApprovalStore.create_token(listing["listing_id"], payload, secret)
+        active = self.store.publish_with_token(
+            listing["listing_id"], approval_token=token, approval_secret=secret
+        )
+        self.assertEqual(active["status"], "active")
+        approvals = CatalogApprovalStore(self.path)
+        valid, reason = approvals.consume(token, listing["listing_id"], payload, secret)
+        self.assertFalse(valid)
+        self.assertIn("already been used", reason)
+
+    def test_catalog_approval_rejects_wrong_secret_and_listing_fingerprint(self):
+        listing = self._draft()
+        payload = self.store.publication_payload(listing["listing_id"], listing["payload"])
+        token = CatalogApprovalStore.create_token(listing["listing_id"], payload, "y" * 48)
+        approvals = CatalogApprovalStore(self.path)
+        valid, _ = approvals.consume(token, listing["listing_id"], payload, "z" * 48)
+        self.assertFalse(valid)
+        valid, reason = approvals.consume(token, listing["listing_id"], b"changed", "y" * 48)
+        self.assertFalse(valid)
+        self.assertIn("exact listing", reason)
 
     def test_provider_can_withdraw_signed_listing(self):
         listing = self._draft()
