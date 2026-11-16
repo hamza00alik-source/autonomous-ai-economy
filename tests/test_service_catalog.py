@@ -36,13 +36,16 @@ class ServiceCatalogTests(unittest.TestCase):
         listing = self._draft()
         self.assertEqual(listing["status"], "draft")
         self.assertEqual(self.store.discover(), [])
-        with self.assertRaisesRegex(ValueError, "approval verifier"):
-            self.store.publish(listing["listing_id"], approval_ref="token")
-        with self.assertRaisesRegex(ValueError, "approval is invalid"):
-            self.store.publish(listing["listing_id"], approval_ref="bad",
-                               approval_verifier=lambda *_: False)
-        active = self.store.publish(listing["listing_id"], approval_ref="approved",
-                                    approval_verifier=lambda ref, payload: ref == "approved" and bool(payload))
+        secret = "x" * 48
+        with self.assertRaisesRegex(ValueError, "malformed"):
+            self.store.publish_with_token(
+                listing["listing_id"], approval_token="bad", approval_secret=secret
+            )
+        payload = self.store.publication_payload(listing["listing_id"], listing["payload"])
+        token = CatalogApprovalStore.create_token(listing["listing_id"], payload, secret)
+        active = self.store.publish_with_token(
+            listing["listing_id"], approval_token=token, approval_secret=secret
+        )
         self.assertEqual(active["status"], "active")
         self.assertEqual(len(self.store.discover(query="research")), 1)
 
@@ -73,8 +76,12 @@ class ServiceCatalogTests(unittest.TestCase):
 
     def test_provider_can_withdraw_signed_listing(self):
         listing = self._draft()
-        self.store.publish(listing["listing_id"], approval_ref="approved",
-                           approval_verifier=lambda *_: True)
+        secret = "x" * 48
+        payload = self.store.publication_payload(listing["listing_id"], listing["payload"])
+        token = CatalogApprovalStore.create_token(listing["listing_id"], payload, secret)
+        self.store.publish_with_token(
+            listing["listing_id"], approval_token=token, approval_secret=secret
+        )
         self.store.withdraw(
             listing["listing_id"], provider_id=self.provider["participant_id"],
             signature="valid",
