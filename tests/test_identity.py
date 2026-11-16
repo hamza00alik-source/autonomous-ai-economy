@@ -42,6 +42,34 @@ class IdentityTests(unittest.TestCase):
                 challenge["challenge_id"], "valid", verifier=verifier
             )
 
+    def test_human_can_bind_signing_key_with_single_use_proof(self):
+        person = self.registry.create_human("carol", "Carol")
+        public_key = base64.urlsafe_b64encode(b"z" * 32).decode().rstrip("=")
+        challenge = self.registry.begin_key_binding(person["participant_id"], public_key)
+        bound = self.registry.complete_key_binding(
+            challenge["challenge_id"], "valid", verifier=lambda *_: True
+        )
+        self.assertEqual(bound["public_key"], public_key)
+        self.assertEqual(bound["metadata"]["signing_key_method"], "ed25519_possession")
+        with self.assertRaisesRegex(ValueError, "already consumed"):
+            self.registry.complete_key_binding(
+                challenge["challenge_id"], "valid", verifier=lambda *_: True
+            )
+
+    def test_human_key_binding_rejects_invalid_proof_and_duplicate_key(self):
+        person = self.registry.create_human("dave", "Dave")
+        public_key = base64.urlsafe_b64encode(b"q" * 32).decode().rstrip("=")
+        challenge = self.registry.begin_key_binding(person["participant_id"], public_key)
+        with self.assertRaisesRegex(ValueError, "proof is invalid"):
+            self.registry.complete_key_binding(
+                challenge["challenge_id"], "bad", verifier=lambda *_: False
+            )
+        other = self.registry.create_human("erin", "Erin")
+        challenge2 = self.registry.begin_key_binding(other["participant_id"], public_key)
+        self.registry.complete_key_binding(
+            challenge2["challenge_id"], "valid", verifier=lambda *_: True
+        )
+
     def test_invalid_agent_signature_rejected(self):
         public_key = base64.urlsafe_b64encode(b"y" * 32).decode().rstrip("=")
         challenge = self.registry.begin_agent_enrollment("worker", "Worker", public_key)
