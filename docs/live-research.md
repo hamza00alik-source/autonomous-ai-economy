@@ -129,3 +129,25 @@ economy source-review-list
 Allowed classifications are `supports_buyer_problem`, `competitor_offer`, `cost_reference`, `legal_policy_reference`, `market_context`, `not_relevant`, and `unreliable`. Every review requires a specific finding and a reviewer note. The SQLite record preserves the retrieved snapshot, content hash, normalized URL, publisher hostname, classification, and review timestamp. Repeated normalized URLs or identical content hashes are rejected, so the same material cannot be counted twice through alternate URLs.
 
 **Evidence boundary:** this is an owner-authored classification, not independent fact-checking. Page text remains untrusted. A review never creates an `Evidence` object, never claims an independent source, never verifies sales or willingness to pay, and never approves publishing or spending. Distinct URLs on one publisher are still the same publisher identity; syndicated copies may still share a content hash or underlying origin. Verify publisher ownership and provenance before manually assembling an opportunity dossier. The snapshot store is local SQLite and is not encrypted or tamper-proof.
+
+
+## Build an opportunity research dossier from reviewed sources
+
+After explicitly reviewing original-source snapshots, compile them into a draft opportunity dossier:
+
+```bash
+economy source-dossier \
+  --title "Invoice workflow helper" \
+  --buyer-segment "Small business operators" \
+  --problem "Invoice tracking is fragmented" \
+  --proposed-solution "A downloadable invoice tracker" \
+  --delivery-format "Spreadsheet" \
+  --startup-cost-minor 0 \
+  --currency USD \
+  --legal-risk-notes "Marketplace, tax, privacy, and licensing checks still required." \
+  --output ./research/invoice-helper-dossier.json
+```
+
+The builder includes provenance, publisher hostname, content hash, owner finding, and review note. `unreliable` and `not_relevant` records are retained in an excluded-source section rather than silently discarded. Other classifications become **evidence candidates only**, and every generated evidence item is explicitly marked `independent_source=false`. Therefore, the existing opportunity validator cannot treat this compilation as independent corroboration or pass the independent buyer-evidence gate. A reviewed article about a buyer problem is not automatically proof of a buyer's purchasing intent.
+
+The dossier is a local JSON draft. It does not create a product, contact customers, publish a listing, spend money, or approve any transaction. Independently verify sources, collect direct buyer evidence, assess source relationships, complete costs and policy checks, and obtain owner approval before commercial action.
