@@ -7,6 +7,7 @@ import re
 import sqlite3
 import uuid
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from .delegation import _canonical
@@ -118,7 +119,7 @@ class ServiceCatalog:
             if not self.verifier(key, _canonical(payload), signature):
                 raise ValueError("provider listing signature is invalid")
             listing_id = "listing_" + uuid.uuid4().hex
-            now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             db.execute(
                 """INSERT INTO service_listings VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'draft',?,?)""",
                 (listing_id, provider_id, slug, title, description, category,
@@ -131,7 +132,6 @@ class ServiceCatalog:
     @staticmethod
     def _event(db: sqlite3.Connection, listing_id: str, actor_id: str,
                event: str, detail: str) -> None:
-        from datetime import datetime, timezone
         db.execute(
             "INSERT INTO catalog_events VALUES(?,?,?,?,?,?)",
             ("catalog_event_" + uuid.uuid4().hex, listing_id, actor_id,
