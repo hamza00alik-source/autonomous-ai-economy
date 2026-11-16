@@ -114,3 +114,18 @@ economy unit-economics --price-minor 999 --variable-cost-minor 100 --setup-cost-
 ```
 
 Fee rates are basis points (100 bps = 1%). Include realistic platform/payment fees, taxes, refunds, chargebacks, delivery costs, and other overhead in your inputs where applicable. The result is a scenario calculation only; it does not predict sales or guarantee positive net profit.
+
+
+## Owner-classified original-source review
+
+The manual fetch command prints a JSON object containing a `source` snapshot. Save that complete output as `source-snapshot.json`, then explicitly classify what you observed:
+
+```bash
+economy research-fetch "https://publisher.example/article" --allowed-host publisher.example > source-snapshot.json
+economy source-review source-snapshot.json --kind supports_buyer_problem --finding "The article reports a named buyer group describing a recurring invoice workflow problem." --note "Read the original page; this is a reported problem, not proof of purchase intent."
+economy source-review-list
+```
+
+Allowed classifications are `supports_buyer_problem`, `competitor_offer`, `cost_reference`, `legal_policy_reference`, `market_context`, `not_relevant`, and `unreliable`. Every review requires a specific finding and a reviewer note. The SQLite record preserves the retrieved snapshot, content hash, normalized URL, publisher hostname, classification, and review timestamp. Repeated normalized URLs or identical content hashes are rejected, so the same material cannot be counted twice through alternate URLs.
+
+**Evidence boundary:** this is an owner-authored classification, not independent fact-checking. Page text remains untrusted. A review never creates an `Evidence` object, never claims an independent source, never verifies sales or willingness to pay, and never approves publishing or spending. Distinct URLs on one publisher are still the same publisher identity; syndicated copies may still share a content hash or underlying origin. Verify publisher ownership and provenance before manually assembling an opportunity dossier. The snapshot store is local SQLite and is not encrypted or tamper-proof.
