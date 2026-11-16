@@ -1,7 +1,10 @@
 """Provider-signed service listing drafts with an explicit publication gate."""
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
+import secrets
 import json
 import re
 import sqlite3
@@ -9,9 +12,89 @@ import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Callable
+from datetime import timedelta
 
 from .delegation import _canonical
 from .identity import verify_ed25519
+
+
+class CatalogApprovalStore:
+    """HMAC-signed, exact-listing, expiring and single-use publication approvals."""
+
+    def __init__(self, path: str | Path = "./data/participants.sqlite3") -> None:
+        self.path = str(path)
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self.path) as db:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS consumed_catalog_approvals (
+                    nonce TEXT PRIMARY KEY,
+                    approval_digest TEXT NOT NULL,
+                    consumed_at TEXT NOT NULL
+                )
+            """)
+
+    @staticmethod
+    def _secret(secret: str | bytes) -> bytes:
+        value = secret.encode("utf-8") if isinstance(secret, str) else secret
+        if len(value) < 32:
+            raise ValueError("catalog approval secret must contain at least 32 bytes")
+        return value
+
+    @classmethod
+    def create_token(cls, listing_id: str, approval_payload: bytes,
+                     secret: str | bytes, *, ttl_seconds: int = 600) -> str:
+        if not 1 <= ttl_seconds <= 3600:
+            raise ValueError("ttl_seconds must be between 1 and 3600")
+        key = cls._secret(secret)
+        digest = hashlib.sha256(approval_payload).hexdigest()
+        token_payload = {
+            "v": 1, "purpose": "service_listing_publish", "listing_id": listing_id,
+            "approval_digest": digest,
+            "expires_at": int((datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).timestamp()),
+            "nonce": secrets.token_urlsafe(24),
+        }
+        encoded = base64.urlsafe_b64encode(_canonical(token_payload)).rstrip(b"=").decode("ascii")
+        signature = hmac.new(key, ("AAE-CATALOG-APPROVAL:" + encoded).encode("ascii"),
+                             hashlib.sha256).hexdigest()
+        return encoded + "." + signature
+
+    def consume(self, token: str, listing_id: str, approval_payload: bytes,
+                secret: str | bytes) -> tuple[bool, str]:
+        try:
+            key = self._secret(secret)
+            encoded, supplied = token.split(".", 1)
+            expected = hmac.new(key, ("AAE-CATALOG-APPROVAL:" + encoded).encode("ascii"),
+                                hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected, supplied):
+                return False, "Catalog approval signature is invalid."
+            padded = encoded + "=" * (-len(encoded) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")))
+            digest = hashlib.sha256(approval_payload).hexdigest()
+            if payload.get("v") != 1 or payload.get("purpose") != "service_listing_publish":
+                return False, "Catalog approval token purpose is invalid."
+            if payload.get("listing_id") != listing_id or not hmac.compare_digest(
+                str(payload.get("approval_digest", "")), digest
+            ):
+                return False, "Catalog approval does not match this exact listing."
+            if int(payload.get("expires_at", 0)) <= int(datetime.now(timezone.utc).timestamp()):
+                return False, "Catalog approval token has expired."
+            nonce = str(payload["nonce"])
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError, UnicodeError):
+            return False, "Catalog approval token is malformed or secret is unavailable."
+        with sqlite3.connect(self.path, timeout=10, isolation_level=None) as db:
+            db.execute("PRAGMA busy_timeout=10000")
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute(
+                    "INSERT INTO consumed_catalog_approvals VALUES(?,?,?)",
+                    (nonce, digest, datetime.now(timezone.utc).isoformat()),
+                )
+                db.commit()
+            except sqlite3.IntegrityError:
+                db.rollback()
+                return False, "Catalog approval token has already been used."
+        return True, "Catalog approval verified and consumed."
+
 
 
 class ServiceCatalog:
@@ -155,6 +238,17 @@ class ServiceCatalog:
                        (now, listing_id))
             self._event(db, listing_id, "owner", "published", "owner approval verifier accepted exact listing fingerprint")
         return self.get(listing_id)
+
+    def publish_with_token(self, listing_id: str, *, approval_token: str,
+                           approval_secret: str | bytes) -> dict[str, Any]:
+        approval_store = CatalogApprovalStore(self.path)
+        def verify(token: str, payload: bytes) -> bool:
+            valid, _reason = approval_store.consume(
+                token, listing_id, payload, approval_secret
+            )
+            return valid
+        return self.publish(listing_id, approval_ref=approval_token,
+                            approval_verifier=verify)
 
     def withdraw(self, listing_id: str, *, provider_id: str, signature: str) -> None:
         with self._connect() as db:
