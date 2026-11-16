@@ -74,6 +74,15 @@ class ServiceCatalog:
         return _canonical({"version": "1", "event": "publish_listing",
                            "listing_id": listing_id, "fingerprint": fingerprint})
 
+    @staticmethod
+    def listing_signing_bytes(**fields: Any) -> bytes:
+        return _canonical(ServiceCatalog.listing_payload(**fields))
+
+    @staticmethod
+    def withdrawal_signing_bytes(listing_id: str, provider_id: str) -> bytes:
+        return _canonical({"version": "1", "event": "withdraw_listing",
+                           "listing_id": listing_id, "provider_id": provider_id})
+
     def _provider_key(self, db: sqlite3.Connection, provider_id: str) -> str:
         row = db.execute(
             "SELECT public_key,status,participant_type FROM participants WHERE participant_id=?",
@@ -153,8 +162,7 @@ class ServiceCatalog:
             if row is None or row["provider_id"] != provider_id or row["status"] not in {"draft", "active"}:
                 raise ValueError("listing not found or provider is not authorized")
             key = self._provider_key(db, provider_id)
-            payload = _canonical({"version": "1", "event": "withdraw_listing",
-                                  "listing_id": listing_id, "provider_id": provider_id})
+            payload = self.withdrawal_signing_bytes(listing_id, provider_id)
             if not self.verifier(key, payload, signature):
                 raise ValueError("provider withdrawal signature is invalid")
             now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
