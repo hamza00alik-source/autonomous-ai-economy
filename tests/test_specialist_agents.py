@@ -33,13 +33,35 @@ class SpecialistAgentTests(unittest.TestCase):
         self.assertNotEqual(result.report.status.value, "owner_review")
         self.assertIn("Do not proceed", result.recommendation)
 
-    def test_builder_requires_explicit_owner_approval(self):
+    def approved_opportunity(self):
+        base = self.opportunity()
+        evidence = (
+            Evidence("Buyer signal", "https://example.com/buyers", "2026-11-16",
+                     EvidenceKind.BUYER_SIGNAL, "Buyer requests observed."),
+            Evidence("Competitors", "https://example.org/competitors", "2026-11-16",
+                     EvidenceKind.COMPETITOR, "Comparable products exist."),
+            Evidence("Costs", "https://example.net/costs", "2026-11-16",
+                     EvidenceKind.COST, "Platform fees reviewed."),
+            Evidence("Policy", "https://example.edu/policy", "2026-11-16",
+                     EvidenceKind.LEGAL_OR_POLICY, "Marketplace rules reviewed."),
+        )
+        return Opportunity(
+            title=base.title, buyer_segment=base.buyer_segment,
+            problem=base.problem, proposed_solution=base.proposed_solution,
+            delivery_format=base.delivery_format,
+            estimated_startup_cost_minor=base.estimated_startup_cost_minor,
+            legal_risk_notes=base.legal_risk_notes, evidence=evidence,
+        )
+
+    def test_builder_requires_explicit_owner_approval_and_validation(self):
         with self.assertRaises(PermissionError):
-            ProductBuilderAgent().create_draft(self.opportunity(), owner_approved=False)
+            ProductBuilderAgent().create_draft(self.approved_opportunity(), owner_approved=False)
+        with self.assertRaises(PermissionError):
+            ProductBuilderAgent().create_draft(self.opportunity(), owner_approved=True)
 
     def test_qa_and_listing_are_draft_only(self):
         product = ProductBuilderAgent().create_draft(
-            self.opportunity(), owner_approved=True
+            self.approved_opportunity(), owner_approved=True
         )
         qa = QualityAssuranceAgent().review(product)
         self.assertTrue(qa.passed)
