@@ -11,7 +11,27 @@
 
 ## Approval integration boundary
 
-`ServiceCatalog.publish` deliberately has no default approval verifier. The caller must inject a trusted verifier that validates issuer, signature, exact listing fingerprint, expiry, scope and single-use consumption. A truthy callback is the only gate in this local prototype; do not wire an arbitrary or user-controlled callback. The existing opportunity approval token is bound to an opportunity fingerprint and must not be reused for service listings without a purpose-built approval format.
+`ServiceCatalog.publish` deliberately has no default approval verifier. The preferred local path is `CatalogApprovalStore` plus `ServiceCatalog.publish_with_token`: the HMAC token is bound to the exact listing fingerprint, has a short expiry, and is consumed once. Use the separate `ECONOMY_CATALOG_APPROVAL_SECRET` (at least 32 bytes); never reuse the opportunity approval token format or secret. Token creation must happen only after the owner has reviewed and explicitly approved that exact listing. Protect the secret as a local owner credential. The lower-level callback API remains available for a future hardened approval service, but must never receive an arbitrary or user-controlled callback.
+
+
+## Single-use local owner approval example
+
+```python
+from economy.service_catalog import CatalogApprovalStore, ServiceCatalog
+
+catalog = ServiceCatalog("./data/participants.sqlite3")
+listing = catalog.get(LISTING_ID)
+approval_payload = catalog.publication_payload(listing["listing_id"], listing["payload"])
+
+# Run this only after the owner has reviewed and explicitly approved the exact listing.
+token = CatalogApprovalStore.create_token(
+    listing["listing_id"], approval_payload, CATALOG_APPROVAL_SECRET
+)
+published = catalog.publish_with_token(
+    listing["listing_id"], approval_token=token,
+    approval_secret=CATALOG_APPROVAL_SECRET,
+)
+```
 
 ## Signing
 
