@@ -130,6 +130,9 @@ def main() -> None:
     rank = sub.add_parser("rank-opportunities", help="rank JSON opportunity dossiers by evidence completeness only")
     rank.add_argument("input_json", type=Path)
 
+    prioritize = sub.add_parser("prioritize-opportunities", help="rank operational fit from explicit owner inputs; not a sales forecast")
+    prioritize.add_argument("input_json", type=Path, help="JSON list containing dossier and assessment objects")
+
     args = parser.parse_args()
     if args.command == "demo":
         demo(args.data_dir)
@@ -243,6 +246,10 @@ def main() -> None:
             currency=args.currency,
         )
         print(json.dumps(model.calculate(args.units), indent=2))
+    elif args.command == "prioritize-opportunities":
+        from .opportunity_prioritizer import prioritize_opportunities
+        raw = json.loads(args.input_json.read_text(encoding="utf-8"))
+        print(json.dumps(prioritize_opportunities(raw), indent=2))
     elif args.command == "rank-opportunities":
         raw = json.loads(args.input_json.read_text(encoding="utf-8"))
         if not isinstance(raw, list):
