@@ -49,7 +49,7 @@ class OpportunityTests(unittest.TestCase):
         self.assertFalse(assessment.report.can_publish)
         self.assertFalse(assessment.report.can_spend)
 
-    def test_duplicate_url_does_not_count_as_two_independent_sources(self):
+    def test_duplicate_urls_are_counted_once(self):
         evidence = [
             Evidence("Source A", "https://example.com/a", "2026-11-16",
                      EvidenceKind.BUYER_SIGNAL, "Signal"),
@@ -61,8 +61,8 @@ class OpportunityTests(unittest.TestCase):
                      EvidenceKind.LEGAL_OR_POLICY, "Rules"),
         ]
         report = OpportunityValidator().evaluate(self.make_opportunity(evidence))
-        self.assertTrue(any("two distinct independent" in item for item in report.blockers))
-        self.assertEqual(report.status, ValidationStatus.NEEDS_RESEARCH)
+        self.assertEqual(report.independent_source_count, 3)
+        self.assertEqual(report.status, ValidationStatus.OWNER_REVIEW)
 
 
 if __name__ == "__main__":
