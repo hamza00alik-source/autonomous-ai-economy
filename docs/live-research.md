@@ -57,7 +57,7 @@ The coordinator deduplicates by article URL and stores the resulting leads in th
 
 ## Evidence-readiness ranking
 
-Prepare a JSON file containing opportunity dossiers and source-backed evidence, then run:
+Start with [the example dossier](../examples/opportunities.example.json), replace every placeholder with real independently checked findings, then run:
 
 ```bash
 economy rank-opportunities opportunities.json
