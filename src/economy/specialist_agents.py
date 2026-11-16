@@ -92,6 +92,8 @@ class ProductBuilderAgent:
             raise PermissionError("owner approval is required before product drafting")
         if opportunity.validate():
             raise ValueError("opportunity fields must be valid before drafting")
+        if OpportunityValidator().evaluate(opportunity).status is not ValidationStatus.OWNER_REVIEW:
+            raise PermissionError("opportunity must pass evidence validation and reach owner review before drafting")
         contents = (
             "Quick-start instructions",
             "Core worksheet or template",
