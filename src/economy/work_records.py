@@ -161,10 +161,12 @@ class WorkRecordStore:
             key = self._participant_key(db, buyer_id)
             if not self.verifier(key, self.acceptance_payload(receipt_id, buyer_id, row["provider_id"]), signature):
                 raise ValueError("buyer acceptance signature is invalid")
-            db.execute(
-                "UPDATE work_receipts SET status='accepted',buyer_signature=?,outcome='accepted',updated_at=? WHERE receipt_id=?",
+            updated = db.execute(
+                "UPDATE work_receipts SET status='accepted',buyer_signature=?,outcome='accepted',updated_at=? WHERE receipt_id=? AND status='submitted'",
                 (signature, _now(), receipt_id),
             )
+            if updated.rowcount != 1:
+                raise ValueError("work receipt state changed before acceptance completed")
         return self.get_receipt(receipt_id)
 
     def open_dispute(self, receipt_id: str, *, actor_id: str, reason: str,
@@ -215,11 +217,13 @@ class WorkRecordStore:
             receipt = db.execute("SELECT * FROM work_receipts WHERE receipt_id=?",
                                  (dispute["receipt_id"],)).fetchone()
             now = _now()
-            db.execute(
+            updated = db.execute(
                 """UPDATE work_disputes SET status='resolved',resolution=?,resolver_id=?,
-                resolution_signature=?,resolved_at=? WHERE dispute_id=?""",
+                resolution_signature=?,resolved_at=? WHERE dispute_id=? AND status='open'""",
                 (outcome, resolver_id, signature, now, dispute_id),
             )
+            if updated.rowcount != 1:
+                raise ValueError("dispute state changed before resolution completed")
             # A resolution is not silently converted into buyer acceptance.
             final_status = "resolved"
             db.execute(
