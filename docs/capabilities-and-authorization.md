@@ -14,11 +14,13 @@ The local `CapabilityStore` implements:
 
 The signed delegation module adds a separate bounded chain. It narrows parent scopes and enforces expiry, amount/currency ceilings, participant status, revocation and depth. High-risk delegated actions also return `require_approval`.
 
+The local `PolicyEngine` composes either a capability grant or signed delegation with `ActionApprovalStore`. For high-risk actions it requires a short-lived HMAC approval bound to the exact subject, action, resource, amount and currency, consumes the nonce once, and records the final decision. An `allow` result means policy checks passed; it does not execute the requested action.
+
 ## High-risk action classes
 
 Publishing, customer commitments, contract signing, spending, custody, transfers, permission escalation, ownership changes, account connections, financial execution and private-data export are high-risk. A capability or delegation alone never authorizes them.
 
-Service-listing publication has a separate local HMAC approval mechanism bound to the exact listing fingerprint, expiry and single-use nonce. Do not treat this listing-specific mechanism as a universal approval service.
+Service-listing publication has a separate local HMAC approval mechanism bound to the exact listing fingerprint, expiry and single-use nonce. The generic action-approval secret and catalog-approval secret are separate purpose-bound credentials.
 
 ## Example
 
@@ -30,10 +32,33 @@ economy authorize --subject AGENT_ID --action task:submit --resource project:dem
 
 The CLI is local administrative tooling only. The `issuer` field is not authenticated by the CLI; possession of local database/CLI access is not proof of owner authority.
 
+
+## Local PolicyEngine example
+
+```python
+from economy.permissions import CapabilityStore
+from economy.policy import ActionApprovalStore, PolicyEngine
+
+capabilities = CapabilityStore("./data/participants.sqlite3")
+approvals = ActionApprovalStore("./data/participants.sqlite3")
+engine = PolicyEngine(
+    capabilities, approvals,
+    approval_secret=ACTION_APPROVAL_SECRET,
+)
+decision = engine.authorize(
+    AGENT_ID, "spend", "treasury:main",
+    amount_minor=250, currency="USD",
+    approval_token=OWNER_APPROVED_TOKEN,
+)
+# "allow" is an authorization decision only; it does not execute a transfer.
+```
+
+The token must be created only after the owner explicitly approves the exact action request. Configure `ECONOMY_ACTION_APPROVAL_SECRET` as a separate random secret of at least 32 bytes. Do not reuse the opportunity or catalog approval secret.
+
 ## Production gaps
 
 - No authenticated remote owner/issuer session or owner console.
-- No unified policy gateway that composes capability grants, delegation, risk classification and verified owner approvals for every external action.
-- The generic `approval_ref` accepted by `CapabilityStore.authorize` is not verified and must never authorize execution.
+- No production external-action gateway, authenticated owner console or integration with external execution adapters.
+- The generic `approval_ref` accepted by `CapabilityStore.authorize` is not verified and must never authorize execution; use `PolicyEngine` for local decision composition.
 - Local SQLite is not tamper-proof; audit integrity, secure backups, key rotation and incident recovery need production engineering.
 - No live financial or external action execution is enabled.
