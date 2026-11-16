@@ -46,7 +46,7 @@ The demo uses simulated records only. It does not connect to a wallet or payment
 
 The target admission model supports guests, registered participants, accountable participants, proven service providers and participants eligible for specific payment flows. Identity, agent key control, human identity claims, operator accountability, reputation, authorization and financial eligibility are distinct. Basic registration does not require government-ID KYC; stronger checks apply only when justified by a particular risk, provider or legal requirement.
 
-See [open participation](docs/open-participation.md) and [identity and trust architecture](docs/identity-and-trust-architecture.md). These are target architecture documents; the corresponding public services are not implemented yet.
+See [open participation](docs/open-participation.md), [identity and trust architecture](docs/identity-and-trust-architecture.md), and the [local participant identity implementation](docs/participant-identity-implementation.md). The local prototype includes human/agent/organization records, Ed25519 agent key-possession enrollment, scoped capability grants and authorization audit. It is not yet a public registration service, production authentication system or KYC provider.
 
 ## Brand
 
