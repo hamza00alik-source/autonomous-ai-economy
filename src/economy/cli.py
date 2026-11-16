@@ -17,6 +17,7 @@ from .opportunity_ranker import rank_readiness
 from .hacker_news import HackerNewsSearchProvider
 from .research_federation import MultiSourceResearch
 from .source_verification import OriginalSourceFetcher
+from .source_review import SourceReviewStore, REVIEW_KINDS
 
 
 def demo(data_dir: Path) -> None:
@@ -78,6 +79,16 @@ def main() -> None:
     research_fetch = sub.add_parser("research-fetch", help="manually fetch one allowlisted original source; never creates buyer evidence")
     research_fetch.add_argument("url")
     research_fetch.add_argument("--allowed-host", action="append", required=True, help="exact hostname allowed; repeat only for explicitly trusted hosts")
+
+    source_review = sub.add_parser("source-review", help="owner-classify a saved research-fetch JSON snapshot; does not create evidence")
+    source_review.add_argument("snapshot_json", type=Path, help="JSON file containing the research-fetch output")
+    source_review.add_argument("--kind", required=True, choices=sorted(REVIEW_KINDS))
+    source_review.add_argument("--finding", required=True, help="specific finding supported by the page")
+    source_review.add_argument("--note", required=True, help="owner review context and limitations")
+    source_review.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    source_review_list = sub.add_parser("source-review-list", help="list owner-classified source snapshots")
+    source_review_list.add_argument("--data-dir", type=Path, default=Path("./data"))
 
     research_list = sub.add_parser("research-list", help="list saved discovery leads")
     research_list.add_argument("--status", choices=["unverified", "owner_reviewed"])
@@ -159,6 +170,18 @@ def main() -> None:
             "source": result.to_dict(),
             "notice": "Retrieved page content is untrusted research material. A successful fetch does not establish accuracy, buyer intent, independent corroboration, or sales; no evidence record is created.",
         }, indent=2))
+    elif args.command == "source-review":
+        raw = json.loads(args.snapshot_json.read_text(encoding="utf-8"))
+        snapshot = raw.get("source", raw)
+        result = SourceReviewStore(args.data_dir / "research.sqlite3").record_review(
+            snapshot,
+            classification=args.kind,
+            finding=args.finding,
+            reviewer_note=args.note,
+        )
+        print(json.dumps(result, indent=2))
+    elif args.command == "source-review-list":
+        print(json.dumps(SourceReviewStore(args.data_dir / "research.sqlite3").list_reviews(), indent=2))
     elif args.command == "research-list":
         store = ResearchCandidateStore(args.data_dir / "research.sqlite3")
         print(json.dumps(store.list_candidates(args.status), indent=2))
