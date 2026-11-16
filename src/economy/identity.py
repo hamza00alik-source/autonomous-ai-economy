@@ -96,6 +96,25 @@ class ParticipantRegistry:
                     consumed_at TEXT,
                     FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
                 );
+                CREATE TABLE IF NOT EXISTS participant_key_rotation_challenges (
+                    challenge_id TEXT PRIMARY KEY,
+                    participant_id TEXT NOT NULL,
+                    old_public_key TEXT NOT NULL,
+                    new_public_key TEXT NOT NULL,
+                    challenge TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    consumed_at TEXT,
+                    FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
+                );
+                CREATE TABLE IF NOT EXISTS participant_key_history (
+                    event_id TEXT PRIMARY KEY,
+                    participant_id TEXT NOT NULL,
+                    old_public_key TEXT NOT NULL,
+                    new_public_key TEXT NOT NULL,
+                    rotated_at TEXT NOT NULL,
+                    challenge_id TEXT NOT NULL UNIQUE,
+                    FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
+                );
                 CREATE TABLE IF NOT EXISTS identity_claims (
                     claim_id TEXT PRIMARY KEY,
                     participant_id TEXT NOT NULL,
@@ -292,6 +311,100 @@ class ParticipantRegistry:
             )
             db.commit()
         return self.get(row["participant_id"])
+
+    def begin_key_rotation(self, participant_id: str, new_public_key: str) -> dict[str, str]:
+        """Start dual-proof key rotation; both old and new private keys must sign."""
+        _decode_key(new_public_key)
+        challenge_id = str(uuid.uuid4())
+        challenge = "AAE-PARTICIPANT-KEY-ROTATE-V1:" + secrets.token_urlsafe(32)
+        expires = _iso(_now() + timedelta(seconds=self.challenge_ttl_seconds))
+        with self._connect() as db:
+            participant = db.execute(
+                "SELECT status,public_key FROM participants WHERE participant_id=?",
+                (participant_id,),
+            ).fetchone()
+            if participant is None or participant["status"] != "active" or not participant["public_key"]:
+                raise ValueError("participant must be active and have an existing signing key")
+            if participant["public_key"] == new_public_key:
+                raise ValueError("new public key must differ from current key")
+            if db.execute("SELECT 1 FROM participants WHERE public_key=?",
+                          (new_public_key,)).fetchone():
+                raise ValueError("new public key is already bound")
+            db.execute(
+                """INSERT INTO participant_key_rotation_challenges
+                (challenge_id,participant_id,old_public_key,new_public_key,challenge,expires_at)
+                VALUES(?,?,?,?,?,?)""",
+                (challenge_id, participant_id, participant["public_key"],
+                 new_public_key, challenge, expires),
+            )
+        return {"challenge_id": challenge_id, "challenge": challenge,
+                "expires_at": expires, "signature_encoding": "base64url",
+                "required_signatures": "current_and_new_key"}
+
+    def complete_key_rotation(self, challenge_id: str, old_signature: str,
+                              new_signature: str, verifier=verify_ed25519) -> dict[str, Any]:
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT * FROM participant_key_rotation_challenges WHERE challenge_id=?",
+                (challenge_id,),
+            ).fetchone()
+            if row is None:
+                db.rollback()
+                raise ValueError("unknown key rotation challenge")
+            if row["consumed_at"] is not None:
+                db.rollback()
+                raise ValueError("key rotation challenge already consumed")
+            if datetime.fromisoformat(row["expires_at"]) <= _now():
+                db.rollback()
+                raise ValueError("key rotation challenge expired")
+            participant = db.execute(
+                "SELECT status,public_key,metadata_json FROM participants WHERE participant_id=?",
+                (row["participant_id"],),
+            ).fetchone()
+            if (participant is None or participant["status"] != "active"
+                    or participant["public_key"] != row["old_public_key"]):
+                db.rollback()
+                raise ValueError("participant is inactive or current key has changed")
+            message = row["challenge"].encode("utf-8")
+            if not verifier(row["old_public_key"], message, old_signature):
+                db.rollback()
+                raise ValueError("current-key rotation proof is invalid")
+            if not verifier(row["new_public_key"], message, new_signature):
+                db.rollback()
+                raise ValueError("new-key rotation proof is invalid")
+            metadata = json.loads(participant["metadata_json"])
+            metadata["signing_key_method"] = "ed25519_dual_proof_rotation"
+            now = _iso()
+            try:
+                updated = db.execute(
+                    "UPDATE participants SET public_key=?,metadata_json=? WHERE participant_id=? AND public_key=?",
+                    (row["new_public_key"], json.dumps(metadata, sort_keys=True),
+                     row["participant_id"], row["old_public_key"]),
+                )
+                if updated.rowcount != 1:
+                    raise ValueError("participant key changed during rotation")
+                db.execute(
+                    "INSERT INTO participant_key_history VALUES(?,?,?,?,?,?)",
+                    ("key_rotation_" + uuid.uuid4().hex, row["participant_id"],
+                     row["old_public_key"], row["new_public_key"], now, challenge_id),
+                )
+            except sqlite3.IntegrityError as exc:
+                db.rollback()
+                raise ValueError("new public key is already bound") from exc
+            db.execute(
+                "UPDATE participant_key_rotation_challenges SET consumed_at=? WHERE challenge_id=?",
+                (now, challenge_id),
+            )
+            db.commit()
+        return self.get(row["participant_id"])
+
+    def key_history(self, participant_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            return [dict(row) for row in db.execute(
+                "SELECT * FROM participant_key_history WHERE participant_id=? ORDER BY rotated_at",
+                (participant_id,),
+            ).fetchall()]
 
     def get(self, participant_id: str) -> dict[str, Any] | None:
         with self._connect() as db:
