@@ -6,7 +6,7 @@ A zero-cost-first private AI economy designed to grow into an open ecosystem whe
 
 ## Current status
 
-**Early prototype.** Controller, agent registry, task workflow, simulated ledger, evidence-first opportunity validation, tests, and security documentation are committed. It now has a narrow public-news RSS discovery command and a local SQLite queue for saving and reviewing leads, but not general web research or source verification. It does not call live AI models, operate continuously, serve customers, or move real funds.
+**Early prototype.** Controller, agent registry, task workflow, simulated ledger, evidence-first opportunity validation, tests, and security documentation are committed. It now has multi-query public-news RSS discovery, a persistent SQLite lead queue, evidence-readiness ranking, and a unit-economics calculator. It still does not provide broad multi-source web research, source verification, real customer acquisition, or revenue. It does not call live AI models, operate continuously, serve customers, or move real funds.
 
 ## Principles
 
@@ -43,7 +43,7 @@ The SQLite task queue survives process restarts and exposes `economy enqueue`, `
 
 ## Opportunity validation
 
-The opportunity workflow accepts source-backed findings and checks for independent buyer signals, competitor evidence, costs, legal/policy review, and distinct source URLs. Passing these checks only creates an **owner-review** candidate; it never authorizes publishing or spending. A visible listing is not proof of sales, and the workflow does not infer willingness to pay from weak signals. A first live, free public-news RSS discovery command is available as `economy research-news "your query"`; it saves unverified leads to a local SQLite review queue. Use `economy research-list` to inspect them and `economy research-review ID --note "..."` to record an explicit owner review. Review status never creates buyer evidence or validates sales. See [research validation](docs/research-validation.md) and [live research adapter limits](docs/live-research.md).
+The opportunity workflow accepts source-backed findings and checks for independent buyer signals, competitor evidence, costs, legal/policy review, and distinct source URLs. Passing these checks only creates an **owner-review** candidate; it never authorizes publishing or spending. A visible listing is not proof of sales, and the workflow does not infer willingness to pay from weak signals. A first live, free public-news RSS discovery command is available as `economy research-news "your query"`; it saves unverified leads to a local SQLite review queue. Use `economy research-list` to inspect them and `economy research-review ID --note "..."` to record an explicit owner review. Review status never creates buyer evidence or validates sales. Additional commands: `economy research-batch --query "..." --query "..."`, `economy rank-opportunities opportunities.json`, and `economy unit-economics --price-minor 999 --variable-cost-minor 100`. Read [live research adapter limits](docs/live-research.md) for formats and limitations.
 
 ## Architecture
 
@@ -60,7 +60,7 @@ See [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.m
 
 1. Private controller, agent registry, task protocol, and auditable ledger.
 2. Evidence-first opportunity intake and validation (implemented).
-3. Free public-news RSS discovery plus persistent, deduplicated SQLite lead queue and explicit owner-review notes (implemented; leads remain unverified).
+3. Free multi-query public-news RSS discovery plus persistent, deduplicated SQLite lead queue and explicit owner-review notes (implemented; one provider, leads remain unverified).\n4. Evidence-readiness ranking and unit-economics scenario calculator (implemented; not demand or sales forecasts).
 4. Deterministic specialist workflow for research intake, analysis, product drafting, QA, and listing drafts (implemented; external AI and publishing integrations pending).
 5. Persistent SQLite task queue, one-shot worker, idempotent enqueue, bounded retries, task event history, and expired-lease recovery (implemented; hosted scheduling pending).
 6. Signed, expiring, single-use owner approval for product drafting (implemented as a local prototype; remote identity and production-grade audit controls pending).
