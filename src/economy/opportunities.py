@@ -129,5 +129,5 @@ class OpportunityValidator:
             status=status,
             blockers=tuple(blockers),
             evidence_count=len(opportunity.evidence),
-            independent_source_count=len(independent),
+            independent_source_count=len({e.url for e in independent}),
         )
