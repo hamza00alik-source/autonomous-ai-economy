@@ -60,6 +60,9 @@ class GoogleNewsRSSProvider:
 
     @staticmethod
     def _fetch(url: str, timeout: float) -> bytes:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname != ALLOWED_HOST:
+            raise ValueError("only HTTPS news.google.com feed URLs are allowed")
         request = Request(url, headers={"User-Agent": "AutonomousAIEconomy/0.1 (public RSS discovery)"})
         opener = build_opener(_SameHostRedirect())
         with opener.open(request, timeout=timeout) as response:
