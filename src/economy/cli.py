@@ -195,6 +195,16 @@ def main() -> None:
     agent_complete.add_argument("--signature", required=True, help="base64url Ed25519 signature of the exact challenge string")
     agent_complete.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+    participant_key_challenge = sub.add_parser("participant-key-challenge", help="create a one-time signing-key proof challenge for a human or organization")
+    participant_key_challenge.add_argument("--participant-id", required=True)
+    participant_key_challenge.add_argument("--public-key", required=True)
+    participant_key_challenge.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    participant_key_bind = sub.add_parser("participant-key-bind", help="bind a human or organization Ed25519 public key after proof of possession")
+    participant_key_bind.add_argument("--challenge-id", required=True)
+    participant_key_bind.add_argument("--signature", required=True)
+    participant_key_bind.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     capability_grant = sub.add_parser("capability-grant", help="grant one explicitly scoped capability")
     capability_grant.add_argument("--subject", required=True)
     capability_grant.add_argument("--issuer", required=True)
@@ -393,6 +403,12 @@ def main() -> None:
     elif args.command == "agent-enrollment-complete":
         registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
         print(json.dumps(registry.complete_agent_enrollment(args.challenge_id, args.signature), indent=2))
+    elif args.command == "participant-key-challenge":
+        registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
+        print(json.dumps(registry.begin_key_binding(args.participant_id, args.public_key), indent=2))
+    elif args.command == "participant-key-bind":
+        registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
+        print(json.dumps(registry.complete_key_binding(args.challenge_id, args.signature), indent=2))
     elif args.command == "capability-grant":
         store = CapabilityStore(args.data_dir / "participants.sqlite3")
         grant_id = store.grant(args.subject, args.issuer, args.action, args.resource,
