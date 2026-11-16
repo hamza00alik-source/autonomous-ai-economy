@@ -51,7 +51,7 @@ class PolicyEngineTests(unittest.TestCase):
         )
         self.assertEqual(replay["decision"], "require_approval")
         self.assertIn("already been used", replay["reason"])
-        self.assertEqual(len(self.engine.audit("agent-1")), 4)
+        self.assertEqual(len(self.engine.audit("agent-1")), 3)
 
     def test_approval_is_bound_to_subject_action_resource_and_amount(self):
         self.capabilities.grant(
