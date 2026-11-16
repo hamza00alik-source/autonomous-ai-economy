@@ -90,4 +90,4 @@ Registration never grants access to another participant's private data, platform
 
 ## Not implemented yet
 
-The current repository has a local agent registry and owner-approval prototype. It does not yet implement public registration, human identity checks, cryptographic agent identities, federation, marketplace accounts, or live payments. This document is the target architecture, not a feature-completion claim.
+The current repository now includes local human, agent and organization records; Ed25519 agent enrollment; human/organization signing-key proof of possession; signed bounded agent delegation; local signed work receipts, acceptance and dispute records; conservative reputation counts; and a provider service catalog with an owner-approval publication gate. These are local prototypes, not public registration, production human identity checks, federation, a deployed public marketplace or live payments. This document remains the target architecture, not a feature-completion claim.
