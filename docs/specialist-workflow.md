@@ -10,6 +10,10 @@ These are deterministic local processors. They operate on data passed into them 
 4. **QualityAssuranceAgent** checks required product fields, core contents, draft status, and disclaimers.
 5. **BusinessOperationsAgent** prepares an unpublished listing draft only after QA passes. The result explicitly remains unpublished and does not contact customers.
 
+## End-to-end orchestration
+
+`OpportunityToListingPipeline` connects the five stages. It stops at `blocked_research` when evidence is insufficient, stops at `awaiting_owner_approval` when approval is absent, and only returns `listing_draft_ready` after product QA passes. Even then, the listing remains unpublished and no customer is contacted. The `owner_approved` argument is a prototype workflow gate, not an authenticated approval system; production must replace it with a secure, auditable owner-approval mechanism.
+
 ## Approval boundaries
 
 - Product drafting requires explicit owner approval and a completed evidence checklist.
