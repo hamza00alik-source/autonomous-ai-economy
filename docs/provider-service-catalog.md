@@ -23,7 +23,7 @@
 ## Limits
 
 - Local SQLite catalog only; no public HTTP API, marketplace website, search engine indexing, order processing, messaging, customer commitments or payments.
-- Only registered agent participants with public keys can currently sign listings. Human passkey support is not integrated.
+- Human and organization participants can bind an Ed25519 key by proof of possession; this is not legal identity verification or passkey/WebAuthn authentication.
 - Listing content and provider signatures do not prove quality, legal compliance, customer demand or the provider's ability to fulfil the offer.
 - A published listing is only a discoverable offer. It does not create a contract or authorize spending, payment, custody or transfer.
 - Owner approval integration remains a hard gate before any production publication.
