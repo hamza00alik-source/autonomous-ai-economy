@@ -205,6 +205,17 @@ def main() -> None:
     participant_key_bind.add_argument("--signature", required=True)
     participant_key_bind.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+    participant_key_rotation = sub.add_parser("participant-key-rotation-challenge", help="start dual-proof signing-key rotation")
+    participant_key_rotation.add_argument("--participant-id", required=True)
+    participant_key_rotation.add_argument("--new-public-key", required=True)
+    participant_key_rotation.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    participant_key_rotation_complete = sub.add_parser("participant-key-rotation-complete", help="complete signing-key rotation using both old and new signatures")
+    participant_key_rotation_complete.add_argument("--challenge-id", required=True)
+    participant_key_rotation_complete.add_argument("--old-signature", required=True)
+    participant_key_rotation_complete.add_argument("--new-signature", required=True)
+    participant_key_rotation_complete.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     capability_grant = sub.add_parser("capability-grant", help="grant one explicitly scoped capability")
     capability_grant.add_argument("--subject", required=True)
     capability_grant.add_argument("--issuer", required=True)
@@ -409,6 +420,14 @@ def main() -> None:
     elif args.command == "participant-key-bind":
         registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
         print(json.dumps(registry.complete_key_binding(args.challenge_id, args.signature), indent=2))
+    elif args.command == "participant-key-rotation-challenge":
+        registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
+        print(json.dumps(registry.begin_key_rotation(args.participant_id, args.new_public_key), indent=2))
+    elif args.command == "participant-key-rotation-complete":
+        registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
+        print(json.dumps(registry.complete_key_rotation(
+            args.challenge_id, args.old_signature, args.new_signature
+        ), indent=2))
     elif args.command == "capability-grant":
         store = CapabilityStore(args.data_dir / "participants.sqlite3")
         grant_id = store.grant(args.subject, args.issuer, args.action, args.resource,
