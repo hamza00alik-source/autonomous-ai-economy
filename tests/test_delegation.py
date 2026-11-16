@@ -35,11 +35,13 @@ class DelegationTests(unittest.TestCase):
         )
 
     def _create_root(self, *, action="task:submit", resource="project:alpha",
-                     delegation_id="root", expiry=None, signature="valid"):
+                     delegation_id="root", expiry=None, signature="valid",
+                     max_amount_minor=None, currency=None):
         return self.store.create(
             delegation_id=delegation_id, delegator_id=self.owner["participant_id"],
             delegate_id=self.agent["participant_id"], action=action, resource=resource,
             expires_at=expiry or self.expiry, signature=signature,
+            max_amount_minor=max_amount_minor, currency=currency,
         )
 
     def test_trusted_root_and_child_delegation_are_narrowed(self):
@@ -99,7 +101,8 @@ class DelegationTests(unittest.TestCase):
         self.assertEqual(result["decision"], "deny")
 
     def test_high_risk_delegation_never_executes_without_separate_approval(self):
-        self._create_root(action="spend", resource="treasury:main", delegation_id="spend-root")
+        self._create_root(action="spend", resource="treasury:main", delegation_id="spend-root",
+                          max_amount_minor=500, currency="USD")
         result = self.store.authorize(
             "spend-root", delegate_id=self.agent["participant_id"],
             action="spend", resource="treasury:main", amount_minor=100, currency="USD",
