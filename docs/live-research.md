@@ -29,3 +29,17 @@ This is a narrow public-news discovery integration, not a general web search eng
 ## Next integration
 
 A separate provider interface and marketplace/source adapters can be added later. Any provider requiring credentials, paid API usage, or a metered service must remain disabled until the owner explicitly approves its cost and credentials setup.
+
+
+## Persistent local review queue
+
+Each `research-news` search now saves leads into `./data/research.sqlite3` by default. Use `--data-dir` to choose another local data directory.
+
+```bash
+economy research-news "spreadsheet templates small business"
+economy research-list
+economy research-list --status unverified
+economy research-review CANDIDATE_ID --note "Checked the original publisher; still need independent buyer evidence."
+```
+
+Candidate IDs are deduplicated in SQLite. Re-running a search reports how many items were newly inserted versus already present. Review status can move from `unverified` to `owner_reviewed` only through the explicit review command, which requires a non-empty note. It cannot be reset or used to manufacture buyer evidence. The original candidate payload remains unverified and `sales_verified=false`; owner review is an audit note, not proof of demand, a commercial approval, or permission to publish or spend. The local database is not encrypted or tamper-proof; keep it on a trusted device and back it up appropriately.
