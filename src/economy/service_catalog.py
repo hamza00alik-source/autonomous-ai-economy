@@ -236,8 +236,12 @@ class ServiceCatalog:
             if not valid:
                 raise ValueError(reason)
             now = datetime.now(timezone.utc).isoformat()
-            db.execute("UPDATE service_listings SET status='active',updated_at=? WHERE listing_id=?",
-                       (now, listing_id))
+            updated = db.execute(
+                "UPDATE service_listings SET status='active',updated_at=? WHERE listing_id=? AND status='draft'",
+                (now, listing_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("listing state changed before publication completed")
             self._event(db, listing_id, "owner", "published",
                         "single-use owner approval verified for exact listing fingerprint")
         return self.get(listing_id)
