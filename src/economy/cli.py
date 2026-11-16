@@ -10,6 +10,8 @@ from .task_store import TaskStore
 from .worker import run_once
 from .research_sources import GoogleNewsRSSProvider
 from .research_store import ResearchCandidateStore
+from .research_engine import ResearchDiscoveryEngine
+from .economics import UnitEconomics
 
 
 def demo(data_dir: Path) -> None:
@@ -67,6 +69,21 @@ def main() -> None:
     research_review.add_argument("--note", required=True)
     research_review.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+    research_batch = sub.add_parser("research-batch", help="search several queries and deduplicate public-news leads")
+    research_batch.add_argument("--query", action="append", required=True, help="repeat for each query; maximum 10")
+    research_batch.add_argument("--limit", type=int, default=10)
+    research_batch.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    economics = sub.add_parser("unit-economics", help="calculate a transparent scenario, not a sales forecast")
+    economics.add_argument("--price-minor", type=int, required=True)
+    economics.add_argument("--variable-cost-minor", type=int, required=True)
+    economics.add_argument("--setup-cost-minor", type=int, default=0)
+    economics.add_argument("--platform-fee-bps", type=int, default=0)
+    economics.add_argument("--payment-fee-bps", type=int, default=0)
+    economics.add_argument("--fixed-fee-minor", type=int, default=0)
+    economics.add_argument("--units", type=int, default=1)
+    economics.add_argument("--currency", default="USD")
+
     args = parser.parse_args()
     if args.command == "demo":
         demo(args.data_dir)
@@ -99,6 +116,27 @@ def main() -> None:
     elif args.command == "research-review":
         store = ResearchCandidateStore(args.data_dir / "research.sqlite3")
         print(json.dumps(store.mark_owner_reviewed(args.candidate_id, args.note), indent=2))
+    elif args.command == "research-batch":
+        candidates = ResearchDiscoveryEngine().discover(args.query, limit_per_query=args.limit)
+        saved = ResearchCandidateStore(args.data_dir / "research.sqlite3").save_many(candidates)
+        print(json.dumps({
+            "queries": args.query,
+            "candidate_count_after_url_deduplication": len(candidates),
+            "persistence": saved,
+            "notice": "One discovery provider across multiple queries. Leads remain unverified and are not independent buyer evidence or proof of sales.",
+            "candidates": [item.to_dict() for item in candidates],
+        }, indent=2))
+    elif args.command == "unit-economics":
+        model = UnitEconomics(
+            price_minor=args.price_minor,
+            variable_cost_minor=args.variable_cost_minor,
+            fixed_setup_cost_minor=args.setup_cost_minor,
+            platform_fee_bps=args.platform_fee_bps,
+            payment_fee_bps=args.payment_fee_bps,
+            fixed_fee_per_sale_minor=args.fixed_fee_minor,
+            currency=args.currency,
+        )
+        print(json.dumps(model.calculate(args.units), indent=2))
 
 
 if __name__ == "__main__":
