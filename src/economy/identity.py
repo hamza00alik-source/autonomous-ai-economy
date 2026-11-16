@@ -87,6 +87,15 @@ class ParticipantRegistry:
                     expires_at TEXT NOT NULL,
                     consumed_at TEXT
                 );
+                CREATE TABLE IF NOT EXISTS participant_key_challenges (
+                    challenge_id TEXT PRIMARY KEY,
+                    participant_id TEXT NOT NULL,
+                    public_key TEXT NOT NULL,
+                    challenge TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    consumed_at TEXT,
+                    FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
+                );
                 CREATE TABLE IF NOT EXISTS identity_claims (
                     claim_id TEXT PRIMARY KEY,
                     participant_id TEXT NOT NULL,
@@ -209,6 +218,80 @@ class ParticipantRegistry:
                        (now, challenge_id))
             db.commit()
         return self.get(participant_id)
+
+    def begin_key_binding(self, participant_id: str, public_key: str) -> dict[str, str]:
+        """Start proof-of-possession key binding for an existing human or organization."""
+        _decode_key(public_key)
+        challenge_id = str(uuid.uuid4())
+        challenge = "AAE-PARTICIPANT-KEY-BIND-V1:" + secrets.token_urlsafe(32)
+        expires = _iso(_now() + timedelta(seconds=self.challenge_ttl_seconds))
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT participant_type,status,public_key FROM participants WHERE participant_id=?",
+                (participant_id,),
+            ).fetchone()
+            if row is None or row["status"] != "active":
+                raise ValueError("participant must exist and be active")
+            if row["participant_type"] == "agent":
+                raise ValueError("agents bind keys during agent enrollment")
+            if row["public_key"]:
+                raise ValueError("participant already has a signing key")
+            db.execute(
+                """INSERT INTO participant_key_challenges
+                (challenge_id,participant_id,public_key,challenge,expires_at)
+                VALUES(?,?,?,?,?)""",
+                (challenge_id, participant_id, public_key, challenge, expires),
+            )
+        return {"challenge_id": challenge_id, "challenge": challenge,
+                "expires_at": expires, "signature_encoding": "base64url"}
+
+    def complete_key_binding(self, challenge_id: str, signature: str,
+                             verifier=verify_ed25519) -> dict[str, Any]:
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT * FROM participant_key_challenges WHERE challenge_id=?",
+                (challenge_id,),
+            ).fetchone()
+            if row is None:
+                db.rollback()
+                raise ValueError("unknown participant key challenge")
+            if row["consumed_at"] is not None:
+                db.rollback()
+                raise ValueError("participant key challenge already consumed")
+            if datetime.fromisoformat(row["expires_at"]) <= _now():
+                db.rollback()
+                raise ValueError("participant key challenge expired")
+            participant = db.execute(
+                "SELECT participant_type,status,public_key,metadata_json FROM participants WHERE participant_id=?",
+                (row["participant_id"],),
+            ).fetchone()
+            if participant is None or participant["status"] != "active" or participant["public_key"]:
+                db.rollback()
+                raise ValueError("participant is inactive or already has a signing key")
+            if participant["participant_type"] == "agent":
+                db.rollback()
+                raise ValueError("agent keys are bound during enrollment")
+            if not verifier(row["public_key"], row["challenge"].encode("utf-8"), signature):
+                db.rollback()
+                raise ValueError("participant key proof is invalid")
+            metadata = json.loads(participant["metadata_json"])
+            metadata["signing_key_method"] = "ed25519_possession"
+            now = _iso()
+            try:
+                db.execute(
+                    "UPDATE participants SET public_key=?,metadata_json=? WHERE participant_id=? AND public_key IS NULL",
+                    (row["public_key"], json.dumps(metadata, sort_keys=True), row["participant_id"]),
+                )
+            except sqlite3.IntegrityError as exc:
+                db.rollback()
+                raise ValueError("public key is already bound to another participant") from exc
+            db.execute(
+                "UPDATE participant_key_challenges SET consumed_at=? WHERE challenge_id=?",
+                (now, challenge_id),
+            )
+            db.commit()
+        return self.get(row["participant_id"])
 
     def get(self, participant_id: str) -> dict[str, Any] | None:
         with self._connect() as db:
