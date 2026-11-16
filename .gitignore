@@ -13,3 +13,6 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Local application state and approval audit databases
+*.sqlite3
