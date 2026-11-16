@@ -59,8 +59,8 @@ class BusinessPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             brain = SharedBrain(Path(directory) / "brain.sqlite3")
             memory = brain.propose(
-                title="Evidence provenance",
-                lesson="Preserve original source links when assessing buyer demand.",
+                title="Practice planner evidence",
+                lesson="For practice planner opportunities, preserve source links when assessing buyer demand.",
                 category="research_quality", created_by="market-research",
                 tags=["buyer", "demand", "evidence"],
                 source_refs=["https://example.com/research"], confidence=0.9,
