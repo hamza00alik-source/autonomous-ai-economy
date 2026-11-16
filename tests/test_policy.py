@@ -1,9 +1,13 @@
+import base64
 import tempfile
 import unittest
 from pathlib import Path
 
 from economy.permissions import CapabilityStore
 from economy.policy import ActionApprovalStore, PolicyEngine
+from economy.delegation import DelegationStore
+from economy.identity import ParticipantRegistry
+from datetime import datetime, timedelta, timezone
 
 
 class PolicyEngineTests(unittest.TestCase):
@@ -67,6 +71,46 @@ class PolicyEngineTests(unittest.TestCase):
             currency="USD", approval_token=token,
         )
         self.assertEqual(result["decision"], "require_approval")
+
+    def test_policy_composes_signed_delegation_with_owner_approval(self):
+        registry = ParticipantRegistry(self.path)
+        owner = registry.create_human("owner", "Owner")
+        owner_key = base64.urlsafe_b64encode(b"o" * 32).decode().rstrip("=")
+        agent_key = base64.urlsafe_b64encode(b"a" * 32).decode().rstrip("=")
+        challenge = registry.begin_agent_enrollment("worker", "Worker", agent_key)
+        agent = registry.complete_agent_enrollment(
+            challenge["challenge_id"], "proof", verifier=lambda *_: True
+        )
+        delegations = DelegationStore(
+            self.path, trusted_roots={owner["participant_id"]: owner_key},
+            verifier=lambda key, payload, signature: signature == "valid",
+        )
+        expiry = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        delegations.create(
+            delegation_id="spend-delegation", delegator_id=owner["participant_id"],
+            delegate_id=agent["participant_id"], action="spend",
+            resource="treasury:main", expires_at=expiry, signature="valid",
+            max_amount_minor=500, currency="USD",
+        )
+        engine = PolicyEngine(
+            self.capabilities, self.approvals, approval_secret=self.secret,
+            delegations=delegations,
+        )
+        pending = engine.authorize(
+            agent["participant_id"], "spend", "treasury:main",
+            amount_minor=100, currency="USD", delegation_id="spend-delegation",
+        )
+        self.assertEqual(pending["decision"], "require_approval")
+        token = ActionApprovalStore.create_token(
+            agent["participant_id"], "spend", "treasury:main", self.secret,
+            amount_minor=100, currency="USD",
+        )
+        approved = engine.authorize(
+            agent["participant_id"], "spend", "treasury:main",
+            amount_minor=100, currency="USD", delegation_id="spend-delegation",
+            approval_token=token,
+        )
+        self.assertEqual(approved["decision"], "allow")
 
     def test_financial_approval_requires_amount_and_currency(self):
         with self.assertRaisesRegex(ValueError, "amount and currency"):
