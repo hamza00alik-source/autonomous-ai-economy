@@ -1,10 +1,10 @@
-"""SQLite-backed durable task queue. No external side effects are performed here."""
+"""SQLite-backed durable task queue with leases and append-only task events."""
 from __future__ import annotations
 
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +14,14 @@ def _now() -> str:
 
 
 class TaskStore:
-    """Small transactional queue with idempotent enqueue and an append-only event log."""
+    """Transactional single-host queue with idempotency, bounded retries, and leases."""
 
-    def __init__(self, path: str | Path = "./data/economy.sqlite3") -> None:
+    def __init__(self, path: str | Path = "./data/economy.sqlite3",
+                 lease_seconds: int = 300) -> None:
+        if not 1 <= lease_seconds <= 86400:
+            raise ValueError("lease_seconds must be between 1 and 86400")
         self.path = str(path)
+        self.lease_seconds = lease_seconds
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.executescript("""
@@ -32,7 +36,8 @@ class TaskStore:
                     attempts INTEGER NOT NULL DEFAULT 0,
                     max_attempts INTEGER NOT NULL DEFAULT 3,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    lease_until TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_tasks_status_created
                     ON tasks(status, created_at);
@@ -45,6 +50,9 @@ class TaskStore:
                     FOREIGN KEY(task_id) REFERENCES tasks(task_id)
                 );
             """)
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(tasks)")}
+            if "lease_until" not in columns:
+                db.execute("ALTER TABLE tasks ADD COLUMN lease_until TEXT")
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
@@ -68,7 +76,7 @@ class TaskStore:
                 idempotency_key: str | None = None, max_attempts: int = 3) -> dict[str, Any]:
         if not title.strip() or not objective.strip() or not assigned_agent.strip():
             raise ValueError("title, objective, and assigned_agent are required")
-        if max_attempts < 1 or max_attempts > 10:
+        if not 1 <= max_attempts <= 10:
             raise ValueError("max_attempts must be between 1 and 10")
         task_id, now = str(uuid.uuid4()), _now()
         with self._connect() as db:
@@ -93,22 +101,43 @@ class TaskStore:
             return self._row(row) or {}
 
     def claim(self) -> dict[str, Any] | None:
-        """Atomically claim the oldest queued task; concurrent workers cannot claim it twice."""
+        """Recover expired worker leases, then atomically claim one queued task."""
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            now_dt = datetime.now(timezone.utc)
+            now = now_dt.isoformat()
+            expired = db.execute(
+                "SELECT * FROM tasks WHERE status='running' AND lease_until IS NOT NULL AND lease_until<=?",
+                (now,),
+            ).fetchall()
+            for old in expired:
+                retry = old["attempts"] < old["max_attempts"]
+                status = "queued" if retry else "failed"
+                db.execute(
+                    "UPDATE tasks SET status=?,lease_until=NULL,updated_at=? WHERE task_id=?",
+                    (status, now, old["task_id"]),
+                )
+                self._event(
+                    db, old["task_id"],
+                    "lease_expired_retry" if retry else "lease_expired_failed",
+                    {"attempt": old["attempts"]},
+                )
             row = db.execute(
                 "SELECT * FROM tasks WHERE status='queued' ORDER BY created_at, task_id LIMIT 1"
             ).fetchone()
             if row is None:
                 db.commit()
                 return None
-            now = _now()
+            lease_until = (now_dt + timedelta(seconds=self.lease_seconds)).isoformat()
             db.execute(
-                "UPDATE tasks SET status='running', attempts=attempts+1, updated_at=? "
-                "WHERE task_id=? AND status='queued'", (now, row["task_id"])
+                "UPDATE tasks SET status='running',attempts=attempts+1,updated_at=?,lease_until=? "
+                "WHERE task_id=? AND status='queued'",
+                (now, lease_until, row["task_id"]),
             )
             self._event(db, row["task_id"], "started", {"attempt": row["attempts"] + 1})
-            claimed = db.execute("SELECT * FROM tasks WHERE task_id=?", (row["task_id"],)).fetchone()
+            claimed = db.execute(
+                "SELECT * FROM tasks WHERE task_id=?", (row["task_id"],)
+            ).fetchone()
             db.commit()
             return self._row(claimed)
 
@@ -128,8 +157,10 @@ class TaskStore:
             retry = row["attempts"] < row["max_attempts"]
             status = "queued" if retry else "failed"
             now = _now()
-            db.execute("UPDATE tasks SET status=?, result=?, updated_at=? WHERE task_id=?",
-                       (status, error, now, task_id))
+            db.execute(
+                "UPDATE tasks SET status=?,result=?,updated_at=?,lease_until=NULL WHERE task_id=?",
+                (status, error, now, task_id),
+            )
             self._event(db, task_id, "retry_scheduled" if retry else "failed",
                         {"error": error, "attempt": row["attempts"]})
             updated = db.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
@@ -146,8 +177,10 @@ class TaskStore:
             if row["status"] != "running":
                 db.rollback()
                 raise ValueError("only running tasks can complete")
-            db.execute("UPDATE tasks SET status=?,result=?,updated_at=? WHERE task_id=?",
-                       (status, result, _now(), task_id))
+            db.execute(
+                "UPDATE tasks SET status=?,result=?,updated_at=?,lease_until=NULL WHERE task_id=?",
+                (status, result, _now(), task_id),
+            )
             self._event(db, task_id, event, {})
             updated = db.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
             db.commit()
@@ -155,12 +188,16 @@ class TaskStore:
 
     def get(self, task_id: str) -> dict[str, Any] | None:
         with self._connect() as db:
-            return self._row(db.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone())
+            return self._row(db.execute(
+                "SELECT * FROM tasks WHERE task_id=?", (task_id,)
+            ).fetchone())
 
     def list_tasks(self, status: str | None = None) -> list[dict[str, Any]]:
         with self._connect() as db:
             if status:
-                rows = db.execute("SELECT * FROM tasks WHERE status=? ORDER BY created_at", (status,))
+                rows = db.execute(
+                    "SELECT * FROM tasks WHERE status=? ORDER BY created_at", (status,)
+                )
             else:
                 rows = db.execute("SELECT * FROM tasks ORDER BY created_at")
             return [dict(row) for row in rows.fetchall()]
