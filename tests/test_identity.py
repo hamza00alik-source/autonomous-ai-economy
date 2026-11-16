@@ -74,6 +74,35 @@ class IdentityTests(unittest.TestCase):
                 challenge2["challenge_id"], "valid", verifier=lambda *_: True
             )
 
+    def test_key_rotation_requires_both_keys_and_records_history(self):
+        person = self.registry.create_human("rotate-me", "Rotate Me")
+        old_key = base64.urlsafe_b64encode(b"r" * 32).decode().rstrip("=")
+        new_key = base64.urlsafe_b64encode(b"n" * 32).decode().rstrip("=")
+        challenge = self.registry.begin_key_binding(person["participant_id"], old_key)
+        self.registry.complete_key_binding(
+            challenge["challenge_id"], "old-proof", verifier=lambda *_: True
+        )
+        rotation = self.registry.begin_key_rotation(person["participant_id"], new_key)
+        verifier = lambda key, message, signature: (
+            (key == old_key and signature == "old-proof")
+            or (key == new_key and signature == "new-proof")
+        )
+        with self.assertRaisesRegex(ValueError, "new-key rotation proof"):
+            self.registry.complete_key_rotation(
+                rotation["challenge_id"], "old-proof", "wrong", verifier=verifier
+            )
+        rotated = self.registry.complete_key_rotation(
+            rotation["challenge_id"], "old-proof", "new-proof", verifier=verifier
+        )
+        self.assertEqual(rotated["public_key"], new_key)
+        history = self.registry.key_history(person["participant_id"])
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["old_public_key"], old_key)
+        self.assertEqual(history[0]["new_public_key"], new_key)
+        other = self.registry.create_human("other", "Other")
+        with self.assertRaisesRegex(ValueError, "key history"):
+            self.registry.begin_key_binding(other["participant_id"], old_key)
+
     def test_invalid_agent_signature_rejected(self):
         public_key = base64.urlsafe_b64encode(b"y" * 32).decode().rstrip("=")
         challenge = self.registry.begin_agent_enrollment("worker", "Worker", public_key)
