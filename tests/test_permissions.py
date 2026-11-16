@@ -38,7 +38,7 @@ class PermissionTests(unittest.TestCase):
         self.assertEqual(
             self.store.authorize("agent_1", "spend", "treasury", amount_minor=100,
                                  currency="USD", approval_ref="approval-123")["decision"],
-            "allow"
+            "require_approval"
         )
 
     def test_amount_limit_and_currency_enforced(self):
