@@ -33,12 +33,23 @@ class ActionApprovalStore:
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.path) as db:
-            db.execute("""
+            db.executescript("""
                 CREATE TABLE IF NOT EXISTS consumed_action_approvals (
                     nonce TEXT PRIMARY KEY,
                     request_digest TEXT NOT NULL,
                     consumed_at TEXT NOT NULL
-                )
+                );
+                CREATE TABLE IF NOT EXISTS policy_decisions (
+                    event_id TEXT PRIMARY KEY,
+                    subject_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    resource TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    request_source TEXT NOT NULL,
+                    approval_digest TEXT,
+                    created_at TEXT NOT NULL
+                );
             """)
 
     @staticmethod
@@ -134,13 +145,40 @@ class PolicyEngine:
         self.approval_secret = approval_secret
         self.delegations = delegations
 
+    def _record(self, subject_id: str, action: str, resource: str,
+                decision: str, reason: str, request_source: str,
+                approval_token: str | None) -> dict[str, str]:
+        approval_digest = (hashlib.sha256(approval_token.encode("utf-8")).hexdigest()
+                           if approval_token else None)
+        with sqlite3.connect(self.approvals.path, timeout=10, isolation_level=None) as db:
+            db.execute(
+                "INSERT INTO policy_decisions VALUES(?,?,?,?,?,?,?,?,?)",
+                ("policy_" + uuid.uuid4().hex, subject_id, action, resource,
+                 decision, reason, request_source, approval_digest,
+                 datetime.now(timezone.utc).isoformat()),
+            )
+        return {"decision": decision, "reason": reason}
+
+    def audit(self, subject_id: str | None = None) -> list[dict[str, Any]]:
+        sql, params = "SELECT * FROM policy_decisions", []
+        if subject_id:
+            sql += " WHERE subject_id=?"
+            params.append(subject_id)
+        sql += " ORDER BY created_at"
+        with sqlite3.connect(self.approvals.path) as db:
+            db.row_factory = sqlite3.Row
+            return [dict(row) for row in db.execute(sql, params).fetchall()]
+
     def authorize(self, subject_id: str, action: str, resource: str, *,
                   amount_minor: int | None = None, currency: str | None = None,
                   approval_token: str | None = None,
                   delegation_id: str | None = None) -> dict[str, str]:
+        request_source = "delegation" if delegation_id else "capability"
         if delegation_id:
             if self.delegations is None:
-                return {"decision": "deny", "reason": "delegation service is not configured"}
+                return self._record(subject_id, action, resource, "deny",
+                                    "delegation service is not configured", request_source,
+                                    approval_token)
             base = self.delegations.authorize(
                 delegation_id, delegate_id=subject_id, action=action, resource=resource,
                 amount_minor=amount_minor, currency=currency,
@@ -150,15 +188,24 @@ class PolicyEngine:
                 subject_id, action, resource, amount_minor=amount_minor, currency=currency,
             )
         if base["decision"] == "deny":
-            return {"decision": "deny", "reason": base["reason"]}
+            return self._record(subject_id, action, resource, "deny", base["reason"],
+                                request_source, approval_token)
         if action not in HIGH_RISK_ACTIONS:
-            return {"decision": "allow", "reason": base["reason"]}
+            return self._record(subject_id, action, resource, "allow", base["reason"],
+                                request_source, approval_token)
         if not approval_token:
-            return {"decision": "require_approval", "reason": "high-risk action requires an exact owner approval"}
+            return self._record(subject_id, action, resource, "require_approval",
+                                "high-risk action requires an exact owner approval",
+                                request_source, None)
         valid, reason = self.approvals.consume(
             approval_token, subject_id, action, resource, self.approval_secret,
             amount_minor=amount_minor, currency=currency,
         )
         if not valid:
-            return {"decision": "require_approval", "reason": reason}
-        return {"decision": "allow", "reason": "capability/delegation and one-time owner approval verified; no action executed"}
+            return self._record(subject_id, action, resource, "require_approval",
+                                reason, request_source, approval_token)
+        return self._record(
+            subject_id, action, resource, "allow",
+            "capability/delegation and one-time owner approval verified; no action executed",
+            request_source, approval_token,
+        )
