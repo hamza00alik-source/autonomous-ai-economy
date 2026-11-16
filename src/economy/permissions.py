@@ -71,6 +71,14 @@ class CapabilityStore:
             raise ValueError("subject_id, issuer_id, action and resource are required")
         if max_amount_minor is not None and max_amount_minor < 0:
             raise ValueError("max_amount_minor must be non-negative")
+        if (max_amount_minor is None) != (currency is None):
+            raise ValueError("amount ceiling and currency must be supplied together")
+        if currency and (len(currency) != 3 or not currency.isalpha()):
+            raise ValueError("currency must be a three-letter code")
+        if expires_at:
+            expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
+                raise ValueError("expires_at must be a future timezone-aware timestamp")
         grant_id = "grant_" + uuid.uuid4().hex
         with self._connect() as db:
             db.execute(
@@ -102,11 +110,25 @@ class CapabilityStore:
         """
         decision, reason, grant_id = "deny", "no matching active capability", None
         with self._connect() as db:
-            rows = db.execute(
-                """SELECT * FROM capability_grants WHERE subject_id=? AND action=?
-                AND status='active' AND (resource=? OR resource='*')""",
-                (subject_id, action, resource),
-            ).fetchall()
+            if amount_minor is not None and amount_minor < 0:
+                reason = "amount must be non-negative"
+                rows = []
+            else:
+                participant_table = db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='participants'"
+                ).fetchone()
+                participant = (db.execute(
+                    "SELECT status FROM participants WHERE participant_id=?", (subject_id,)
+                ).fetchone() if participant_table else None)
+                if participant_table and (participant is None or participant["status"] != "active"):
+                    reason = "subject participant is missing or inactive"
+                    rows = []
+                else:
+                    rows = db.execute(
+                        """SELECT * FROM capability_grants WHERE subject_id=? AND action=?
+                        AND status='active' AND (resource=? OR resource='*')""",
+                        (subject_id, action, resource),
+                    ).fetchall()
             now = datetime.now(timezone.utc)
             for row in rows:
                 if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) <= now:
