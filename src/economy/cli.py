@@ -15,6 +15,7 @@ from .economics import UnitEconomics
 from .opportunities import Evidence, EvidenceKind, Opportunity
 from .opportunity_ranker import rank_readiness
 from .hacker_news import HackerNewsSearchProvider
+from .research_federation import MultiSourceResearch
 
 
 def demo(data_dir: Path) -> None:
@@ -62,6 +63,11 @@ def main() -> None:
     research.add_argument("query")
     research.add_argument("--limit", type=int, default=10)
     research.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    research_all = sub.add_parser("research-all", help="search both free public discovery sources; leads remain unverified")
+    research_all.add_argument("query")
+    research_all.add_argument("--limit", type=int, default=10)
+    research_all.add_argument("--data-dir", type=Path, default=Path("./data"))
 
     research_hn = sub.add_parser("research-hn", help="discover public Hacker News discussions (unverified community leads)")
     research_hn.add_argument("query")
@@ -119,6 +125,17 @@ def main() -> None:
             "candidate_count": len(candidates),
             "persistence": saved,
             "notice": "Discovery leads only. Verify original sources independently; this is not proof of buyer demand or completed sales.",
+            "candidates": [item.to_dict() for item in candidates],
+        }, indent=2))
+    elif args.command == "research-all":
+        candidates = MultiSourceResearch().discover(args.query, limit=args.limit)
+        saved = ResearchCandidateStore(args.data_dir / "research.sqlite3").save_many(candidates)
+        print(json.dumps({
+            "query": args.query,
+            "candidate_count": len(candidates),
+            "providers": ["Google News RSS", "Hacker News Search API (Algolia)"],
+            "persistence": saved,
+            "notice": "These are two discovery feeds, not verified independent buyer signals. Syndicated or linked material may overlap. Review original sources; engagement and headlines do not prove purchasing intent, sales, or profitability.",
             "candidates": [item.to_dict() for item in candidates],
         }, indent=2))
     elif args.command == "research-hn":
