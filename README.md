@@ -35,7 +35,7 @@ The demo uses simulated records only. It does not connect to a wallet or payment
 
 ## Specialist agents
 
-The deterministic specialist workflow is implemented in `src/economy/specialist_agents.py`. It organizes researcher-supplied evidence, evaluates opportunities, requires both owner approval and evidence validation before product drafting, runs a structural QA check, and prepares an unpublished listing draft only after QA passes. These agents do not browse, contact buyers, publish, or spend. See [specialist workflow](docs/specialist-workflow.md).
+The deterministic specialist workflow is implemented in `src/economy/specialist_agents.py`. It organizes supplied evidence, evaluates opportunities, requires a signed, expiring, single-use owner approval token before product drafting, runs structural QA, and prepares an unpublished listing draft only after QA passes. These agents do not browse, contact buyers, publish, or spend. See [specialist workflow](docs/specialist-workflow.md) and [owner approval controls](docs/owner-approval.md).
 
 ## Persistent queue and worker
 
@@ -61,10 +61,11 @@ See [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.m
 1. Private controller, agent registry, task protocol, and auditable ledger.
 2. Evidence-first opportunity intake and validation (implemented; live research integrations pending).
 3. Deterministic specialist workflow for research intake, analysis, product drafting, QA, and listing drafts (implemented; external AI and publishing integrations pending).
-4. Persistent SQLite task queue, one-shot worker, idempotent enqueue, bounded retries, and task event history (implemented; hosted scheduling pending; automatic recovery from expired worker leases implemented).
-5. First real customer revenue experiment.
-6. Hardened payment adapters and owner-approved treasury operations.
-7. Optional decentralized agent registration, service contracts, reputation, and settlement.
+4. Persistent SQLite task queue, one-shot worker, idempotent enqueue, bounded retries, task event history, and expired-lease recovery (implemented; hosted scheduling pending).
+5. Signed, expiring, single-use owner approval for product drafting (implemented as a local prototype; remote identity and production-grade audit controls pending).
+6. First real customer revenue experiment.
+7. Hardened payment adapters and owner-approved treasury operations.
+8. Optional decentralized agent registration, service contracts, reputation, and settlement.
 
 ## Safety
 
