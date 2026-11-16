@@ -19,6 +19,7 @@ from .research_federation import MultiSourceResearch
 from .source_verification import OriginalSourceFetcher
 from .source_review import SourceReviewStore, REVIEW_KINDS
 from .source_dossier import build_source_dossier
+from .shared_brain import SharedBrain
 
 
 def demo(data_dir: Path) -> None:
@@ -133,6 +134,31 @@ def main() -> None:
     prioritize = sub.add_parser("prioritize-opportunities", help="rank operational fit from explicit owner inputs; not a sales forecast")
     prioritize.add_argument("input_json", type=Path, help="JSON list containing dossier and assessment objects")
 
+    brain_add = sub.add_parser("brain-propose", help="propose a shared lesson; owner review required before recall")
+    brain_add.add_argument("--title", required=True)
+    brain_add.add_argument("--lesson", required=True)
+    brain_add.add_argument("--category", required=True)
+    brain_add.add_argument("--agent", required=True)
+    brain_add.add_argument("--tag", action="append", default=[])
+    brain_add.add_argument("--source-ref", action="append", default=[])
+    brain_add.add_argument("--confidence", type=float, default=0.5)
+    brain_add.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    brain_review = sub.add_parser("brain-review", help="owner approve or reject a proposed shared lesson")
+    brain_review.add_argument("memory_id")
+    brain_review.add_argument("--decision", required=True, choices=["approved", "rejected"])
+    brain_review.add_argument("--note", required=True)
+    brain_review.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    brain_list = sub.add_parser("brain-list", help="list shared lessons and review status")
+    brain_list.add_argument("--status", choices=["proposed", "approved", "rejected"])
+    brain_list.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    brain_recall = sub.add_parser("brain-recall", help="retrieve owner-approved shared lessons")
+    brain_recall.add_argument("query")
+    brain_recall.add_argument("--limit", type=int, default=8)
+    brain_recall.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     args = parser.parse_args()
     if args.command == "demo":
         demo(args.data_dir)
@@ -246,6 +272,24 @@ def main() -> None:
             currency=args.currency,
         )
         print(json.dumps(model.calculate(args.units), indent=2))
+    elif args.command == "brain-propose":
+        brain = SharedBrain(args.data_dir / "brain.sqlite3")
+        result = brain.propose(
+            title=args.title, lesson=args.lesson, category=args.category,
+            created_by=args.agent, tags=args.tag, source_refs=args.source_ref,
+            confidence=args.confidence,
+        )
+        print(json.dumps(result, indent=2))
+    elif args.command == "brain-review":
+        brain = SharedBrain(args.data_dir / "brain.sqlite3")
+        result = brain.review(
+            args.memory_id, decision=args.decision, reviewer="owner", note=args.note,
+        )
+        print(json.dumps(result, indent=2))
+    elif args.command == "brain-list":
+        print(json.dumps(SharedBrain(args.data_dir / "brain.sqlite3").list_memories(args.status), indent=2))
+    elif args.command == "brain-recall":
+        print(json.dumps(SharedBrain(args.data_dir / "brain.sqlite3").recall(args.query, limit=args.limit), indent=2))
     elif args.command == "prioritize-opportunities":
         from .opportunity_prioritizer import prioritize_opportunities
         raw = json.loads(args.input_json.read_text(encoding="utf-8"))
