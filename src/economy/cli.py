@@ -382,6 +382,29 @@ def main() -> None:
             ))
         print(json.dumps([result.to_dict() for result in rank_readiness(opportunities)], indent=2))
 
+    elif args.command == "participant-create-human":
+        registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
+        print(json.dumps(registry.create_human(args.handle, args.display_name, args.account_control), indent=2))
+    elif args.command == "participant-list":
+        print(json.dumps(ParticipantRegistry(args.data_dir / "participants.sqlite3").list_participants(args.type), indent=2))
+    elif args.command == "agent-enrollment-challenge":
+        registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
+        print(json.dumps(registry.begin_agent_enrollment(args.handle, args.display_name, args.public_key, args.operator_id), indent=2))
+    elif args.command == "agent-enrollment-complete":
+        registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
+        print(json.dumps(registry.complete_agent_enrollment(args.challenge_id, args.signature), indent=2))
+    elif args.command == "capability-grant":
+        store = CapabilityStore(args.data_dir / "participants.sqlite3")
+        grant_id = store.grant(args.subject, args.issuer, args.action, args.resource,
+                               expires_at=args.expires_at, max_amount_minor=args.max_amount_minor,
+                               currency=args.currency)
+        print(json.dumps({"grant_id": grant_id, "notice": "Local prototype grant; issuer authority is not authenticated by this CLI."}, indent=2))
+    elif args.command == "authorize":
+        store = CapabilityStore(args.data_dir / "participants.sqlite3")
+        print(json.dumps(store.authorize(args.subject, args.action, args.resource,
+                                         amount_minor=args.amount_minor, currency=args.currency,
+                                         approval_ref=args.approval_ref), indent=2))
+
 
 if __name__ == "__main__":
     main()
