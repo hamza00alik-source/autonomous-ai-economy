@@ -12,6 +12,8 @@ from .research_sources import GoogleNewsRSSProvider
 from .research_store import ResearchCandidateStore
 from .research_engine import ResearchDiscoveryEngine
 from .economics import UnitEconomics
+from .opportunities import Evidence, EvidenceKind, Opportunity
+from .opportunity_ranker import rank_readiness
 
 
 def demo(data_dir: Path) -> None:
@@ -84,6 +86,9 @@ def main() -> None:
     economics.add_argument("--units", type=int, default=1)
     economics.add_argument("--currency", default="USD")
 
+    rank = sub.add_parser("rank-opportunities", help="rank JSON opportunity dossiers by evidence completeness only")
+    rank.add_argument("input_json", type=Path)
+
     args = parser.parse_args()
     if args.command == "demo":
         demo(args.data_dir)
@@ -137,6 +142,25 @@ def main() -> None:
             currency=args.currency,
         )
         print(json.dumps(model.calculate(args.units), indent=2))
+    elif args.command == "rank-opportunities":
+        raw = json.loads(args.input_json.read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            raise ValueError("input JSON must be a list of opportunity objects")
+        opportunities = []
+        for item in raw:
+            evidence = tuple(Evidence(
+                source_name=e["source_name"], url=e["url"], observed_on=e["observed_on"],
+                kind=EvidenceKind(e["kind"]), finding=e["finding"],
+                independent_source=e.get("independent_source", True),
+            ) for e in item.get("evidence", []))
+            opportunities.append(Opportunity(
+                title=item["title"], buyer_segment=item["buyer_segment"], problem=item["problem"],
+                proposed_solution=item["proposed_solution"], delivery_format=item["delivery_format"],
+                estimated_startup_cost_minor=item["estimated_startup_cost_minor"],
+                currency=item.get("currency", "USD"), legal_risk_notes=item.get("legal_risk_notes", ""),
+                evidence=evidence,
+            ))
+        print(json.dumps([result.to_dict() for result in rank_readiness(opportunities)], indent=2))
 
 
 if __name__ == "__main__":
