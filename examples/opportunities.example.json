@@ -1,0 +1,42 @@
+[
+  {
+    "title": "Editable invoice tracker",
+    "buyer_segment": "Freelancers and very small businesses",
+    "problem": "Manual invoice tracking",
+    "proposed_solution": "A downloadable spreadsheet invoice tracker",
+    "delivery_format": "XLSX and PDF",
+    "estimated_startup_cost_minor": 0,
+    "currency": "USD",
+    "legal_risk_notes": "Check marketplace rules, tax wording, and spreadsheet licensing.",
+    "evidence": [
+      {
+        "source_name": "Example buyer discussion",
+        "url": "https://example.com/buyer-discussion",
+        "observed_on": "2026-11-16",
+        "kind": "buyer_signal",
+        "finding": "Example placeholder only: replace with a real, reviewed buyer request."
+      },
+      {
+        "source_name": "Example competitor listing",
+        "url": "https://example.org/competitor",
+        "observed_on": "2026-11-16",
+        "kind": "competitor",
+        "finding": "Example placeholder only: replace with verified competitor information."
+      },
+      {
+        "source_name": "Example marketplace fee schedule",
+        "url": "https://example.net/fees",
+        "observed_on": "2026-11-16",
+        "kind": "cost",
+        "finding": "Example placeholder only: enter actual fees."
+      },
+      {
+        "source_name": "Example marketplace policy",
+        "url": "https://example.edu/policy",
+        "observed_on": "2026-11-16",
+        "kind": "legal_or_policy",
+        "finding": "Example placeholder only: review the real policy."
+      }
+    ]
+  }
+]
