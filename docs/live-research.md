@@ -43,3 +43,36 @@ economy research-review CANDIDATE_ID --note "Checked the original publisher; sti
 ```
 
 Candidate IDs are deduplicated in SQLite. Re-running a search reports how many items were newly inserted versus already present. Review status can move from `unverified` to `owner_reviewed` only through the explicit review command, which requires a non-empty note. It cannot be reset or used to manufacture buyer evidence. The original candidate payload remains unverified and `sales_verified=false`; owner review is an audit note, not proof of demand, a commercial approval, or permission to publish or spend. The local database is not encrypted or tamper-proof; keep it on a trusted device and back it up appropriately.
+
+
+## Multi-query discovery
+
+Run up to ten related searches in one command:
+
+```bash
+economy research-batch --query "small business spreadsheet template" --query "invoice template sellers" --query "inventory tracker download"
+```
+
+The coordinator deduplicates by article URL and stores the resulting leads in the same SQLite review queue. All queries still use the single Google News RSS provider. This is not multi-source corroboration: do not count multiple queries or syndicated copies as independent buyer signals.
+
+## Evidence-readiness ranking
+
+Prepare a JSON file containing opportunity dossiers and source-backed evidence, then run:
+
+```bash
+economy rank-opportunities opportunities.json
+```
+
+Each dossier uses fields `title`, `buyer_segment`, `problem`, `proposed_solution`, `delivery_format`, `estimated_startup_cost_minor`, optional `currency`, optional `legal_risk_notes`, and an `evidence` array. Each evidence item uses `source_name`, `url`, `observed_on` (YYYY-MM-DD), `kind` (`buyer_signal`, `competitor`, `market_context`, `legal_or_policy`, or `cost`), `finding`, and optional `independent_source`.
+
+The readiness score rewards documentation of buyer signals, competitor context, costs, legal/policy review, market context, and distinct sources. It is **not** a market-size, willingness-to-pay, sales, or profit score. The existing validator remains the stricter owner-review gate.
+
+## Unit economics
+
+All monetary amounts use the smallest currency unit (for USD, cents). Example:
+
+```bash
+economy unit-economics --price-minor 999 --variable-cost-minor 100 --setup-cost-minor 500 --platform-fee-bps 1000 --payment-fee-bps 300 --fixed-fee-minor 30 --units 10 --currency USD
+```
+
+Fee rates are basis points (100 bps = 1%). Include realistic platform/payment fees, taxes, refunds, chargebacks, delivery costs, and other overhead in your inputs where applicable. The result is a scenario calculation only; it does not predict sales or guarantee positive net profit.
