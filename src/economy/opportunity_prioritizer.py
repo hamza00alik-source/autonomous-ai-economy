@@ -135,7 +135,7 @@ def prioritize_opportunities(items: list[dict[str, Any]]) -> list[dict[str, Any]
             "operational_fit_score": score,
             "score_label": "relative_operational_fit_from_owner_inputs",
             "score_components": components,
-            "assessment_completeness": round(100 * (5 - len(missing)) / 5),
+            "assessment_completeness": round(100 * (6 - len(missing)) / 6),
             "missing_information": missing,
             "owner_inputs": {
                 "startup_cost_minor": a.startup_cost_minor,
