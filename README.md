@@ -33,6 +33,10 @@ Windows PowerShell activation: `.venv\Scripts\Activate.ps1`.
 
 The demo uses simulated records only. It does not connect to a wallet or payment provider.
 
+## Specialist agents
+
+The deterministic specialist workflow is implemented in `src/economy/specialist_agents.py`. It organizes researcher-supplied evidence, evaluates opportunities, requires both owner approval and evidence validation before product drafting, runs a structural QA check, and prepares an unpublished listing draft only after QA passes. These agents do not browse, contact buyers, publish, or spend. See [specialist workflow](docs/specialist-workflow.md).
+
 ## Opportunity validation
 
 The opportunity workflow accepts source-backed findings and checks for independent buyer signals, competitor evidence, costs, legal/policy review, and distinct source URLs. Passing these checks only creates an **owner-review** candidate; it never authorizes publishing or spending. A visible listing is not proof of sales, and the workflow does not infer willingness to pay from weak signals. See [research validation](docs/research-validation.md).
@@ -41,6 +45,7 @@ The opportunity workflow accepts source-backed findings and checks for independe
 
 - **Controller:** routes and executes work.
 - **Agent registry:** identifies specialist agents and capabilities.
+- **Specialist workflow:** research intake, opportunity analysis, approval-gated product drafting, QA, and listing-draft preparation.
 - **Task protocol:** tracks work and verification.
 - **Ledger:** append-only simulated accounting.
 - **Treasury boundary:** future real-money adapters remain disabled pending review and approval.
@@ -50,11 +55,12 @@ See [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.m
 ## Roadmap
 
 1. Private controller, agent registry, task protocol, and auditable ledger.
-2. Evidence-first opportunity intake and validation (implemented as a deterministic gate; live research agent pending).
-3. Production, quality assurance, and customer-delivery workflows.
-4. First real customer revenue experiment.
-5. Hardened payment adapters and owner-approved treasury operations.
-6. Optional decentralized agent registration, service contracts, reputation, and settlement.
+2. Evidence-first opportunity intake and validation (implemented; live research integrations pending).
+3. Deterministic specialist workflow for research intake, analysis, product drafting, QA, and listing drafts (implemented; external AI and publishing integrations pending).
+4. Persistent task queue, background worker, and customer-delivery workflows.
+5. First real customer revenue experiment.
+6. Hardened payment adapters and owner-approved treasury operations.
+7. Optional decentralized agent registration, service contracts, reputation, and settlement.
 
 ## Safety
 
