@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .identity import verify_ed25519
+from .permissions import HIGH_RISK_ACTIONS
 
 POLICY_VERSION = "1"
 MAX_DELEGATION_DEPTH = 5
@@ -229,6 +230,10 @@ class DelegationStore:
                     allowed, reason = False, "currency does not match delegation"
             elif allowed and row["max_amount_minor"] is not None:
                 allowed, reason = False, "amount and currency are required by delegation ceiling"
+            if allowed and action in HIGH_RISK_ACTIONS:
+                return {"decision": "require_approval",
+                        "reason": "high-risk action requires a separately verified owner approval",
+                        "delegation_id": delegation_id}
             return {"decision": "allow" if allowed else "deny", "reason": reason,
                     "delegation_id": delegation_id}
 
