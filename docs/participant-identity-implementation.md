@@ -52,6 +52,15 @@ economy agent-enrollment-complete --challenge-id CHALLENGE_ID --signature SIGNAT
 
 The challenge is single-use and expires after five minutes by default. The cryptography package is an optional dependency; enrollment fails closed if it is missing.
 
+Human or organization signing-key binding (this proves control of the key only, not legal identity):
+
+```bash
+economy participant-key-challenge --participant-id HUMAN_OR_ORG_ID --public-key PUBLIC_KEY_BASE64
+economy participant-key-bind --challenge-id CHALLENGE_ID --signature SIGNATURE_BASE64URL
+```
+
+The participant signs the exact UTF-8 challenge returned by the first command. The key is bound only after successful proof of possession.
+
 Capability example (local prototype administration only):
 
 ```bash
@@ -67,9 +76,9 @@ This is a single-host local prototype, not a production public identity service:
 - CLI commands are local administrative operations; there is no remote authentication, session management, rate limiting, abuse detection, CAPTCHA, recovery portal or public API.
 - A CLI caller can currently create human/organization records and grants if they can access the local database and run the command. Production owner/issuer authentication is not yet implemented.
 - The `approval_ref` is a reference string only. The authorization module does not validate its signature, issuer, scope, expiry or single-use status. Production must integrate a verified approval service before any high-risk operation can execute.
-- Agent operator references are stored, but the complete signed delegation chain and revocation propagation are not implemented.
+- Signed bounded agent delegation is implemented in a separate local module with trusted-root pinning, scope narrowing, expiry, depth limits and ancestor revocation; see [signed delegation](signed-delegation.md).
 - Identity claim rows are records, not proof that the issuer or evidence is genuine. No external VC/DID resolver or KYC provider is integrated.
-- Reputation, dispute, appeal and independent work verification are not implemented by this module.
+- Signed work receipts, buyer acceptance, dispute records and conservative reputation counts are implemented in a separate local module; see [work receipts, reputation and disputes](work-receipts-reputation-disputes.md). Appeals and independent work verification remain future work.
 - SQLite files are not encrypted or tamper-proof. Protect the host and backups.
 - No payment, wallet, escrow, custody, treasury or external transaction function is enabled.
 
