@@ -174,10 +174,12 @@ class TaskAgreementStore:
                 raise ValueError("provider response signature is invalid")
             status = "accepted" if decision == "accept" else "declined"
             now = datetime.now(timezone.utc).isoformat()
-            db.execute(
-                "UPDATE task_agreements SET status=?,provider_signature=?,updated_at=? WHERE task_id=?",
+            updated = db.execute(
+                "UPDATE task_agreements SET status=?,provider_signature=?,updated_at=? WHERE task_id=? AND status='offered'",
                 (status, signature, now, task_id),
             )
+            if updated.rowcount != 1:
+                raise ValueError("task offer state changed before provider response completed")
             self._event(db, task_id, provider_id, status, "provider-signed offer response")
         return self.get(task_id)
 
@@ -191,8 +193,12 @@ class TaskAgreementStore:
             if not self.verifier(key, payload, signature):
                 raise ValueError("buyer withdrawal signature is invalid")
             now = datetime.now(timezone.utc).isoformat()
-            db.execute("UPDATE task_agreements SET status='withdrawn',updated_at=? WHERE task_id=?",
-                       (now, task_id))
+            updated = db.execute(
+                "UPDATE task_agreements SET status='withdrawn',updated_at=? WHERE task_id=? AND status='offered'",
+                (now, task_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("task offer state changed before withdrawal completed")
             self._event(db, task_id, buyer_id, "withdrawn", "buyer-signed offer withdrawal")
 
     def get(self, task_id: str) -> dict[str, Any]:
