@@ -1,6 +1,6 @@
 # Public news discovery adapter
 
-The first zero-cost live discovery adapter uses Google News' public RSS endpoint. It requires no API key, paid plan, or third-party Python dependency.
+The first zero-cost live discovery adapter uses Google News' public RSS endpoint. A separate Hacker News/Algolia community-discussion adapter is also available. Both require no API key, paid plan, or third-party Python dependency.
 
 ## Run a search
 
@@ -30,6 +30,21 @@ This is a narrow public-news discovery integration, not a general web search eng
 
 A separate provider interface and marketplace/source adapters can be added later. Any provider requiring credentials, paid API usage, or a metered service must remain disabled until the owner explicitly approves its cost and credentials setup.
 
+
+## Independent community-discussion source: Hacker News
+
+A second, separately operated discovery source is available through the public Hacker News Search API powered by Algolia. It requires no API key or paid plan.
+
+```bash
+economy research-hn "invoice workflow"
+economy research-hn "small business inventory" --limit 20
+```
+
+The adapter searches public Hacker News stories, stores the HN discussion permalink, optional external article URL, author, publication timestamp, points, and comment count. It only calls HTTPS on `hn.algolia.com`, rejects cross-host redirects, applies a 12-second timeout, limits response bodies to 1 MB, and caps results at 50.
+
+**Interpretation warning:** Hacker News is a technical-community discussion source, not a representative sample of all buyers. Points and comment counts measure platform engagement, not purchasing intent or sales. An Ask HN request or complaint is a possible qualitative problem signal only. Review the original thread, check context and date, and seek independent buyer evidence. The provider does not fetch external article URLs, create buyer-signal evidence, or verify transactions.
+
+Google News and Hacker News are separate discovery providers, but that alone does not make two records independent evidence: the same story may be syndicated, and a discussion may link to the same article. Check the underlying source and avoid double-counting repeated material.
 
 ## Persistent local review queue
 
