@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from .shared_brain import SharedBrainContext
 from .opportunities import (
     Evidence, Opportunity, OpportunityValidator, ValidationReport, ValidationStatus,
 )
@@ -20,6 +21,7 @@ class ResearchBrief:
     evidence_gaps: tuple[str, ...]
     claims: tuple[str, ...]
     external_research_performed: bool = False
+    relevant_lessons: tuple[dict, ...] = ()
 
 
 class MarketResearchAgent:
@@ -27,6 +29,9 @@ class MarketResearchAgent:
 
     agent_id = "market-research"
     role = "market research"
+
+    def __init__(self, memory: SharedBrainContext | None = None) -> None:
+        self.memory = memory
 
     def prepare_brief(self, question: str, evidence: Iterable[Evidence]) -> ResearchBrief:
         question = " ".join(question.split())
@@ -44,7 +49,8 @@ class MarketResearchAgent:
         ):
             if kind not in {value.value for value in present}:
                 gaps.append(f"Missing independent {kind.replace('_', ' ')} evidence")
-        return ResearchBrief(question, rows, tuple(gaps), claims)
+        lessons = tuple(self.memory.recall(question)) if self.memory else ()
+        return ResearchBrief(question, rows, tuple(gaps), claims, relevant_lessons=lessons)
 
 
 @dataclass(frozen=True)
@@ -52,14 +58,17 @@ class AnalysisResult:
     opportunity: Opportunity
     report: ValidationReport
     recommendation: str
+    relevant_lessons: tuple[dict, ...] = ()
 
 
 class OpportunityAnalystAgent:
     agent_id = "opportunity-analyst"
     role = "opportunity analysis"
 
-    def __init__(self, validator: OpportunityValidator | None = None) -> None:
+    def __init__(self, validator: OpportunityValidator | None = None,
+                 memory: SharedBrainContext | None = None) -> None:
         self.validator = validator or OpportunityValidator()
+        self.memory = memory
 
     def analyze(self, opportunity: Opportunity) -> AnalysisResult:
         report = self.validator.evaluate(opportunity)
@@ -68,7 +77,10 @@ class OpportunityAnalystAgent:
             if report.status is ValidationStatus.OWNER_REVIEW
             else "Do not proceed to product creation; close the evidence gaps first."
         )
-        return AnalysisResult(opportunity, report, recommendation)
+        lessons = tuple(self.memory.recall(
+            f"{opportunity.title} {opportunity.problem} {opportunity.proposed_solution}"
+        )) if self.memory else ()
+        return AnalysisResult(opportunity, report, recommendation, lessons)
 
 
 @dataclass(frozen=True)
