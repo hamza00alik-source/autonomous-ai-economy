@@ -45,10 +45,16 @@ engine = PolicyEngine(
     capabilities, approvals,
     approval_secret=ACTION_APPROVAL_SECRET,
 )
+# Create this token only after the owner has explicitly reviewed and approved
+# the exact subject/action/resource/amount/currency request.
+owner_approved_token = ActionApprovalStore.create_token(
+    AGENT_ID, "spend", "treasury:main", ACTION_APPROVAL_SECRET,
+    amount_minor=250, currency="USD",
+)
 decision = engine.authorize(
     AGENT_ID, "spend", "treasury:main",
     amount_minor=250, currency="USD",
-    approval_token=OWNER_APPROVED_TOKEN,
+    approval_token=owner_approved_token,
 )
 # "allow" is an authorization decision only; it does not execute a transfer.
 ```
