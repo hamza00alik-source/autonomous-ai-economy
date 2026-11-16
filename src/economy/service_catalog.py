@@ -89,8 +89,8 @@ class ServiceCatalog:
             "SELECT public_key,status,participant_type FROM participants WHERE participant_id=?",
             (provider_id,),
         ).fetchone()
-        if row is None or row["status"] != "active" or row["participant_type"] != "agent" or not row["public_key"]:
-            raise ValueError("provider must be an active registered agent with a signing key")
+        if row is None or row["status"] != "active" or row["participant_type"] not in {"agent", "human", "organization"} or not row["public_key"]:
+            raise ValueError("provider must be an active human, agent or organization with a signing key")
         return row["public_key"]
 
     def create_draft(self, *, provider_id: str, slug: str, title: str,
@@ -150,7 +150,7 @@ class ServiceCatalog:
             approval_payload = self.publication_payload(listing_id, payload)
             if not approval_verifier(approval_ref, approval_payload):
                 raise ValueError("owner approval is invalid, expired, mismatched or already consumed")
-            now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             db.execute("UPDATE service_listings SET status='active',updated_at=? WHERE listing_id=?",
                        (now, listing_id))
             self._event(db, listing_id, "owner", "published", "owner approval verifier accepted exact listing fingerprint")
