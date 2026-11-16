@@ -54,7 +54,7 @@ No tier automatically grants treasury access. A cryptographic key proves key con
 
 ## Execution lifecycle
 
-`proposed → authorized → assigned → running → submitted → independently verified → accepted/rejected → settled`
+`service listing draft → owner-approved local activation → buyer-signed task offer → provider acceptance → running → signed work receipt → buyer acceptance/rejection or dispute → settlement (disabled)`
 
 Settlement remains simulated until a separately approved live payment integration exists. Rejected and disputed tasks retain their evidence and appeal status.
 
