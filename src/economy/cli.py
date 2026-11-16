@@ -9,6 +9,7 @@ from .models import LedgerEntry
 from .task_store import TaskStore
 from .worker import run_once
 from .research_sources import GoogleNewsRSSProvider
+from .research_store import ResearchCandidateStore
 
 
 def demo(data_dir: Path) -> None:
@@ -55,6 +56,16 @@ def main() -> None:
     research = sub.add_parser("research-news", help="discover public news leads (unverified; no sales claims)")
     research.add_argument("query")
     research.add_argument("--limit", type=int, default=10)
+    research.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    research_list = sub.add_parser("research-list", help="list saved discovery leads")
+    research_list.add_argument("--status", choices=["unverified", "owner_reviewed"])
+    research_list.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    research_review = sub.add_parser("research-review", help="record an explicit owner review note")
+    research_review.add_argument("candidate_id")
+    research_review.add_argument("--note", required=True)
+    research_review.add_argument("--data-dir", type=Path, default=Path("./data"))
 
     args = parser.parse_args()
     if args.command == "demo":
@@ -74,12 +85,20 @@ def main() -> None:
         print(json.dumps({"task": store.get(args.task_id), "events": store.events(args.task_id)}, indent=2))
     elif args.command == "research-news":
         candidates = GoogleNewsRSSProvider().search(args.query, limit=args.limit)
+        saved = ResearchCandidateStore(args.data_dir / "research.sqlite3").save_many(candidates)
         print(json.dumps({
             "query": args.query,
             "candidate_count": len(candidates),
+            "persistence": saved,
             "notice": "Discovery leads only. Verify original sources independently; this is not proof of buyer demand or completed sales.",
             "candidates": [item.to_dict() for item in candidates],
         }, indent=2))
+    elif args.command == "research-list":
+        store = ResearchCandidateStore(args.data_dir / "research.sqlite3")
+        print(json.dumps(store.list_candidates(args.status), indent=2))
+    elif args.command == "research-review":
+        store = ResearchCandidateStore(args.data_dir / "research.sqlite3")
+        print(json.dumps(store.mark_owner_reviewed(args.candidate_id, args.note), indent=2))
 
 
 if __name__ == "__main__":
