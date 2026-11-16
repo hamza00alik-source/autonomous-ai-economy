@@ -1,0 +1,65 @@
+import base64
+import tempfile
+import unittest
+from pathlib import Path
+
+from economy.identity import ParticipantRegistry
+
+
+class IdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.registry = ParticipantRegistry(Path(self.tmp.name) / "participants.sqlite3")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_human_account_is_not_claimed_as_kyc_verified(self):
+        person = self.registry.create_human("alice", "Alice")
+        self.assertEqual(person["participant_type"], "human")
+        self.assertEqual(person["metadata"]["account_control_method"], "unverified")
+        self.assertEqual(person["status"], "active")
+
+    def test_duplicate_handle_rejected(self):
+        self.registry.create_human("alice", "Alice")
+        with self.assertRaises(Exception):
+            self.registry.create_human("alice", "Alice 2")
+
+    def test_agent_challenge_requires_valid_signature_and_consumes_once(self):
+        public_key = base64.urlsafe_b64encode(b"x" * 32).decode().rstrip("=")
+        challenge = self.registry.begin_agent_enrollment("worker", "Worker", public_key)
+        verified = []
+        def verifier(key, message, signature):
+            verified.append((key, message, signature))
+            return signature == "valid"
+        agent = self.registry.complete_agent_enrollment(
+            challenge["challenge_id"], "valid", verifier=verifier
+        )
+        self.assertEqual(agent["participant_type"], "agent")
+        self.assertEqual(agent["metadata"]["identity_method"], "ed25519_possession")
+        with self.assertRaises(ValueError):
+            self.registry.complete_agent_enrollment(
+                challenge["challenge_id"], "valid", verifier=verifier
+            )
+
+    def test_invalid_agent_signature_rejected(self):
+        public_key = base64.urlsafe_b64encode(b"y" * 32).decode().rstrip("=")
+        challenge = self.registry.begin_agent_enrollment("worker", "Worker", public_key)
+        with self.assertRaises(ValueError):
+            self.registry.complete_agent_enrollment(
+                challenge["challenge_id"], "invalid", verifier=lambda *_: False
+            )
+
+    def test_claim_scope_is_explicit(self):
+        person = self.registry.create_human("bob", "Bob")
+        claim_id = self.registry.add_claim(
+            person["participant_id"], "account_control", "local-test", "account",
+            status="self_asserted"
+        )
+        claims = self.registry.claims(person["participant_id"])
+        self.assertEqual(claims[0]["claim_id"], claim_id)
+        self.assertEqual(claims[0]["status"], "self_asserted")
+
+
+if __name__ == "__main__":
+    unittest.main()
