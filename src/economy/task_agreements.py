@@ -142,6 +142,22 @@ class TaskAgreementStore:
             self._event(db, task_id, buyer_id, "offered", "buyer-signed task offer")
         return self.get(task_id)
 
+    def response_signing_bytes(self, task_id: str, provider_id: str,
+                               decision: str) -> bytes:
+        if decision not in {"accept", "decline"}:
+            raise ValueError("decision must be accept or decline")
+        row = self.get(task_id)
+        if row["provider_id"] != provider_id or row["status"] != "offered":
+            raise ValueError("open offer not found or provider is not authorized")
+        import hashlib
+        digest = hashlib.sha256(_canonical(row["offer"])).hexdigest()
+        return self.response_payload(task_id, provider_id, decision, digest)
+
+    @staticmethod
+    def withdrawal_signing_bytes(task_id: str, buyer_id: str) -> bytes:
+        return _canonical({"version": "1", "event": "task_offer_withdrawal",
+                           "task_id": task_id, "buyer_id": buyer_id})
+
     def respond(self, task_id: str, *, provider_id: str, decision: str,
                 signature: str) -> dict[str, Any]:
         if decision not in {"accept", "decline"}:
@@ -171,8 +187,7 @@ class TaskAgreementStore:
             if row is None or row["buyer_id"] != buyer_id or row["status"] != "offered":
                 raise ValueError("open offer not found or buyer is not authorized")
             key = self._key(db, buyer_id)
-            payload = _canonical({"version": "1", "event": "task_offer_withdrawal",
-                                  "task_id": task_id, "buyer_id": buyer_id})
+            payload = self.withdrawal_signing_bytes(task_id, buyer_id)
             if not self.verifier(key, payload, signature):
                 raise ValueError("buyer withdrawal signature is invalid")
             now = datetime.now(timezone.utc).isoformat()
