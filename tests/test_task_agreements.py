@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from economy.identity import ParticipantRegistry
-from economy.service_catalog import ServiceCatalog
+from economy.service_catalog import CatalogApprovalStore, ServiceCatalog
 from economy.task_agreements import TaskAgreementStore
 from economy.work_records import WorkRecordStore
 
@@ -29,9 +29,16 @@ class TaskAgreementTests(unittest.TestCase):
             category="design", delivery_format="source files", terms="One delivery",
             signature="provider-signature",
         )
-        self.listing = self.catalog.publish(
-            draft["listing_id"], approval_ref="owner-approved",
-            approval_verifier=lambda *_: True,
+        catalog_secret = "catalog-owner-secret-" * 2
+        listing_payload = self.catalog.publication_payload(
+            draft["listing_id"], draft["payload"]
+        )
+        approval_token = CatalogApprovalStore.create_token(
+            draft["listing_id"], listing_payload, catalog_secret
+        )
+        self.listing = self.catalog.publish_with_token(
+            draft["listing_id"], approval_token=approval_token,
+            approval_secret=catalog_secret,
         )
         self.store = TaskAgreementStore(
             self.path, verifier=lambda key, payload, signature: signature != "bad"
