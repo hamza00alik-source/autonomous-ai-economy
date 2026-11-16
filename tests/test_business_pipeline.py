@@ -5,6 +5,7 @@ from pathlib import Path
 from economy.approvals import OwnerApprovalStore, create_approval_token
 from economy.opportunities import Evidence, EvidenceKind, Opportunity
 from economy.business_pipeline import OpportunityToListingPipeline
+from economy.shared_brain import SharedBrain
 
 
 class BusinessPipelineTests(unittest.TestCase):
@@ -53,6 +54,27 @@ class BusinessPipelineTests(unittest.TestCase):
             replay = pipeline.run(opportunity, approval_token=token, approval_secret=secret)
             self.assertEqual(replay.status, "awaiting_owner_approval")
             self.assertIn("already been used", replay.blockers[0])
+
+    def test_pipeline_agents_recall_the_same_owner_approved_team_lesson(self):
+        with tempfile.TemporaryDirectory() as directory:
+            brain = SharedBrain(Path(directory) / "brain.sqlite3")
+            memory = brain.propose(
+                title="Evidence provenance",
+                lesson="Preserve original source links when assessing buyer demand.",
+                category="research_quality", created_by="market-research",
+                tags=["buyer", "demand", "evidence"],
+                source_refs=["https://example.com/research"], confidence=0.9,
+            )
+            brain.review(memory["memory_id"], decision="approved",
+                         reviewer="owner", note="Source checked.")
+            result = OpportunityToListingPipeline(
+                OwnerApprovalStore(Path(directory) / "approvals.sqlite3"),
+                shared_brain=brain,
+            ).run(self.opportunity())
+            self.assertTrue(result.research.relevant_lessons)
+            self.assertTrue(result.analysis.relevant_lessons)
+            self.assertEqual(result.research.relevant_lessons[0]["memory_id"], memory["memory_id"])
+            self.assertEqual(result.analysis.relevant_lessons[0]["memory_id"], memory["memory_id"])
 
     def test_pipeline_blocks_insufficient_evidence(self):
         opportunity = self.opportunity()
