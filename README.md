@@ -6,7 +6,7 @@ A zero-cost-first private AI economy designed to grow into an open ecosystem whe
 
 ## Current status
 
-**Early prototype.** Controller, agent registry, task workflow, simulated ledger, evidence-first opportunity validation, tests, and security documentation are committed. It now has two free discovery feeds (Google News RSS and Hacker News), a combined search command, persistent SQLite lead storage, a manual allowlisted original-source retrieval command, evidence-readiness ranking, and a unit-economics calculator. Retrieval is not verification: no claim is promoted automatically to buyer evidence. It still does not provide broad web crawling, live AI model execution, real customer acquisition, or revenue. It does not call live AI models, operate continuously, serve customers, or move real funds.
+**Early prototype.** Controller, agent registry, task workflow, simulated ledger, evidence-first opportunity validation, tests, and security documentation are committed. It now has two free discovery feeds (Google News RSS and Hacker News), a combined search command, persistent SQLite lead storage, a manual allowlisted original-source retrieval command, owner-classified source snapshots with URL/content-hash deduplication, evidence-readiness ranking, and a unit-economics calculator. Retrieval is not verification: no claim is promoted automatically to buyer evidence. It still does not provide broad web crawling, live AI model execution, real customer acquisition, or revenue. It does not call live AI models, operate continuously, serve customers, or move real funds.
 
 ## Principles
 
@@ -43,7 +43,7 @@ The SQLite task queue survives process restarts and exposes `economy enqueue`, `
 
 ## Opportunity validation
 
-The opportunity workflow accepts source-backed findings and checks for independent buyer signals, competitor evidence, costs, legal/policy review, and distinct source URLs. Passing these checks only creates an **owner-review** candidate; it never authorizes publishing or spending. A visible listing is not proof of sales, and the workflow does not infer willingness to pay from weak signals. Free public discovery commands include `economy research-news "your query"` (Google News RSS), `economy research-hn "your query"` (Hacker News discussions), and `economy research-all "your query"` (both providers); all save unverified leads to the same local SQLite review queue. Use `economy research-fetch "https://publisher.example/article" --allowed-host publisher.example` to manually retrieve a single explicitly allowlisted original source; this records a content hash and bounded text sample but does not create evidence. Use `economy research-list` to inspect them and `economy research-review ID --note "..."` to record an explicit owner review. Review status never creates buyer evidence or validates sales. Additional commands: `economy research-batch --query "..." --query "..."`, `economy rank-opportunities opportunities.json`, and `economy unit-economics --price-minor 999 --variable-cost-minor 100`. Read [live research adapter limits](docs/live-research.md) for formats and limitations.
+The opportunity workflow accepts source-backed findings and checks for independent buyer signals, competitor evidence, costs, legal/policy review, and distinct source URLs. Passing these checks only creates an **owner-review** candidate; it never authorizes publishing or spending. A visible listing is not proof of sales, and the workflow does not infer willingness to pay from weak signals. Free public discovery commands include `economy research-news "your query"` (Google News RSS), `economy research-hn "your query"` (Hacker News discussions), and `economy research-all "your query"` (both providers); all save unverified leads to the same local SQLite review queue. Use `economy research-fetch "https://publisher.example/article" --allowed-host publisher.example` to manually retrieve a single explicitly allowlisted original source; this records a content hash and bounded text sample but does not create evidence. Save its JSON output, then use `economy source-review snapshot.json --kind supports_buyer_problem --finding "..." --note "..."` to record an explicit owner classification; `economy source-review-list` displays reviewed snapshots. Duplicate normalized URLs and identical content hashes are rejected. Owner classification remains unverified research and never creates an evidence object. Use `economy research-list` to inspect them and `economy research-review ID --note "..."` to record an explicit owner review. Review status never creates buyer evidence or validates sales. Additional commands: `economy research-batch --query "..." --query "..."`, `economy rank-opportunities opportunities.json`, and `economy unit-economics --price-minor 999 --variable-cost-minor 100`. Read [live research adapter limits](docs/live-research.md) for formats and limitations.
 
 ## Architecture
 
@@ -60,13 +60,13 @@ See [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.m
 
 1. Private controller, agent registry, task protocol, and auditable ledger.
 2. Evidence-first opportunity intake and validation (implemented).
-3. Free multi-query public-news RSS discovery plus persistent, deduplicated SQLite lead queue and explicit owner-review notes (implemented; one provider, leads remain unverified).\n4. Evidence-readiness ranking and unit-economics scenario calculator (implemented; not demand or sales forecasts).
-5. Deterministic specialist workflow for research intake, analysis, product drafting, QA, and listing drafts (implemented; external AI and publishing integrations pending).
-6. Persistent SQLite task queue, one-shot worker, idempotent enqueue, bounded retries, task event history, and expired-lease recovery (implemented; hosted scheduling pending).
-7. Signed, expiring, single-use owner approval for product drafting (implemented as a local prototype; remote identity and production-grade audit controls pending).
-8. First real customer revenue experiment.
-9. Hardened payment adapters and owner-approved treasury operations.
-10. Optional decentralized agent registration, service contracts, reputation, and settlement.
+3. Free multi-query public-news RSS discovery plus persistent, deduplicated SQLite lead queue and explicit owner-review notes (implemented; one provider, leads remain unverified).\n4. Manual allowlisted source retrieval and owner-classified snapshot review with duplicate URL/content-hash rejection (implemented; not fact verification or evidence creation).\n5. Evidence-readiness ranking and unit-economics scenario calculator (implemented; not demand or sales forecasts).
+6. Deterministic specialist workflow for research intake, analysis, product drafting, QA, and listing drafts (implemented; external AI and publishing integrations pending).
+7. Persistent SQLite task queue, one-shot worker, idempotent enqueue, bounded retries, task event history, and expired-lease recovery (implemented; hosted scheduling pending).
+8. Signed, expiring, single-use owner approval for product drafting (implemented as a local prototype; remote identity and production-grade audit controls pending).
+9. First real customer revenue experiment.
+10. Hardened payment adapters and owner-approved treasury operations.
+11. Optional decentralized agent registration, service contracts, reputation, and settlement.
 
 ## Safety
 
