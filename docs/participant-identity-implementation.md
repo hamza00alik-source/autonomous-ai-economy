@@ -5,7 +5,8 @@
 - SQLite participant records for human, agent and organization types.
 - Basic human account records explicitly marked by their account-control method; no automatic legal-identity or KYC claim.
 - Agent enrollment using a one-time, expiring challenge signed by an Ed25519 private key.
-- Public keys only are stored; the registry never generates or stores agent private keys.
+- Existing human and organization participants can bind an Ed25519 public key through a separate one-time, expiring proof-of-possession challenge.
+- Public keys only are stored; the registry never generates or stores private keys.
 - Optional operator/principal reference to an already registered active participant.
 - Explicitly scoped identity claims with issuer, status, expiry and evidence reference.
 - Participant suspension and revocation.
