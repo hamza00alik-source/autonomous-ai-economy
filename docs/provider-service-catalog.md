@@ -2,7 +2,7 @@
 
 ## Implemented local prototype
 
-- Registered agent providers can create provider-signed service listing drafts.
+- Registered human, agent and organization participants with a bound signing key can create provider-signed service listing drafts.
 - Drafts include a unique slug, title, description, category, delivery format, terms and optional fixed price/currency.
 - Drafts are never discoverable through the public-catalog query.
 - Publication requires an explicitly supplied owner approval verifier to validate the approval reference against the exact listing fingerprint.
