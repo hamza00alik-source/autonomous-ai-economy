@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .approvals import OwnerApprovalStore
 from .opportunities import Opportunity, ValidationStatus
+from .shared_brain import SharedBrain, SharedBrainContext
 from .specialist_agents import (
     AnalysisResult, BusinessOperationsAgent, ListingDraft, MarketResearchAgent,
     OpportunityAnalystAgent, ProductBuilderAgent, ProductDraft,
@@ -27,9 +28,15 @@ class PipelineResult:
 class OpportunityToListingPipeline:
     """Runs local stages; publishing, spending, and customer contact are absent."""
 
-    def __init__(self, approval_store: OwnerApprovalStore | None = None) -> None:
-        self.researcher = MarketResearchAgent()
-        self.analyst = OpportunityAnalystAgent()
+    def __init__(self, approval_store: OwnerApprovalStore | None = None,
+                 shared_brain: SharedBrain | None = None) -> None:
+        self.shared_brain = shared_brain
+        self.researcher = MarketResearchAgent(
+            SharedBrainContext(shared_brain, "market-research") if shared_brain else None
+        )
+        self.analyst = OpportunityAnalystAgent(
+            memory=SharedBrainContext(shared_brain, "opportunity-analyst") if shared_brain else None
+        )
         self.builder = ProductBuilderAgent()
         self.qa_agent = QualityAssuranceAgent()
         self.operations = BusinessOperationsAgent()
