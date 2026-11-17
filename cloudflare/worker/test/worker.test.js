@@ -124,6 +124,9 @@ class FakeD1Statement {
     if (this.sql.includes("SELECT order_id,invoice_id,price_amount,price_currency,status FROM crypto_payment_invoices")) {
       return this.db.invoice?.order_id === this.values[0] ? { ...this.db.invoice } : null;
     }
+    if (this.sql.includes("SELECT status FROM crypto_payment_invoices")) {
+      return this.db.invoice?.order_id === this.values[0] ? { status: this.db.invoice.status } : null;
+    }
     return null;
   }
   async run() {
@@ -135,8 +138,10 @@ class FakeD1Statement {
       return { meta: { changes: 1 } };
     }
     if (this.sql.startsWith("UPDATE crypto_payment_invoices SET status=")) {
-      const [status, last_payment_id, actually_paid, pay_currency, updated_at, order_id] = this.values;
+      const [incomingStatus, fallbackStatus, last_payment_id, actually_paid, pay_currency, updated_at, order_id] = this.values;
       if (this.db.invoice?.order_id === order_id) {
+        const status = this.db.invoice.status === "refunded" ? "refunded" :
+          this.db.invoice.status === "settled" && incomingStatus !== "refunded" ? "settled" : fallbackStatus;
         Object.assign(this.db.invoice, { status, last_payment_id, actually_paid, pay_currency, updated_at });
       }
       return { meta: { changes: 1 } };
@@ -178,6 +183,19 @@ test("NOWPayments IPN updates a matching invoice once and marks it settled", asy
   assert.equal(duplicate.status, 200);
   assert.equal((await duplicate.json()).duplicate, true);
   assert.equal(db.events.size, 1);
+
+  const latePayload = { ...payload, payment_id: 98766, payment_status: "confirming" };
+  const lateSignature = createHmac("sha512", secret)
+    .update(JSON.stringify(sortDeep(latePayload)))
+    .digest("hex");
+  const late = await worker.fetch(new Request("https://worker.example/v1/payments/nowpayments/ipn", {
+    method: "POST", headers: { "content-type": "application/json", "x-nowpayments-sig": lateSignature },
+    body: JSON.stringify(latePayload)
+  }), env);
+  assert.equal(late.status, 200);
+  assert.equal((await late.json()).status, "settled");
+  assert.equal(db.invoice.status, "settled");
+  assert.equal(db.events.size, 2);
 });
 
 test("NOWPayments IPN rejects an invalid signature before database access", async () => {
