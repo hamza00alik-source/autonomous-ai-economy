@@ -108,6 +108,22 @@ class SignedTaskOfferApiTests(unittest.TestCase):
         self.assertEqual(response["status"], "400 Bad Request")
         self.assertEqual(body["error"], "invalid_json_body")
 
+    def test_rejects_invalid_offer_types_and_boolean_amount(self):
+        payload = {
+            "task_id": "task_a", "listing_id": "listing_a",
+            "provider_id": "provider_1", "title": "Research",
+            "scope": "Scope", "acceptance_criteria": "Criteria",
+            "offer_signature": "sig", "price_minor": True, "currency": "USD",
+        }
+        response, body = self.request("POST", "/v1/tasks/offers", payload)
+        self.assertEqual(response["status"], "400 Bad Request")
+        self.assertEqual(body["error"], "invalid_offer_fields")
+        payload["price_minor"] = 100
+        payload["title"] = ["not", "a", "string"]
+        response, body = self.request("POST", "/v1/tasks/offers", payload)
+        self.assertEqual(response["status"], "400 Bad Request")
+        self.assertEqual(body["error"], "invalid_offer_fields")
+
     def test_rejects_invalid_request_signature(self):
         response, body = self.request(
             "POST", "/v1/tasks/task_a/responses",
