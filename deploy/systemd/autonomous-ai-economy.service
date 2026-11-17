@@ -1,0 +1,35 @@
+[Unit]
+Description=Autonomous AI Economy worker supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aae
+Group=aae
+WorkingDirectory=/opt/autonomous-ai-economy
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/autonomous-ai-economy/.venv/bin/economy-supervisor --data-dir /var/lib/autonomous-ai-economy --poll-seconds 2
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Defense in depth. Bubblewrap remains responsible for per-task isolation.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/autonomous-ai-economy
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=1G
+CPUQuota=200%
+TasksMax=64
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
