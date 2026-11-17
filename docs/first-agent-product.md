@@ -40,15 +40,21 @@ Store Catalog Cleaner remains in the repository as a product-pipeline and packag
 
 ## Candidate storefront: Gumroad
 
-Gumroad documents browser-app ZIP uploads with a root-level index.html and currently lists Pakistan among supported local-bank payout countries. For this 3D asset ZIP, it would be a normal downloadable digital product rather than a browser app. The seller must verify the actual account's country, identity, bank details and payout eligibility.
+Gumroad currently lists Pakistan for local-bank payouts in PKR. The standard minimum payout is US$100; bank payout timing and verification are subject to Gumroad/Stripe review. Payoneer is not a supported Gumroad payout method, so the verified Payoneer account alone does not qualify. The account holder must complete the real local bank and identity verification.
 
-Important restrictions and gaps:
+Commercial economics:
+- Direct Gumroad sales: 10% + US$0.50 per transaction, plus card processing (currently 2.9% + US$0.30).
+- Gumroad Discover marketplace sales: 30% fee, including processing.
+- No monthly platform fee is listed.
 
-- Seller registration and payout verification must use the true legal person or entity; do not fabricate an overseas identity or use another person's account.
-- Gumroad's AI connector can draft products, read sales and payouts, and publish with product access. Its help page says a new draft has no files: product files must still be added in Gumroad.
-- The connector is not connected to this repository or the economy runtime. No account credentials or tokens are stored here.
-- No listing is created, uploaded or published by the current build.
-- Do not automate browser login, share passwords, misrepresent an AI agent as a human, or bypass seller verification.
+Critical automation limitation: Gumroad's own help centre says product creation and content upload are not currently possible through its API. This means our current agent cannot fully automate the storefront upload/publishing loop through the API. A permitted browser-based workflow may be evaluated later, but would still require a real logged-in seller account, completed identity verification, file upload and explicit publication authorization.
+
+The repository has no Gumroad credentials, no connected seller account, and no listing. Do not store account passwords or API tokens in GitHub or chat. No product has been uploaded or published.
+
+Sources:
+- https://gumroad.com/help/article/13-getting-paid
+- https://gumroad.com/help/article/66-gumroads-fees
+- https://gumroad.com/help/article/76-license-keys (API product creation/content upload limitation)
 
 ## First-sale measurement
 
