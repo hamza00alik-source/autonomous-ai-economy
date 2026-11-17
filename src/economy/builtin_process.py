@@ -31,7 +31,9 @@ class SandboxUnavailable(RuntimeError):
 
 
 def ensure_sandbox_available() -> str:
-    """Return the Bubblewrap executable or fail before a task is claimed."""
+    """Return Bubblewrap or fail before claiming work on unsupported hosts."""
+    if os.name != "posix" or resource is None:
+        raise SandboxUnavailable("Linux/POSIX resource isolation is required")
     bwrap = shutil.which("bwrap")
     if not bwrap:
         raise SandboxUnavailable(
