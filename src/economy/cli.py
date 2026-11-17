@@ -46,7 +46,7 @@ def _pem_signer(path: Path):
 
 
 def _catalog_secret() -> str:
-    secret = os.environ.get("AAE_CATALOG_APPROVAL_SECRET", "")
+    secret = os.environ.get("ECONOMY_CATALOG_APPROVAL_SECRET", "")
     if len(secret.encode("utf-8")) < 32:
         raise SystemExit("Set AAE_CATALOG_APPROVAL_SECRET to a locally managed secret of at least 32 bytes.")
     return secret
