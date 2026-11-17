@@ -188,9 +188,16 @@ class WorkRecordStore:
             )
             return self.get_receipt(receipt_id)
 
-    def accept(self, receipt_id: str, *, buyer_id: str, signature: str) -> dict[str, Any]:
+    def acceptance_signing_bytes(self, receipt_id: str, *, buyer_id: str) -> bytes:
+        """Return the exact buyer-signing payload after validating receipt/agreement linkage.
+
+        Artifact digests are taken from the provider-signed receipt. A buyer should
+        independently run local artifact verification before signing this payload.
+        """
         with self._connect() as db:
-            row = db.execute("SELECT * FROM work_receipts WHERE receipt_id=?", (receipt_id,)).fetchone()
+            row = db.execute(
+                "SELECT * FROM work_receipts WHERE receipt_id=?", (receipt_id,)
+            ).fetchone()
             if row is None or row["buyer_id"] != buyer_id or row["status"] != "submitted":
                 raise ValueError("submitted receipt not found or buyer is not authorized")
             agreement = db.execute(
@@ -204,16 +211,23 @@ class WorkRecordStore:
             agreement_digest = hashlib.sha256(
                 _canonical(json.loads(agreement["offer_payload"]))
             ).hexdigest()
-            evidence_refs = json.loads(row["evidence_json"])
+            refs = json.loads(row["evidence_json"])
             artifact_digests = [
                 ref.removeprefix("artifact:sha256:")
-                for ref in evidence_refs if ref.startswith("artifact:sha256:")
+                for ref in refs if ref.startswith("artifact:sha256:")
             ]
-            key = self._participant_key(db, buyer_id)
-            payload = self.acceptance_payload(
+            return self.acceptance_payload(
                 receipt_id, buyer_id, row["provider_id"], row["task_id"],
                 agreement_digest, artifact_digests,
             )
+
+    def accept(self, receipt_id: str, *, buyer_id: str, signature: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM work_receipts WHERE receipt_id=?", (receipt_id,)).fetchone()
+            if row is None or row["buyer_id"] != buyer_id or row["status"] != "submitted":
+                raise ValueError("submitted receipt not found or buyer is not authorized")
+            key = self._participant_key(db, buyer_id)
+            payload = self.acceptance_signing_bytes(receipt_id, buyer_id=buyer_id)
             if not self.verifier(key, payload, signature):
                 raise ValueError("buyer acceptance signature is invalid")
             updated = db.execute(
