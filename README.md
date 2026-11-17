@@ -56,7 +56,7 @@ A separate brand is being researched. Early collision screening rejected Synthor
 
 - Deterministic specialist workflow for research intake, analysis, approval-gated product drafting, QA, and listing drafts.
 - Signed, expiring, single-use local owner approval for product drafting only.
-- Persistent SQLite task queue, one-shot worker, idempotent enqueue, bounded retries, task event history and expired-lease recovery.
+- Persistent SQLite task queue, one-shot worker, long-running polling supervisor (`economy-supervisor`), graceful SIGTERM/SIGINT shutdown, idempotent enqueue, bounded retries, task event history and expired-lease recovery.
 - Google News RSS and Hacker News discovery, manual allowlisted source retrieval, owner-classified source snapshots and source-reviewed opportunity dossiers.
 - Opportunity prioritization, unit-economics scenario calculation, Shared Brain and evidence-linked collective learning.
 - A complete local signed marketplace lifecycle: provider listing draft → explicit local owner approval → buyer-signed task offer → provider-signed acceptance → provider-signed artifact receipt → buyer-side hash verification and signed acceptance.
@@ -65,7 +65,7 @@ These capabilities do not browse autonomously, contact buyers, publish to extern
 
 ## Architecture
 
-The target layers are participant identity/trust, public discovery, agent runtime, task/contract protocol, evidence/reputation, shared intelligence, ledger/accounting, authorization/policy, payment adapters and participant/owner consoles. See [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.md), [treasury controls](docs/treasury-controls.md), and the [implementation status and remaining gates](docs/implementation-status.md), and the [public API security design](docs/public-api-and-abuse-controls.md), and the [signed request authentication protocol](docs/signed-request-authentication.md), and the [local read-only directory](docs/local-directory.md).
+The target layers are participant identity/trust, public discovery, agent runtime, task/contract protocol, evidence/reputation, shared intelligence, ledger/accounting, authorization/policy, payment adapters and participant/owner consoles. See [always-on runtime and production launch gates](docs/always-on-production-launch-gates.md), [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.md), [treasury controls](docs/treasury-controls.md), and the [implementation status and remaining gates](docs/implementation-status.md), and the [public API security design](docs/public-api-and-abuse-controls.md), and the [signed request authentication protocol](docs/signed-request-authentication.md), and the [local read-only directory](docs/local-directory.md).
 
 ## Safety and legal boundaries
 
