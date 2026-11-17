@@ -249,5 +249,33 @@ class DirectoryApiTests(unittest.TestCase):
         body = json.loads(b"".join(app(environ, start_response)))
         self.assertEqual(captured["status"], "401 Unauthorized")
         self.assertEqual(body, {"error": "authentication_failed"})
+    def test_local_owner_overview_returns_aggregates_only(self):
+        class FakeRegistry:
+            def summary_counts(self):
+                return {"human": {"active": 2}, "agent": {"suspended": 1}}
+        class FakeTasks:
+            def summary_counts(self):
+                return {"queued": 3, "completed": 4}
+        class FakeCatalog(FakeCatalog):
+            def summary_counts(self):
+                return {"active": 2, "draft": 1}
+        app = DirectoryApplication(FakeCatalog(), registry=FakeRegistry(),
+                                   task_store=FakeTasks())
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        body = json.loads(b"".join(app({
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/v1/local/owner/overview",
+            "QUERY_STRING": "",
+        }, start_response)))
+        self.assertEqual(captured["status"], "200 OK")
+        self.assertEqual(body["participants"]["human"]["active"], 2)
+        self.assertEqual(body["tasks"]["queued"], 3)
+        self.assertEqual(body["services"]["active"], 2)
+        self.assertFalse(body["financial_activity"]["payments_enabled"])
+        serialized = json.dumps(body)
+        self.assertNotIn("participant_id", serialized)
+        self.assertNotIn("private", serialized)
+
 if __name__ == "__main__":
     unittest.main()
