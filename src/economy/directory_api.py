@@ -103,6 +103,8 @@ class DirectoryApplication:
                                   [("Allow", "GET")])
         if path == "/health":
             return self._response(start_response, "200 OK", {"status": "ok"})
+        if path == "/v1/local/owner/overview":
+            return self._owner_overview(start_response)
         if path == "/v1/tasks/mine":
             return self._my_tasks(environ, start_response)
         if path == "/v1/participants/me":
@@ -202,6 +204,27 @@ class DirectoryApplication:
         return self._response(start_response, "200 OK", {
             "items": public_items, "count": len(public_items),
         })
+
+    def _owner_overview(self, start_response):
+        """Loopback-only operational summary; never returns participant or task records."""
+        if self.registry is None or self.task_store is None:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "owner_overview_unavailable"})
+        try:
+            return self._response(start_response, "200 OK", {
+                "scope": "aggregate_local_read_only",
+                "participants": self.registry.summary_counts(),
+                "tasks": self.task_store.summary_counts(),
+                "services": self.catalog.summary_counts(),
+                "financial_activity": {
+                    "payments_enabled": False,
+                    "wallets_enabled": False,
+                    "transfers_enabled": False,
+                },
+            })
+        except Exception:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "owner_overview_temporarily_unavailable"})
 
     def _my_tasks(self, environ, start_response):
         if self.registry is None or self.authenticator is None or self.task_store is None:
