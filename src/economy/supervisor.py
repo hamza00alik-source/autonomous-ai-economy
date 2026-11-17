@@ -1,4 +1,4 @@
-"""Long-running, single-host supervisor for the built-in economy worker."""
+"""Long-running, single-host supervisor for isolated built-in and model-backed workers."""
 from __future__ import annotations
 
 import argparse
@@ -13,16 +13,22 @@ from .task_agreements import TaskAgreementStore
 from .order_dispatch import dispatch_accepted_orders
 from .artifact_export import export_completed_order_artifact
 from .worker import run_once
+from .ai_task_worker import run_once as run_ai_once
 
 LOG = logging.getLogger("economy.supervisor")
 
 
-def supervise(store: TaskStore, *, agreements: TaskAgreementStore | None = None,
-              poll_seconds: float = 2.0,
-              stop_event: threading.Event | None = None,
-              max_cycles: int | None = None,
-              worker: Callable[[TaskStore], dict | None] = run_once) -> dict[str, int]:
-    """Poll until stopped; max_cycles supports deterministic tests."""
+def supervise(
+    store: TaskStore,
+    *,
+    agreements: TaskAgreementStore | None = None,
+    poll_seconds: float = 2.0,
+    stop_event: threading.Event | None = None,
+    max_cycles: int | None = None,
+    worker: Callable[[TaskStore], dict | None] = run_once,
+    ai_worker: Callable[[TaskStore], dict | None] | None = None,
+) -> dict[str, int]:
+    """Poll until stopped; AI worker is opt-in for tests and enabled by the CLI."""
     if poll_seconds < 0.1 or poll_seconds > 300:
         raise ValueError("poll_seconds must be between 0.1 and 300")
     if max_cycles is not None and max_cycles < 0:
@@ -31,13 +37,32 @@ def supervise(store: TaskStore, *, agreements: TaskAgreementStore | None = None,
     cycles = completed = idle = errors = 0
     while not stop.is_set() and (max_cycles is None or cycles < max_cycles):
         cycles += 1
-        try:
-            if agreements is not None:
+        cycle_had_result = False
+        cycle_had_error = False
+        if agreements is not None:
+            try:
                 dispatch_accepted_orders(agreements, store)
-            result = worker(store)
+            except Exception:
+                errors += 1
+                cycle_had_error = True
+                LOG.exception("Accepted-order dispatch failed; queue remains the recovery source")
+        callbacks = [worker]
+        if ai_worker is not None:
+            callbacks.append(ai_worker)
+        for callback in callbacks:
+            if stop.is_set():
+                break
+            try:
+                result = callback(store)
+            except Exception:
+                errors += 1
+                cycle_had_error = True
+                LOG.exception("Worker callback failed; continuing other worker lanes")
+                continue
             if result is None:
-                idle += 1
-            elif result.get("status") == "completed":
+                continue
+            cycle_had_result = True
+            if result.get("status") == "completed":
                 completed += 1
                 if (result.get("assigned_agent") == "order-delivery-agent"
                         and result.get("task_id")):
@@ -49,12 +74,13 @@ def supervise(store: TaskStore, *, agreements: TaskAgreementStore | None = None,
                         LOG.info("Order draft artifact exported: %s", exported["path"])
                     except Exception:
                         errors += 1
+                        cycle_had_error = True
                         LOG.exception("Order completed but local artifact export failed")
             else:
                 errors += 1
-        except Exception:
-            errors += 1
-            LOG.exception("Worker cycle failed; queue remains the recovery source")
+                cycle_had_error = True
+        if not cycle_had_result and not cycle_had_error:
+            idle += 1
         if stop.is_set() or (max_cycles is not None and cycles >= max_cycles):
             break
         stop.wait(poll_seconds)
@@ -78,9 +104,17 @@ def main() -> int:
     args.data_dir.mkdir(parents=True, exist_ok=True)
     store = TaskStore(args.data_dir / "economy.sqlite3")
     agreements = TaskAgreementStore(args.data_dir / "participants.sqlite3")
-    LOG.info("Supervisor started; data_dir=%s poll_seconds=%s", args.data_dir, args.poll_seconds)
+    LOG.info(
+        "Supervisor started; data_dir=%s poll_seconds=%s ai_credentials_configured=%s",
+        args.data_dir, args.poll_seconds,
+        bool(__import__("os").environ.get("CLOUDFLARE_ACCOUNT_ID")
+             and __import__("os").environ.get("CLOUDFLARE_API_TOKEN")),
+    )
     try:
-        stats = supervise(store, agreements=agreements, poll_seconds=args.poll_seconds, stop_event=stop)
+        stats = supervise(
+            store, agreements=agreements, poll_seconds=args.poll_seconds,
+            stop_event=stop, ai_worker=run_ai_once,
+        )
     except ValueError as exc:
         parser.error(str(exc))
     LOG.info("Supervisor stopped: %s", stats)
