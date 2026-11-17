@@ -1,10 +1,13 @@
 import base64
+import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
 from economy.identity import ParticipantRegistry
 from economy.work_records import WorkRecordStore
+from economy.task_agreements import TaskAgreementStore
 
 
 class WorkRecordTests(unittest.TestCase):
@@ -15,6 +18,7 @@ class WorkRecordTests(unittest.TestCase):
         self.provider = self._agent("provider", b"p" * 32)
         self.buyer = self._agent("buyer", b"b" * 32)
         self.adjudicator_key = base64.urlsafe_b64encode(b"j" * 32).decode().rstrip("=")
+        self.agreements = TaskAgreementStore(self.path)
         self.store = WorkRecordStore(
             self.path, adjudicators={"arbiter": self.adjudicator_key},
             verifier=lambda key, message, signature: signature == "valid",
@@ -30,7 +34,23 @@ class WorkRecordTests(unittest.TestCase):
             challenge["challenge_id"], "proof", verifier=lambda *_: True
         )
 
+    def _accepted_agreement(self, task_id):
+        provider_id = self.provider["participant_id"]
+        buyer_id = self.buyer["participant_id"]
+        payload = {"task_id": task_id, "buyer_id": buyer_id, "provider_id": provider_id}
+        with sqlite3.connect(self.path) as db:
+            db.execute(
+                """INSERT OR IGNORE INTO task_agreements
+                   (task_id,listing_id,buyer_id,provider_id,title,scope,
+                    acceptance_criteria,offer_payload,buyer_signature,status,
+                    created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,'accepted','now','now')""",
+                (task_id, "listing-test", buyer_id, provider_id, "Test work",
+                 "Test scope", "Artifact delivered", json.dumps(payload), "valid"),
+            )
+
     def _submit(self, task="task-1"):
+        self._accepted_agreement(task)
         provider_id = self.provider["participant_id"]
         buyer_id = self.buyer["participant_id"]
         payload = self.store.submission_payload(
@@ -58,9 +78,25 @@ class WorkRecordTests(unittest.TestCase):
         self.assertEqual(accepted["status"], "accepted")
         self.assertEqual(self.store.reputation(self.provider["participant_id"])["accepted"], 1)
 
+    def test_submission_fails_closed_without_task_agreement_schema(self):
+        isolated_path = Path(self.tmp.name) / "isolated.sqlite3"
+        isolated_registry = ParticipantRegistry(isolated_path)
+        provider = self._agent("isolated-provider", b"i" * 32)
+        buyer = self._agent("isolated-buyer", b"c" * 32)
+        isolated_store = WorkRecordStore(
+            isolated_path, verifier=lambda *_: True,
+        )
+        with self.assertRaisesRegex(ValueError, "agreement store is unavailable"):
+            isolated_store.submit(
+                task_id="unlinked", provider_id=provider["participant_id"],
+                buyer_id=buyer["participant_id"], summary="Unlinked work",
+                evidence_refs=["artifact:unlinked"], signature="valid",
+            )
+
     def test_invalid_signature_and_duplicate_task_rejected(self):
         provider_id = self.provider["participant_id"]
         buyer_id = self.buyer["participant_id"]
+        self._accepted_agreement("invalid")
         with self.assertRaisesRegex(ValueError, "signature"):
             self.store.submit(
                 task_id="invalid", provider_id=provider_id, buyer_id=buyer_id,
