@@ -570,11 +570,18 @@ export default {
     if (storeOrderMatch && request.method === "GET") {
       return getStoreOrder(request, env, storeOrderMatch[1]);
     }
-    if (url.pathname === STORE_DOWNLOAD_PATH) {
+    if (url.pathname.startsWith("/downloads/")) {
       return json({ error: "direct product file access is disabled" }, 404);
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      return env.ASSETS ? env.ASSETS.fetch(request) : json({ error: "storefront is not deployed" }, 404);
+      if (!env.ASSETS) return json({ error: "storefront is not deployed" }, 404);
+      const page = await env.ASSETS.fetch(request);
+      const headers = new Headers(page.headers);
+      headers.set("content-security-policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+      headers.set("referrer-policy", "no-referrer");
+      headers.set("x-content-type-options", "nosniff");
+      headers.set("cache-control", "no-store");
+      return new Response(page.body, { status: page.status, statusText: page.statusText, headers });
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
