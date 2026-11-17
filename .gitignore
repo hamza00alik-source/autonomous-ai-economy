@@ -16,3 +16,6 @@ build/
 
 # Local application state and approval audit databases
 *.sqlite3
+
+# Generated protected Cloudflare Worker product delivery bundle
+cloudflare/worker/public/downloads/*.zip

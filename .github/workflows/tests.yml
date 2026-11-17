@@ -63,6 +63,15 @@ jobs:
         run: economy-product build --output dist/store-catalog-cleaner.zip
       - name: Build original MOBA game asset pack
         run: economy-game-assets build --output dist/moba-objective-props.zip
+      - name: Validate Cloudflare Worker and protected static assets (dry run)
+        run: |
+          set -euo pipefail
+          npm --prefix cloudflare/worker install --no-audit --no-fund
+          mkdir -p cloudflare/worker/public/downloads
+          cp dist/moba-objective-props.zip cloudflare/worker/public/downloads/moba-objective-props.zip
+          sed -i 's/REPLACE_WITH_D1_DATABASE_ID/00000000-0000-0000-0000-000000000000/' cloudflare/worker/wrangler.toml
+          (cd cloudflare/worker && npx wrangler deploy --dry-run --outdir /tmp/aae-worker-dry-run)
+          test -s /tmp/aae-worker-dry-run/index.js
       - name: Verify official Gumroad CLI draft and upload dry-run
         run: |
           set -euo pipefail

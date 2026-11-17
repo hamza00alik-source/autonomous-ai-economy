@@ -14,3 +14,16 @@ migrations_dir = "migrations"
 
 [triggers]
 crons = ["*/5 * * * *"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+not_found_handling = "none"
+
+[[ratelimits]]
+name = "CHECKOUT_LIMITER"
+namespace_id = "761904"
+  [ratelimits.simple]
+  limit = 10
+  period = 60

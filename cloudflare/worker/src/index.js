@@ -170,7 +170,7 @@ function paymentStatusFromWebhook(payload) {
   return mapping[status] || "review";
 }
 
-async function createNowPaymentsInvoice(request, env) {
+async function createNowPaymentsInvoice(request, env, storeOrder = null) {
   if (!env.NOWPAYMENTS_API_KEY || !env.NOWPAYMENTS_IPN_SECRET) {
     return json({ error: "crypto checkout is not configured" }, 503);
   }
@@ -212,8 +212,9 @@ async function createNowPaymentsInvoice(request, env) {
 
   const now = new Date().toISOString();
   const reservation = await env.DB.prepare(
-    "INSERT OR IGNORE INTO crypto_payment_invoices (order_id,provider,price_amount,price_currency,status,created_at,updated_at) VALUES (?,'nowpayments',?,'usd','creating',?,?)"
-  ).bind(body.order_id, amountText, now, now).run();
+    "INSERT OR IGNORE INTO crypto_payment_invoices (order_id,provider,price_amount,price_currency,status,product_id,buyer_token_hash,created_at,updated_at) VALUES (?,'nowpayments',?,'usd','creating',?,?,?,?)"
+  ).bind(body.order_id, amountText, storeOrder?.productId || "manual",
+    storeOrder?.buyerTokenHash || null, now, now).run();
   if (reservation.meta?.changes !== 1) {
     const raced = await env.DB.prepare(
       "SELECT order_id,invoice_id,checkout_url,status FROM crypto_payment_invoices WHERE order_id=?"
@@ -237,6 +238,8 @@ async function createNowPaymentsInvoice(request, env) {
         order_id: body.order_id,
         order_description: description.trim(),
         ipn_callback_url: callback,
+        ...(storeOrder?.successUrl ? { success_url: storeOrder.successUrl } : {}),
+        ...(storeOrder?.cancelUrl ? { cancel_url: storeOrder.cancelUrl } : {}),
       }),
     });
     let data = null;
@@ -315,9 +318,11 @@ async function nowPaymentsIPN(request, env) {
   // Apply the state transition before recording the event. If the write fails,
   // the provider retry can safely try again. The SQL CASE protects settled/refunded
   // states from late, out-of-order callbacks.
+  const downloadExpiry = normalized === "settled"
+    ? new Date(Date.now() + STORE_DOWNLOAD_WINDOW_MS).toISOString() : null;
   await env.DB.prepare(
-    "UPDATE crypto_payment_invoices SET status=CASE WHEN status='refunded' THEN 'refunded' WHEN status='settled' AND ?!='refunded' THEN 'settled' ELSE ? END,last_payment_id=?,actually_paid=?,pay_currency=?,updated_at=? WHERE order_id=?"
-  ).bind(normalized, normalized, paymentId,
+    "UPDATE crypto_payment_invoices SET status=CASE WHEN status='refunded' THEN 'refunded' WHEN status='settled' AND ?!='refunded' THEN 'settled' ELSE ? END,download_expires_at=CASE WHEN status!='settled' AND ?='settled' THEN ? ELSE download_expires_at END,last_payment_id=?,actually_paid=?,pay_currency=?,updated_at=? WHERE order_id=?"
+  ).bind(normalized, normalized, normalized, downloadExpiry, paymentId,
     payload.actually_paid === undefined ? null : String(payload.actually_paid),
     payload.pay_currency === undefined ? null : String(payload.pay_currency).toLowerCase(),
     now, orderId).run();
@@ -330,6 +335,137 @@ async function nowPaymentsIPN(request, env) {
   const finalStatus = updated?.status || normalized;
   return json({ accepted: true, order_id: orderId, status: finalStatus,
     settled: finalStatus === "settled" }, 200);
+}
+
+
+const STORE_PRODUCT_ID = "moba-objective-props";
+const STORE_PRODUCT_PRICE_USD = "5.00";
+const STORE_DOWNLOAD_PATH = "/downloads/moba-objective-props.zip";
+const STORE_DOWNLOAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+function randomHex(bytes = 32) {
+  const data = crypto.getRandomValues(new Uint8Array(bytes));
+  return [...data].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function bearerToken(request) {
+  const match = (request.headers.get("authorization") || "").match(/^Bearer ([a-f0-9]{64})$/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+async function authorizeBuyer(request, row) {
+  const token = bearerToken(request);
+  if (!token || !row?.buyer_token_hash) return false;
+  return constantTimeEqual(await sha256(token), row.buyer_token_hash);
+}
+
+async function createStoreCheckout(request, env) {
+  if (env.AAE_PUBLIC_CHECKOUT_ENABLED !== "true" ||
+      env.AAE_CRYPTO_ENABLEMENT_APPROVED !== "true" ||
+      !env.NOWPAYMENTS_API_KEY || !env.NOWPAYMENTS_IPN_SECRET) {
+    return json({ error: "crypto checkout is not enabled for this store" }, 503);
+  }
+  if (!env.CHECKOUT_LIMITER) return json({ error: "checkout protection is not configured" }, 503);
+  const origin = request.headers.get("origin");
+  if (!origin || origin !== new URL(request.url).origin) {
+    return json({ error: "same-origin checkout requests only" }, 403);
+  }
+  const ip = request.headers.get("cf-connecting-ip") || "";
+  if (!ip) return json({ error: "request could not be verified" }, 400);
+  const limit = await env.CHECKOUT_LIMITER.limit({ key: "moba-objective-props:" + ip });
+  if (!limit.success) return json({ error: "too many checkout attempts; please wait one minute" }, 429);
+  if (!(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+    return json({ error: "application/json is required" }, 415);
+  }
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).length > 256) return json({ error: "request body too large" }, 413);
+  let body;
+  try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 0) {
+    return json({ error: "checkout does not accept customer-supplied prices or product IDs" }, 400);
+  }
+
+  const orderId = "moba-" + crypto.randomUUID();
+  const accessToken = randomHex(32);
+  const buyerTokenHash = await sha256(accessToken);
+  const originUrl = new URL(request.url);
+  const successUrl = new URL("/", originUrl);
+  successUrl.searchParams.set("order", orderId);
+  const cancelUrl = new URL("/", originUrl);
+  cancelUrl.searchParams.set("order", orderId);
+  cancelUrl.searchParams.set("cancelled", "1");
+  const internalRequest = new Request(request.url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      order_id: orderId,
+      price_amount: STORE_PRODUCT_PRICE_USD,
+      order_description: "MOBA Objective Props digital asset pack",
+    }),
+  });
+  const invoiceResponse = await createNowPaymentsInvoice(internalRequest, env, {
+    productId: STORE_PRODUCT_ID,
+    buyerTokenHash,
+    successUrl: successUrl.toString(),
+    cancelUrl: cancelUrl.toString(),
+  });
+  const invoice = await invoiceResponse.json();
+  if (!invoiceResponse.ok || typeof invoice.checkout_url !== "string") {
+    return json({ error: invoice.error || "could not create crypto invoice" }, invoiceResponse.status || 502);
+  }
+  return json({
+    order_id: orderId,
+    access_token: accessToken,
+    checkout_url: invoice.checkout_url,
+    price_amount: STORE_PRODUCT_PRICE_USD,
+    price_currency: "usd",
+    status: invoice.status,
+    download_window_days: 7,
+  }, 201);
+}
+
+async function getStoreOrder(request, env, orderId) {
+  const row = await env.DB.prepare(
+    "SELECT order_id,product_id,status,download_expires_at,buyer_token_hash FROM crypto_payment_invoices WHERE order_id=?"
+  ).bind(orderId).first();
+  if (!row || !await authorizeBuyer(request, row)) return json({ error: "order not found" }, 404);
+  const expiry = row.download_expires_at ? Date.parse(row.download_expires_at) : 0;
+  const downloadAvailable = row.product_id === STORE_PRODUCT_ID &&
+    row.status === "settled" && Number.isFinite(expiry) && expiry > Date.now();
+  return json({
+    order_id: row.order_id,
+    status: row.status,
+    download_available: downloadAvailable,
+    download_expires_at: downloadAvailable ? row.download_expires_at : null,
+  });
+}
+
+async function downloadStoreProduct(request, env, orderId) {
+  if (!env.ASSETS || !env.DB) return json({ error: "delivery storage is not configured" }, 503);
+  const row = await env.DB.prepare(
+    "SELECT order_id,product_id,status,download_expires_at,buyer_token_hash FROM crypto_payment_invoices WHERE order_id=?"
+  ).bind(orderId).first();
+  if (!row || !await authorizeBuyer(request, row)) return json({ error: "order not found" }, 404);
+  const expiry = row.download_expires_at ? Date.parse(row.download_expires_at) : 0;
+  if (row.product_id !== STORE_PRODUCT_ID || row.status !== "settled" ||
+      !Number.isFinite(expiry) || expiry <= Date.now()) {
+    return json({ error: "download is locked until full payment is confirmed and access is active" }, 403);
+  }
+  const assetUrl = new URL(STORE_DOWNLOAD_PATH, request.url);
+  const asset = await env.ASSETS.fetch(new Request(assetUrl, { method: "GET" }));
+  if (!asset.ok) return json({ error: "product file is not available yet" }, 503);
+  await env.DB.prepare(
+    "UPDATE crypto_payment_invoices SET download_count=download_count+1,updated_at=? WHERE order_id=? AND status='settled'"
+  ).bind(new Date().toISOString(), orderId).run();
+  const headers = new Headers({
+    "content-type": "application/zip",
+    "content-disposition": 'attachment; filename="moba-objective-props.zip"',
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+  });
+  const length = asset.headers.get("content-length");
+  if (length) headers.set("content-length", length);
+  return new Response(asset.body, { status: 200, headers });
 }
 
 async function paymentStatus(env, orderId) {
@@ -352,6 +488,10 @@ async function status(env) {
     tasks: counts.results || [],
     payment_actions_enabled: false,
     crypto_checkout_configured: Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET),
+    public_checkout_enabled: env.AAE_PUBLIC_CHECKOUT_ENABLED === "true" &&
+      env.AAE_CRYPTO_ENABLEMENT_APPROVED === "true" &&
+      Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET),
+    automatic_delivery_enabled: Boolean(env.ASSETS),
     outbound_payouts_enabled: false,
     public_registration_enabled: false,
     note: "Private product-copy and gated crypto-invoice worker; no public store, automatic delivery, or outbound transfers.",
@@ -419,6 +559,30 @@ export default {
     if (url.pathname === "/v1/payments/nowpayments/ipn" && request.method === "POST") {
       return nowPaymentsIPN(request, env);
     }
+    if (url.pathname === "/v1/store/checkout" && request.method === "POST") {
+      return createStoreCheckout(request, env);
+    }
+    const storeDownloadMatch = url.pathname.match(new RegExp("^/v1/store/orders/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})/download$"));
+    if (storeDownloadMatch && request.method === "GET") {
+      return downloadStoreProduct(request, env, storeDownloadMatch[1]);
+    }
+    const storeOrderMatch = url.pathname.match(new RegExp("^/v1/store/orders/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})$"));
+    if (storeOrderMatch && request.method === "GET") {
+      return getStoreOrder(request, env, storeOrderMatch[1]);
+    }
+    if (url.pathname.startsWith("/downloads/")) {
+      return json({ error: "direct product file access is disabled" }, 404);
+    }
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      if (!env.ASSETS) return json({ error: "storefront is not deployed" }, 404);
+      const page = await env.ASSETS.fetch(request);
+      const headers = new Headers(page.headers);
+      headers.set("content-security-policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+      headers.set("referrer-policy", "no-referrer");
+      headers.set("x-content-type-options", "nosniff");
+      headers.set("cache-control", "no-store");
+      return new Response(page.body, { status: page.status, statusText: page.statusText, headers });
+    }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
     if (url.pathname === "/v1/tasks/product-copy" && request.method === "POST") return enqueueCopy(request, env);
@@ -429,6 +593,7 @@ export default {
     if (paymentMatch && request.method === "GET") return paymentStatus(env, paymentMatch[1]);
     const match = url.pathname.match(/^\/v1\/tasks\/product-copy\/([0-9a-f-]{36})$/i);
     if (match && request.method === "GET") return taskStatus(request, env, match[1]);
+    if (request.method === "GET" && env.ASSETS) return env.ASSETS.fetch(request);
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
