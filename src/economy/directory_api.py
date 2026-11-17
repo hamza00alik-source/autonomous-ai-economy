@@ -8,6 +8,7 @@ from urllib.parse import parse_qs
 from .service_catalog import ServiceCatalog
 from .identity import ParticipantRegistry
 from .request_auth import RequestAuthenticator
+from .task_store import TaskStore
 
 
 class DirectoryApplication:
@@ -15,10 +16,12 @@ class DirectoryApplication:
 
     def __init__(self, catalog: ServiceCatalog, *,
                  registry: ParticipantRegistry | None = None,
-                 authenticator: RequestAuthenticator | None = None) -> None:
+                 authenticator: RequestAuthenticator | None = None,
+                 task_store: TaskStore | None = None) -> None:
         self.catalog = catalog
         self.registry = registry
         self.authenticator = authenticator
+        self.task_store = task_store
 
     @staticmethod
     def _response(start_response, status: str, payload: dict, headers=None):
@@ -100,6 +103,8 @@ class DirectoryApplication:
                                   [("Allow", "GET")])
         if path == "/health":
             return self._response(start_response, "200 OK", {"status": "ok"})
+        if path == "/v1/tasks/mine":
+            return self._my_tasks(environ, start_response)
         if path == "/v1/participants/me":
             if self.registry is None or self.authenticator is None:
                 return self._response(start_response, "503 Service Unavailable",
@@ -198,6 +203,74 @@ class DirectoryApplication:
             "items": public_items, "count": len(public_items),
         })
 
+    def _my_tasks(self, environ, start_response):
+        if self.registry is None or self.authenticator is None or self.task_store is None:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "authenticated_tasks_unavailable"})
+        params = parse_qs(environ.get("QUERY_STRING", ""), keep_blank_values=True)
+        if any(len(values) != 1 for values in params.values()):
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "duplicate_query_parameter"})
+        if set(params) - {"status", "limit"}:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "unsupported_query_parameter"})
+        status = params.get("status", [None])[0]
+        if status not in {None, "queued", "running", "completed", "failed"}:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_task_status"})
+        try:
+            limit = int(params.get("limit", ["50"])[0])
+        except ValueError:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "limit_must_be_integer"})
+        if not 1 <= limit <= 100:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "limit_out_of_range"})
+        try:
+            body_length = int(environ.get("CONTENT_LENGTH") or "0")
+            if not 0 <= body_length <= 65536:
+                raise ValueError("invalid body length")
+            stream = environ.get("wsgi.input")
+            body = stream.read(body_length) if stream is not None and body_length else b""
+            if len(body) != body_length:
+                raise ValueError("incomplete body")
+            participant_id = environ.get("HTTP_X_AAE_PARTICIPANT", "")
+            timestamp = int(environ.get("HTTP_X_AAE_TIMESTAMP", ""))
+            nonce = environ.get("HTTP_X_AAE_NONCE", "")
+            signature = environ.get("HTTP_X_AAE_SIGNATURE", "")
+            principal = self.authenticator.authenticate(
+                participant_id, "GET", "/v1/tasks/mine", body, timestamp, nonce, signature
+            )
+            participant = self.registry.get(principal["participant_id"])
+            if participant is None:
+                raise ValueError("participant no longer exists")
+        except (ValueError, TypeError, KeyError):
+            return self._response(start_response, "401 Unauthorized",
+                                  {"error": "authentication_failed"},
+                                  [("WWW-Authenticate", "AAE-Signature")])
+        except Exception:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "authentication_temporarily_unavailable"})
+        try:
+            tasks = self.task_store.list_for_agent(
+                participant["participant_id"], status=status, limit=limit
+            )
+        except Exception:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "tasks_temporarily_unavailable"})
+        safe_tasks = [{
+            "task_id": task["task_id"],
+            "title": task["title"],
+            "assigned_agent": task["assigned_agent"],
+            "status": task["status"],
+            "attempts": task["attempts"],
+            "max_attempts": task["max_attempts"],
+            "created_at": task["created_at"],
+            "updated_at": task["updated_at"],
+        } for task in tasks]
+        return self._response(start_response, "200 OK",
+                              {"items": safe_tasks, "count": len(safe_tasks)})
+
 
 def create_directory_app(data_dir="./data") -> DirectoryApplication:
     from pathlib import Path
@@ -209,4 +282,5 @@ def create_directory_app(data_dir="./data") -> DirectoryApplication:
     return DirectoryApplication(
         ServiceCatalog(data_dir / "participants.sqlite3"),
         registry=registry, authenticator=authenticator,
+        task_store=TaskStore(data_dir / "economy.sqlite3"),
     )
