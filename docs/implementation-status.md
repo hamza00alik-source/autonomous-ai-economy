@@ -78,3 +78,7 @@ No customer, revenue, public deployment, live payment or autonomous production o
 3. Keep public deployment, payments, custody, autonomous transfers and always-on hosted infrastructure gated until separate security, legal, provider and owner approvals.
 
 This status distinguishes local prototype code from the future open economy. A committed module is not the same as a deployed, secure or revenue-producing service.
+
+## New bounded autonomy component
+
+- Added `src/economy/autonomy.py` and tests for a routine action allowlist, agent-specific enablement, per-order and daily order-exposure ceilings, idempotent reservation, changed-term replay rejection and fail-closed storage behavior. This removes the need for a separate owner approval for each preconfigured routine action at the component level. It is not yet integrated with authenticated API requests, signed capabilities/delegations, task execution, publication or payments; profile provisioning is currently caller-supplied and must be made owner-controlled before production. See [routine agent autonomy](routine-agent-autonomy.md).
