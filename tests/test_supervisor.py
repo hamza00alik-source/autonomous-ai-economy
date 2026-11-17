@@ -59,3 +59,38 @@ def test_supervisor_can_be_stopped_by_worker_callback():
 def test_supervisor_rejects_negative_cycle_limit():
     with pytest.raises(ValueError):
         supervise(Store(), poll_seconds=0.1, max_cycles=-1)
+
+def test_supervisor_dispatches_accepted_orders_before_worker_cycle():
+    class Queue:
+        def __init__(self):
+            self.items = {}
+        def enqueue(self, title, objective, assigned_agent, idempotency_key, max_attempts):
+            item = self.items.setdefault(idempotency_key, {
+                "task_id": "queue-1", "status": "queued",
+                "title": title, "objective": objective,
+                "assigned_agent": assigned_agent,
+            })
+            return item
+
+    class Agreements:
+        def accepted_orders(self, *, limit):
+            return [{
+                "task_id": "buyer-order-1", "buyer_id": "buyer",
+                "provider_id": "agent", "title": "Deliver report",
+                "scope": "Prepare a short report",
+                "acceptance_criteria": "Include a summary",
+                "due_at": None, "price_minor": 1000,
+                "currency": "USD", "listing_id": "listing",
+                "status": "accepted",
+            }]
+
+    queue = Queue()
+    observed = []
+    def worker(store):
+        observed.append(list(store.items))
+        return {"status": "completed"}
+
+    stats = supervise(queue, agreements=Agreements(), poll_seconds=0.1,
+                      max_cycles=1, worker=worker)
+    assert stats == {"cycles": 1, "completed": 1, "idle": 0, "errors": 0}
+    assert observed == [["accepted-order:buyer-order-1"]]
