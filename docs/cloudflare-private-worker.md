@@ -39,14 +39,14 @@ The repository includes a **manual-only** GitHub Actions workflow at `.github/wo
    - `AAE_QUEUE_TOKEN` = a long random owner-only API secret. Generate it with a password manager or `openssl rand -hex 32`; keep your own copy so you can call the private API.
 5. In GitHub Actions, select **Deploy private Cloudflare AI worker** → **Run workflow**.
 
-The workflow installs Wrangler, applies the D1 migration, stores `AAE_QUEUE_TOKEN` as a Cloudflare Worker secret, and deploys the Worker. It fails closed if any required value is missing. Never put secrets in repository variables, code, issues, logs, or chat.
+The workflow installs Wrangler, builds the protected product ZIP, applies all four D1 migrations, stores `AAE_QUEUE_TOKEN` as a Cloudflare Worker secret, explicitly forces both public-commerce gates to `false`, and deploys the Worker. This workflow cannot publish the store or enable customer checkout, even if payment-provider credentials or old repository variables exist. It fails closed if any required deployment value is missing. Never put secrets in repository variables, code, issues, logs, or chat.
 
 After deployment, copy the `workers.dev` URL printed by Wrangler and add one more GitHub Actions secret:
 - `AAE_WORKER_URL` = the deployed Worker origin, for example `https://<worker>.<account-subdomain>.workers.dev`.
 
 The Gumroad draft workflow uses `AAE_WORKER_URL` and `AAE_QUEUE_TOKEN` to queue AI listing copy in this Worker's persistent D1 budget. This avoids resetting the local Python budget on every GitHub Actions run.
 
-The D1 database is provisioned. The Worker has not yet been deployed: the GitHub Actions secrets above are still required. The deployment workflow is manual-only, and the public store and payment flags must remain unset/false.
+The D1 database is provisioned. The Worker has not yet been deployed: the GitHub Actions secrets above are still required. The deployment workflow is manual-only and private-runtime-only; it forcibly writes both public commerce gates as `false` on every deployment.
 
 ## API
 
