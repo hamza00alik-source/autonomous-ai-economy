@@ -356,6 +356,7 @@ test("public checkout fixes the product price and creates an invoice with a priv
       NOWPAYMENTS_API_KEY: "api-test",
       NOWPAYMENTS_IPN_SECRET: "ipn-test",
       CHECKOUT_LIMITER: { limit: async () => ({ success: true }) },
+      ASSETS: { fetch: async () => new Response("<html>store</html>") },
       DB: db
     });
     assert.equal(response.status, 201);
@@ -385,6 +386,7 @@ test("public checkout rejects cross-origin and client-supplied product prices", 
     NOWPAYMENTS_API_KEY: "api-test",
     NOWPAYMENTS_IPN_SECRET: "ipn-test",
     CHECKOUT_LIMITER: { limit: async () => ({ success: true }) },
+    ASSETS: { fetch: async () => new Response("<html>store</html>") },
     DB: fakePaymentDb()
   };
   const crossOrigin = await worker.fetch(new Request("https://worker.example/v1/store/checkout", {
@@ -520,4 +522,21 @@ test("provider callback remains retryable when agent revenue attribution fails",
   assert.equal((await retry.json()).status, "settled");
   assert.equal(db.events.size, 1);
   assert.equal(db.revenue.get("order-retry-123").status, "settled_pending_reconciliation");
+});
+
+
+test("storefront stays unpublished unless owner explicitly enables live crypto checkout", async () => {
+  const assets = { fetch: async () => new Response("<html>private storefront</html>") };
+  const hidden = await worker.fetch(new Request("https://worker.example/"), { ASSETS: assets });
+  assert.equal(hidden.status, 404);
+  const visible = await worker.fetch(new Request("https://worker.example/"), {
+    ASSETS: assets,
+    AAE_PUBLIC_CHECKOUT_ENABLED: "true",
+    AAE_CRYPTO_ENABLEMENT_APPROVED: "true",
+    NOWPAYMENTS_API_KEY: "api-test",
+    NOWPAYMENTS_IPN_SECRET: "ipn-test"
+  });
+  assert.equal(visible.status, 200);
+  assert.match(visible.headers.get("content-security-policy"), /default-src 'self'/);
+  assert.equal(await visible.text(), "<html>private storefront</html>");
 });
