@@ -8,6 +8,7 @@ from .controller import EconomyController
 from .ledger import AppendOnlyLedger
 from .models import LedgerEntry
 from .task_store import TaskStore
+from .audit_checkpoint import export_checkpoint, verify_checkpoint
 from .worker import run_once
 from .research_sources import GoogleNewsRSSProvider
 from .research_store import ResearchCandidateStore
@@ -69,6 +70,17 @@ def main() -> None:
 
     verify_audit = sub.add_parser("verify-audit", help="verify the local task event hash chain")
     verify_audit.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    export_audit_checkpoint = sub.add_parser("export-audit-checkpoint", help="sign the current audit-chain head with an operator-supplied Ed25519 key")
+    export_audit_checkpoint.add_argument("--private-key", type=Path, required=True, help="operator-held PEM private key; never commit this file")
+    export_audit_checkpoint.add_argument("--output", type=Path, required=True, help="new checkpoint file; existing files are never overwritten")
+    export_audit_checkpoint.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    verify_audit_checkpoint = sub.add_parser("verify-audit-checkpoint", help="verify a signed checkpoint against an independently trusted public key")
+    verify_audit_checkpoint.add_argument("checkpoint", type=Path)
+    verify_audit_checkpoint.add_argument("--public-key", type=Path, required=True, help="trusted Ed25519 public key PEM")
+    verify_audit_checkpoint.add_argument("--compare-local", action="store_true", help="also compare checkpoint head with the local database")
+    verify_audit_checkpoint.add_argument("--data-dir", type=Path, default=Path("./data"))
 
     research = sub.add_parser("research-news", help="discover public news leads (unverified; no sales claims)")
     research.add_argument("query")
@@ -269,6 +281,17 @@ def main() -> None:
         result = TaskStore(args.data_dir / "economy.sqlite3").verify_event_chain()
         print(json.dumps(result, indent=2))
         if not result["valid"]:
+            raise SystemExit(1)
+    elif args.command == "export-audit-checkpoint":
+        result = export_checkpoint(
+            TaskStore(args.data_dir / "economy.sqlite3"), args.private_key, args.output
+        )
+        print(json.dumps(result, indent=2))
+    elif args.command == "verify-audit-checkpoint":
+        store = TaskStore(args.data_dir / "economy.sqlite3") if args.compare_local else None
+        result = verify_checkpoint(args.checkpoint, args.public_key, store)
+        print(json.dumps(result, indent=2))
+        if not result["valid"] or (args.compare_local and not result.get("matches_local_head")):
             raise SystemExit(1)
     elif args.command == "research-news":
         candidates = GoogleNewsRSSProvider().search(args.query, limit=args.limit)
