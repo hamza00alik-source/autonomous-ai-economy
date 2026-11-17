@@ -53,6 +53,8 @@ jobs:
         run: economy-ai --data-dir /tmp/aae-ai-queue-ci queue-copy --facts-file products/moba-objective-props/product-facts.json
       - name: Check standalone product JavaScript
         run: python tools/check_product_js.py
+      - name: Test private Cloudflare worker logic
+        run: node --test cloudflare/worker/test/*.test.js
       - name: Build first digital product bundle
         run: economy-product build --output dist/store-catalog-cleaner.zip
       - name: Build original MOBA game asset pack
