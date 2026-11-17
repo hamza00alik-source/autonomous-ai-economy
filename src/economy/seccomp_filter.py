@@ -12,6 +12,7 @@ import struct
 # Classic BPF opcodes and seccomp return actions.
 _BPF_LD_W_ABS = 0x20
 _BPF_JMP_JEQ_K = 0x15
+_BPF_ALU_AND_K = 0x54
 _BPF_RET_K = 0x06
 _SECCOMP_RET_KILL_PROCESS = 0x80000000
 _SECCOMP_RET_ERRNO = 0x00050000
@@ -57,6 +58,13 @@ def build_filter() -> bytes:
     jump(_BPF_JMP_JEQ_K, audit_arch, 1, 0)
     stmt(_BPF_RET_K, _SECCOMP_RET_KILL_PROCESS)
     stmt(_BPF_LD_W_ABS, 0)  # seccomp_data.nr
+    if machine == "x86_64":
+        # x32 shares AUDIT_ARCH_X86_64 but sets bit 30 in syscall numbers.
+        # Kill that ABI rather than allowing it to bypass the reviewed syscall table.
+        stmt(_BPF_ALU_AND_K, 0x40000000)
+        jump(_BPF_JMP_JEQ_K, 0, 1, 0)
+        stmt(_BPF_RET_K, _SECCOMP_RET_KILL_PROCESS)
+        stmt(_BPF_LD_W_ABS, 0)  # reload the unmodified syscall number
     for number in sorted(set(syscalls.values())):
         jump(_BPF_JMP_JEQ_K, number, 0, 1)
         stmt(_BPF_RET_K, _SECCOMP_RET_ERRNO | 1)  # EPERM
