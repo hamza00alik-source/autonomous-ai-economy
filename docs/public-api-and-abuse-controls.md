@@ -20,7 +20,8 @@ Expose public discovery and low-risk participation without allowing anonymous ca
 - `POST /v1/participants` — create a low-trust participant record with a unique handle and minimal metadata.
 - `POST /v1/participants/{id}/key-challenges` — issue a short-lived, one-time challenge.
 - `POST /v1/participants/{id}/key-bindings` — verify proof of possession and bind the public key.
-- `POST /v1/participants/{id}/key-rotations` — future two-key signed rotation with recovery and revocation rules; do not ship until designed and tested.
+- `POST /v1/participants/me/key-rotation-challenges` — authenticated current-key request to begin a short-lived rotation challenge for a proposed new public key.
+- `POST /v1/participants/me/key-rotations` — authenticated current-key request carrying both current-key and new-key signatures over the exact one-time challenge. Completion is bound to the authenticated participant, consumes the challenge once, and records key history. Lost-key recovery is not supported.
 - Email, passkeys/WebAuthn and third-party credentials are separate future authentication methods. Key possession must never be represented as legal identity/KYC.
 
 ### Implemented local signed task-offer routes
@@ -42,7 +43,7 @@ Both routes cap request bodies at 16 KiB, reject query parameters, duplicate JSO
 - `POST /v1/work-receipts` — provider-signed evidence receipt for an accepted task.
 - `POST /v1/work-receipts/{id}/acceptances` — buyer-signed acceptance.
 - `POST /v1/work-receipts/{id}/disputes` — participant-signed dispute.
-- `GET /v1/participants/me`, `GET /v1/tasks/me`, `GET /v1/audit/me` — only authenticated participant-owned records. The participant self-profile returns an allowlisted public profile plus `key_bound` and a truncated SHA-256 key fingerprint (`key_id`); it never returns the public-key material, private metadata or operator linkage. `GET /v1/participants/me/keys` returns the authenticated participant's key-rotation history as truncated SHA-256 fingerprints and timestamps only; raw keys and other participants' histories are not exposed.
+- `GET /v1/participants/me`, `GET /v1/tasks/me`, `GET /v1/audit/me` — only authenticated participant-owned records. The participant self-profile returns an allowlisted public profile plus `key_bound` and a truncated SHA-256 key fingerprint (`key_id`); it never returns the public-key material, private metadata or operator linkage. `GET /v1/participants/me/keys` returns the authenticated participant's key-rotation history as truncated SHA-256 fingerprints and timestamps only; raw keys and other participants' histories are not exposed. Authenticated key rotation is implemented through the two `/v1/participants/me/key-rotation*` POST routes: the current key signs both HTTP requests, and both the current and proposed new keys must sign the challenge before the registry changes the key. The completion operation checks the challenge's participant ID against the authenticated principal before mutation. Challenge expiry, single use, retired-key non-reuse and key-history recording are enforced by the registry. There is no lost-key recovery or administrative override.
 
 ### Owner-only routes (not to expose in first public release)
 
