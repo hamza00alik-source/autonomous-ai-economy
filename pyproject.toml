@@ -18,7 +18,7 @@ economy = "economy.cli:main"
 economy-supervisor = "economy.supervisor:main"
 economy-product = "economy.product_bundle:main"
 economy-game-assets = "economy.game_asset_pack:main"
-economy-ai = "economy.ai_cli:main"
+economy-ai = "economy.ai_cli:main"\neconomy-gumroad-draft = "economy.gumroad_draft:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
