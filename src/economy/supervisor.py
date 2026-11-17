@@ -1,8 +1,4 @@
-"""Long-running, single-host supervisor for the built-in economy worker.
-
-This process is intentionally conservative: it runs only the fixed built-in worker,
-does not expose a network listener, and never performs payment or publishing actions.
-"""
+"""Long-running, single-host supervisor for the built-in economy worker."""
 from __future__ import annotations
 
 import argparse
@@ -18,15 +14,11 @@ from .worker import run_once
 LOG = logging.getLogger("economy.supervisor")
 
 
-def supervise(
-    store: TaskStore,
-    *,
-    poll_seconds: float = 2.0,
-    stop_event: threading.Event | None = None,
-    max_cycles: int | None = None,
-    worker: Callable[[TaskStore], dict | None] = run_once,
-) -> dict[str, int]:
-    """Poll until stopped; return counters. max_cycles exists for deterministic tests."""
+def supervise(store: TaskStore, *, poll_seconds: float = 2.0,
+              stop_event: threading.Event | None = None,
+              max_cycles: int | None = None,
+              worker: Callable[[TaskStore], dict | None] = run_once) -> dict[str, int]:
+    """Poll until stopped; max_cycles supports deterministic tests."""
     if poll_seconds < 0.1 or poll_seconds > 300:
         raise ValueError("poll_seconds must be between 0.1 and 300")
     if max_cycles is not None and max_cycles < 0:
@@ -42,7 +34,6 @@ def supervise(
             elif result.get("status") == "completed":
                 completed += 1
             else:
-                # Failed/retried work is visible in the durable queue; do not spin.
                 errors += 1
         except Exception:
             errors += 1
@@ -77,9 +68,6 @@ def main() -> int:
     LOG.info("Supervisor stopped: %s", stats)
     return 0 if stats["errors"] == 0 else 1
 
-
-if __.argv__ if False else False:
-    pass
 
 if __name__ == "__main__":
     raise SystemExit(main())
