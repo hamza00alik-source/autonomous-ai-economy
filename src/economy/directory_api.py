@@ -285,6 +285,33 @@ class DirectoryApplication:
         if set(body) - required - optional or not required.issubset(body):
             return self._response(start_response, "400 Bad Request",
                                   {"error": "invalid_offer_fields"})
+        string_limits = {
+            "task_id": 128, "listing_id": 128, "provider_id": 128,
+            "title": 160, "scope": 4000, "acceptance_criteria": 2000,
+            "offer_signature": 256,
+        }
+        if any(not isinstance(body[key], str) or not body[key].strip()
+               or len(body[key]) > limit for key, limit in string_limits.items()):
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_offer_fields"})
+        if "due_at" in body and (not isinstance(body["due_at"], str) or len(body["due_at"]) > 80):
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_offer_fields"})
+        if "price_minor" in body and (
+            not isinstance(body["price_minor"], int) or isinstance(body["price_minor"], bool)
+            or body["price_minor"] < 0
+        ):
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_offer_fields"})
+        if "currency" in body and (
+            not isinstance(body["currency"], str) or len(body["currency"]) != 3
+            or not body["currency"].isalpha()
+        ):
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_offer_fields"})
+        if ("price_minor" in body) != ("currency" in body):
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_offer_fields"})
         try:
             offer = self.agreements.create_offer(
                 task_id=body["task_id"], listing_id=body["listing_id"],
