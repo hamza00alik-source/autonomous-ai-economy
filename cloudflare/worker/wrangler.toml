@@ -1,0 +1,16 @@
+name = "autonomous-ai-economy-private-worker"
+main = "src/index.js"
+compatibility_date = "2026-11-17"
+workers_dev = true
+
+[ai]
+binding = "AI"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "aae-private-ai-economy"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[triggers]
+crons = ["*/5 * * * *"]
