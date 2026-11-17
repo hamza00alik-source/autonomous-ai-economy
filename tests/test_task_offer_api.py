@@ -103,6 +103,27 @@ class SignedTaskOfferApiTests(unittest.TestCase):
         self.assertEqual(body["task"]["status"], "offered")
         self.assertIn("no payment", body["notice"])
 
+    def test_task_offer_quota_rejects_before_creating_offer(self):
+        from economy.identity import ParticipantRateLimitExceeded
+
+        class LimitedRegistry:
+            def consume_operation_quota(self, participant_id, operation, **kwargs):
+                self.args = (participant_id, operation, kwargs)
+                raise ParticipantRateLimitExceeded(operation)
+
+        self.app.registry = LimitedRegistry()
+        response, body = self.request("POST", "/v1/tasks/offers", {
+            "task_id": "task_a", "listing_id": "listing_a",
+            "provider_id": "provider_1", "title": "Research",
+            "scope": "Prepare a market report",
+            "acceptance_criteria": "Report includes sources",
+            "offer_signature": "buyer_offer_sig",
+        })
+        self.assertEqual(response["status"], "429 Too Many Requests")
+        self.assertEqual(response["headers"]["Retry-After"], "3600")
+        self.assertEqual(body["error"], "participant_operation_rate_limited")
+        self.assertIsNone(self.agreements.created)
+
     def test_provider_response_is_scoped_to_authenticated_provider(self):
         response, body = self.request(
             "POST", "/v1/tasks/task_a/responses",
