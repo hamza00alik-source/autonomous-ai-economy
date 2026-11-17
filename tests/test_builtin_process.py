@@ -25,6 +25,8 @@ class BuiltinProcessTests(unittest.TestCase):
         self.assertIn("Find independent evidence", result)
         command = run.call_args.args[0]
         self.assertIn("--unshare-all", command)
+        self.assertIn("--cap-drop", command)
+        self.assertIn("ALL", command)
         self.assertIn("--clearenv", command)
         self.assertIn("--ro-bind", command)
         self.assertEqual(run.call_args.kwargs["timeout"], 5)
