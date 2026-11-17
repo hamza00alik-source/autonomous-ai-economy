@@ -33,3 +33,11 @@ The API reports counts for accepted, pending, disputed, and dispute outcomes. It
 - Human passkey signing and verified buyer identity are not integrated yet; the local receipt flow currently requires registered public keys.
 - No payment, escrow, custody, automatic payout or financial settlement is connected.
 - Test suites inject a verifier for deterministic tests; production uses Ed25519 verification.
+
+## Local artifact-byte verification (new)
+
+- `economy.artifact_evidence.verify_local_artifact(path, manifest)` validates a strict versioned manifest and independently hashes a file supplied by the operator.
+- Manifest fields are exactly `schema`, `sha256`, `size_bytes` and `media_type`. SHA-256 must be 64 lowercase hex characters; size is bounded to 100 MiB; symlinks and non-regular files are rejected.
+- Verification is local-only: no URL fetching, remote host access, or SSRF-capable behavior is introduced. A matching digest confirms that the bytes read by the verifier match the manifest's claimed digest and size.
+- This does not prove who created or uploaded the file, when it existed, whether the manifest was truthful, or whether the work meets the buyer's criteria. A local file can also be changed after verification; production use needs immutable/content-addressed storage and a separately trusted timestamp/receipt.
+- This helper is not wired into acceptance, reputation, payouts, or payment. Buyer acceptance remains a separate signed assertion, and no money movement is enabled.
