@@ -533,13 +533,14 @@ async function status(env) {
     estimated_neurons_reserved: budget?.reserved_neurons || 0,
     daily_safety_budget_neurons: DAILY_NEURON_BUDGET,
     tasks: counts.results || [],
-    payment_actions_enabled: false,
-    crypto_checkout_configured: Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET),
+    public_payment_actions_enabled: publicCheckoutEnabled(env),
+    private_invoice_api_configured: Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET),
     public_checkout_enabled: publicCheckoutEnabled(env),
-    automatic_delivery_enabled: Boolean(env.ASSETS),
+    protected_delivery_storage_available: Boolean(env.ASSETS),
+    automatic_delivery_enabled: publicCheckoutEnabled(env) && Boolean(env.ASSETS),
     outbound_payouts_enabled: false,
     public_registration_enabled: false,
-    note: "Private product-copy and gated crypto-invoice worker; no public store, automatic delivery, or outbound transfers.",
+    note: "Private product-copy worker. Public checkout and buyer delivery remain disabled until the owner enables the gated storefront; outbound transfers are disabled.",
   });
 }
 
