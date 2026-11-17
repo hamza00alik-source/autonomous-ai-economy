@@ -202,6 +202,28 @@ class TaskStore:
                 rows = db.execute("SELECT * FROM tasks ORDER BY created_at")
             return [dict(row) for row in rows.fetchall()]
 
+    def list_for_agent(self, agent_id: str, status: str | None = None,
+                       limit: int = 50) -> list[dict[str, Any]]:
+        """Return only tasks assigned to one authenticated participant."""
+        if not agent_id or not 1 <= limit <= 100:
+            raise ValueError("agent_id and a limit from 1 to 100 are required")
+        allowed = {"queued", "running", "completed", "failed"}
+        if status is not None and status not in allowed:
+            raise ValueError("unsupported task status")
+        with self._connect() as db:
+            if status:
+                rows = db.execute(
+                    "SELECT * FROM tasks WHERE assigned_agent=? AND status=? "
+                    "ORDER BY created_at,task_id LIMIT ?",
+                    (agent_id, status, limit),
+                )
+            else:
+                rows = db.execute(
+                    "SELECT * FROM tasks WHERE assigned_agent=? "
+                    "ORDER BY created_at,task_id LIMIT ?",
+                    (agent_id, limit),
+                )
+            return [dict(row) for row in rows.fetchall()]
     def events(self, task_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = db.execute(
