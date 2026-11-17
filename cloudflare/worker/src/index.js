@@ -89,8 +89,9 @@ async function sha256(text) {
 
 async function authorized(request, env) {
   const expected = env.AAE_QUEUE_TOKEN;
-  const supplied = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  return !!expected && constantTimeEqual(supplied, expected);
+  const authorization = request.headers.get("authorization") || "";
+  const match = authorization.match(/^Bearer ([^\\s]+)$/i);
+  return !!expected && !!match && constantTimeEqual(match[1], expected);
 }
 
 async function enqueueCopy(request, env) {
