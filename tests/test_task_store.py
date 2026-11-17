@@ -45,6 +45,17 @@ class TaskStoreTests(unittest.TestCase):
         self.assertTrue(claimed["lease_token"])
         self.assertIsNone(self.store.claim())
 
+    def test_missing_sandbox_does_not_claim_or_consume_tasks(self):
+        from economy.builtin_process import SandboxUnavailable
+        task = self.store.enqueue("Sandbox required", "Keep queued", "opportunity-researcher")
+        with patch("economy.worker.ensure_sandbox_available",
+                   side_effect=SandboxUnavailable("bubblewrap unavailable")):
+            with self.assertRaises(SandboxUnavailable):
+                run_once(self.store)
+        current = self.store.get(task["task_id"])
+        self.assertEqual(current["status"], "queued")
+        self.assertEqual(current["attempts"], 0)
+
     def test_worker_leaves_tasks_for_unregistered_agents_queued(self):
         from economy.agents import AgentRegistry, RuleBasedAgent
         self.store.enqueue("Unknown", "Do not consume", "not-registered")
