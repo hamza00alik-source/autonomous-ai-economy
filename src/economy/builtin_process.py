@@ -92,8 +92,6 @@ def _apply_process_limits() -> None:
     resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
-    if hasattr(resource, "RLIMIT_NPROC"):
-        resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
 
 def execute_builtin(agent_id: str, objective: str) -> str:
     if agent_id not in _ALLOWED:
