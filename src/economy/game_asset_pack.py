@@ -272,8 +272,11 @@ def build_game_asset_pack(output: str | Path) -> dict:
     preview=_glb(objects)
     summaries["preview"]=_read_glb_summary(preview)
     files.append(("preview.glb",preview))
-    scene_lines=[
-        "[gd_scene load_steps=9 format=3]","",
+    scene_lines=["[gd_scene load_steps=9 format=3]",""]
+    for i,(slug,name,_) in enumerate(_ASSETS,1):
+        scene_lines.append(f'[ext_resource type="PackedScene" path="res://assets/{slug}.glb" id="{i}"]')
+    scene_lines.extend([
+        "",
         '[sub_resource type="Environment" id="Environment_default"]',
         "background_mode = 1",
         "background_color = Color(0.025, 0.035, 0.055, 1)",
@@ -285,11 +288,6 @@ def build_game_asset_pack(output: str | Path) -> dict:
         '[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]',
         "albedo_color = Color(0.06, 0.08, 0.12, 1)",
         "roughness = 0.92","",
-    ]
-    for i,(slug,name,_) in enumerate(_ASSETS,1):
-        scene_lines.append(f'[ext_resource type="PackedScene" path="res://assets/{slug}.glb" id="{i}"]')
-    scene_lines.extend([
-        "",
         '[node name="MOBAObjectiveProps" type="Node3D"]',"",
         '[node name="WorldEnvironment" type="WorldEnvironment" parent="."]',
         'environment = SubResource("Environment_default")',"",
