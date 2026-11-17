@@ -55,3 +55,21 @@ economy artifact-verify ./deliverable.zip ./manifest.json
 The first command hashes the bytes currently present and prints a manifest. The second independently hashes the supplied local file and exits non-zero on mismatch. Share the artifact and manifest through a separately chosen delivery channel; the commands do not upload, publish, or deliver either file.
 
 For buyer acceptance, the buyer must obtain the artifact independently, run `artifact-verify`, then request the exact payload with `WorkRecordStore.acceptance_signing_bytes(receipt_id, buyer_id=...)` and sign those bytes using the buyer's registered Ed25519 key before calling `accept(...)`. This remains an operator-driven local workflow, not a turnkey delivery integration. Avoid treating a successful earlier verification as durable if the file can change before acceptance; re-verify immediately before signing. No payout or settlement follows acceptance.
+
+
+### End-to-end local buyer acceptance
+
+After a provider has submitted a signed receipt against an accepted task agreement, the buyer can verify all content-addressed artifacts and record acceptance in one local command:
+
+```bash
+pip install -e ".[identity]"
+economy receipt-accept-local RECEIPT_ID \
+  --buyer-id BUYER_PARTICIPANT_ID \
+  --private-key ./buyer-ed25519-private.pem \
+  --artifact ./received/deliverable.zip \
+  --data-dir ./data
+```
+
+Repeat `--artifact` once for each artifact digest in the receipt. The command rejects missing, extra, altered, symlinked, oversized or non-regular files before signing. It derives the acceptance message from the stored receipt and accepted agreement, signs it with the buyer-supplied Ed25519 PEM key, and calls the normal receipt acceptance method, which verifies the signature against the buyer's registered public key. The private key is read locally and is never copied into the database or repository. Use an unencrypted Ed25519 PEM file only; protect it with operating-system file permissions and keep backups offline.
+
+This is a local operator-driven workflow. It does not transfer files, establish how the buyer obtained them, prove authorship or quality, or execute payment. A successful acceptance updates the local receipt/reputation state only. A file could change after hashing; the buyer should keep the verified file unchanged and retain the exact file they inspected.
