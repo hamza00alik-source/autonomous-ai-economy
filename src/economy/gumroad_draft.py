@@ -102,7 +102,7 @@ def prepare_gumroad_draft(
         "--file-description", "Downloadable MOBA Objective Props GLB game asset pack",
     ]
     for tag in listing["tags"]:
-        if not isinstance(tag, str) or not tag.strip():
+        if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{1,29}", tag.strip()):
             raise ValueError("listing contains an invalid tag")
         command.extend(["--tag", tag.strip()])
     base_flags = ["--json", "--no-input", "--quiet"]
@@ -121,6 +121,8 @@ def prepare_gumroad_draft(
         raise RuntimeError("Gumroad draft creation failed; inspect CLI recovery guidance: " + (result.stderr or result.stdout or "unknown error")[:1500])
     try:
         payload = json.loads(result.stdout)
+        if payload.get("success") is not True:
+            raise RuntimeError("Gumroad CLI did not confirm success=true")
         product = payload["product"]
         product_id = product["id"]
         published = product["published"]
