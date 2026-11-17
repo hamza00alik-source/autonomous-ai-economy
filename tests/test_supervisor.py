@@ -119,11 +119,11 @@ def test_supervisor_exports_completed_order_worker_output(tmp_path):
         task = store.claim(allowed_agent_ids=["order-delivery-agent"])
         assert task is not None
         draft = (
-            "# Customer order execution draft\\n\\n"
-            "**Status:** DRAFT — not delivered or buyer-approved\\n\\n"
-            f"**Order:** {order['title']}\\n"
-            f"**Task ID:** {order['task_id']}\\n\\n"
-            "## Payment status\\nNot verified. No payment was collected or recorded.\\n"
+            "# Customer order execution draft\n\n"
+            "**Status:** DRAFT — not delivered or buyer-approved\n\n"
+            f"**Order:** {order['title']}\n"
+            f"**Task ID:** {order['task_id']}\n\n"
+            "## Payment status\nNot verified. No payment was collected or recorded.\n"
         )
         return store.finish(task["task_id"], draft, task["lease_token"])
 
