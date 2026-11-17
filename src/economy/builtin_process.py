@@ -24,6 +24,16 @@ class SandboxUnavailable(RuntimeError):
     """Raised when the host cannot provide the required OS isolation."""
 
 
+def ensure_sandbox_available() -> str:
+    """Return the Bubblewrap executable or fail before a task is claimed."""
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        raise SandboxUnavailable(
+            "bubblewrap is required; refusing to execute without OS isolation"
+        )
+    return bwrap
+
+
 def _sandbox_command(bwrap: str, payload: bytes) -> list[str]:
     del payload  # Request is supplied on stdin, never through command arguments.
     command = [
@@ -31,6 +41,7 @@ def _sandbox_command(bwrap: str, payload: bytes) -> list[str]:
         "--die-with-parent",
         "--new-session",
         "--unshare-all",
+        "--cap-drop", "ALL",
         "--clearenv",
     ]
     mounted = []
@@ -75,11 +86,7 @@ def execute_builtin(agent_id: str, objective: str) -> str:
     if len(payload) > 8192:
         raise ValueError("execution request is too large")
 
-    bwrap = shutil.which("bwrap")
-    if not bwrap:
-        raise SandboxUnavailable(
-            "bubblewrap is required; refusing to execute without OS isolation"
-        )
+    bwrap = ensure_sandbox_available()
     command = _sandbox_command(bwrap, payload)
     try:
         completed = subprocess.run(
