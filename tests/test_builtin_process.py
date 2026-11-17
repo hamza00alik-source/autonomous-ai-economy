@@ -1,4 +1,5 @@
 import json
+import os
 import resource
 import shutil
 import unittest
@@ -7,6 +8,7 @@ from unittest.mock import patch
 
 from economy.builtin_process import SandboxUnavailable, execute_builtin, _apply_process_limits
 from economy.seccomp_filter import SeccompUnavailable, build_filter, create_filter_fd
+from economy.cgroup_v2 import CgroupUnavailable
 
 
 EXPECTED_SANDBOX = {
@@ -98,6 +100,13 @@ class BuiltinProcessTests(unittest.TestCase):
     def test_unknown_architecture_fails_closed(self, _machine):
         with self.assertRaisesRegex(SeccompUnavailable, "no seccomp policy"):
             build_filter()
+
+    @patch("economy.builtin_process.CgroupV2Limits.check_root", side_effect=CgroupUnavailable("bad delegated root"))
+    @patch("economy.builtin_process.shutil.which", return_value="/usr/bin/bwrap")
+    @patch.dict(os.environ, {"AAE_CGROUP_ROOT": "/invalid/delegation"})
+    def test_invalid_configured_cgroup_fails_before_execution(self, _which, _check):
+        with self.assertRaisesRegex(SandboxUnavailable, "bad delegated root"):
+            execute_builtin("opportunity-researcher", "Do work")
 
     @patch("economy.builtin_process.shutil.which", return_value=None)
     def test_fails_closed_when_bubblewrap_is_missing(self, _which):
