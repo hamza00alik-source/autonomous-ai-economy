@@ -126,6 +126,13 @@ class DirectoryApiTests(unittest.TestCase):
         self.assertEqual(captured["status"], "200 OK")
         self.assertEqual(body["participant"]["handle"], "alice")
         self.assertNotIn("public_key", body["participant"])
+        self.assertTrue(body["participant"]["key_bound"])
+        self.assertEqual(
+            body["participant"]["key_id"],
+            __import__("hashlib").sha256(
+                "secret-public-key-material".encode("ascii")
+            ).hexdigest()[:24],
+        )
         self.assertNotIn("metadata", body["participant"])
         self.assertNotIn("operator_id", body["participant"])
 
