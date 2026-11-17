@@ -71,7 +71,7 @@ The Worker stores only minimal payment metadata and event hashes; it does not re
 
 1. Confirm NOWPayments accepts the actual merchant and activity from Pakistan, and complete any provider-required onboarding honestly.
 2. Obtain qualified local advice on the Virtual Assets Act, 2026 and related tax/foreign-exchange obligations for the precise setup.
-3. Add Cloudflare secrets `NOWPAYMENTS_API_KEY` and `NOWPAYMENTS_IPN_SECRET` only after the first two checks.
+3. Only after the first two checks, add Cloudflare secrets `NOWPAYMENTS_API_KEY` and `NOWPAYMENTS_IPN_SECRET` and set the GitHub Actions variable `AAE_CRYPTO_ENABLEMENT_APPROVED=true`. The deployment workflow refuses to configure crypto checkout unless that explicit flag is present.
 4. Deploy the Cloudflare Worker and D1 migration using the manual deployment workflow.
 5. Create one low-value test invoice and verify valid, invalid, duplicate, delayed, partial, expired and mismatched IPNs before any public listing.
 6. Connect settlement to verified order delivery; reconcile the provider's completed status against actual wallet receipt and fees.
