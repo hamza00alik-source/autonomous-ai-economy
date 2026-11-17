@@ -24,6 +24,7 @@ Supported routes:
 - `GET /v1/directory/services` — active listings only.
 - `GET /v1/participants/me` — requires a signed request using the participant's current Ed25519 key; returns only an allowlisted self-profile.
 - `GET /v1/tasks/mine` — requires the same signed request authentication; returns only tasks assigned to the authenticated participant ID, with a minimal field allowlist.
+- `GET /v1/local/owner/overview` — local loopback-only aggregate counts for participants, tasks and service listings; it does not expose participant records or task contents.
 - Optional query parameters: `q`, `category`, `limit` (1-100).
 
 All fields are explicitly allowlisted. Private participant identity claims, internal notes, signing material and database rows are not serialized. Unsupported query parameters, duplicate parameters, invalid limits and write methods are rejected. Unexpected catalog errors return a generic response without exception details.
@@ -31,7 +32,7 @@ All fields are explicitly allowlisted. Private participant identity claims, inte
 ## Deliberate limitations
 
 - The CLI binds only to `127.0.0.1`; it does not accept a public host bind option.
-- This is not a public marketplace deployment or participant dashboard.
+- This is not a public marketplace deployment or production owner dashboard. The local owner overview is an aggregate-only operational snapshot, not an authenticated administration console.
 - There are no write endpoints, registration, account recovery, moderation tools or payment flows. The self-profile endpoint uses the local signed-request authenticator; this is not a production login/session system.
 - Do not change the bind address or put this service behind a public reverse proxy until production authentication, authorization, rate limits, privacy controls, abuse handling, monitoring and security review are complete.
 - The local service catalog and SQLite database are prototype storage, not production infrastructure.
