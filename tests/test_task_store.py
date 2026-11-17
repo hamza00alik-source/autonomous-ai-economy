@@ -32,6 +32,58 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual([e["event_type"] for e in reopened.events(task["task_id"])],
                          ["queued", "started", "completed"])
 
+    def test_event_hash_chain_verifies_and_detects_event_tampering(self):
+        task = self.store.enqueue("Audit", "Verify event integrity", "opportunity-researcher")
+        claim = self.store.claim()
+        self.store.finish(task["task_id"], "done", claim["lease_token"])
+        verified = self.store.verify_event_chain()
+        self.assertTrue(verified["valid"])
+        self.assertEqual(verified["checked_events"], 3)
+        with sqlite3.connect(self.store.path) as db:
+            db.execute(
+                "UPDATE task_events SET details_json='{}' WHERE event_id=1"
+            )
+        corrupted = self.store.verify_event_chain()
+        self.assertFalse(corrupted["valid"])
+        self.assertEqual(corrupted["failed_event_id"], 1)
+        self.assertEqual(corrupted["reason"], "event_hash_mismatch")
+
+    def test_event_hash_chain_detects_deleted_or_reordered_history(self):
+        first = self.store.enqueue("First", "First event", "agent-a")
+        self.store.enqueue("Second", "Second event", "agent-b")
+        with sqlite3.connect(self.store.path) as db:
+            db.execute("DELETE FROM task_events WHERE task_id=?", (first["task_id"],))
+        result = self.store.verify_event_chain()
+        self.assertFalse(result["valid"])
+        self.assertEqual(result["reason"], "previous_hash_mismatch")
+
+    def test_legacy_event_history_is_backfilled_once(self):
+        legacy_path = Path(self.tmp.name) / "legacy.sqlite3"
+        with sqlite3.connect(legacy_path) as db:
+            db.executescript("""
+                CREATE TABLE tasks (
+                    task_id TEXT PRIMARY KEY, idempotency_key TEXT UNIQUE,
+                    title TEXT NOT NULL, objective TEXT NOT NULL,
+                    assigned_agent TEXT NOT NULL, status TEXT NOT NULL,
+                    result TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+                    max_attempts INTEGER NOT NULL DEFAULT 3, created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL, lease_until TEXT, lease_token TEXT
+                );
+                CREATE TABLE task_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL, details_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                INSERT INTO tasks VALUES('legacy-task',NULL,'Legacy','Migrate','agent',
+                    'queued',NULL,0,3,'2026-01-01T00:00:00+00:00',
+                    '2026-01-01T00:00:00+00:00',NULL,NULL);
+                INSERT INTO task_events(task_id,event_type,details_json,created_at)
+                    VALUES('legacy-task','queued','{}','2026-01-01T00:00:00+00:00');
+            """)
+        migrated = TaskStore(legacy_path)
+        self.assertTrue(migrated.verify_event_chain()["valid"])
+        self.assertEqual(migrated.verify_event_chain()["checked_events"], 1)
+
     def test_idempotency_key_returns_existing_task(self):
         first = self.store.enqueue("A", "B", "opportunity-researcher", "same-request")
         second = self.store.enqueue("A", "B", "opportunity-researcher", "same-request")
