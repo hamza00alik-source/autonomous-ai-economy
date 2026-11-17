@@ -17,7 +17,7 @@ identity = ["cryptography>=42"]
 economy = "economy.cli:main"
 economy-supervisor = "economy.supervisor:main"
 economy-product = "economy.product_bundle:main"
-economy-game-assets = "economy.game_asset_pack:main"
+economy-game-assets = "economy.game_asset_pack:main"\neconomy-ai = "economy.ai_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
