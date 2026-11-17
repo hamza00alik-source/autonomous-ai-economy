@@ -35,18 +35,21 @@ def supervise(store: TaskStore, *, agreements: TaskAgreementStore | None = None,
             if agreements is not None:
                 dispatch_accepted_orders(agreements, store)
             result = worker(store)
-            if (result is not None and result.get("status") == "completed"
-                    and result.get("assigned_agent") == "order-delivery-agent"
-                    and result.get("task_id")):
-                artifact_dir = Path(store.path).parent / "deliverables"
-                exported = export_completed_order_artifact(
-                    store, result["task_id"], artifact_dir,
-                )
-                LOG.info("Order draft artifact exported: %s", exported["path"])
             if result is None:
                 idle += 1
             elif result.get("status") == "completed":
                 completed += 1
+                if (result.get("assigned_agent") == "order-delivery-agent"
+                        and result.get("task_id")):
+                    try:
+                        artifact_dir = Path(store.path).parent / "deliverables"
+                        exported = export_completed_order_artifact(
+                            store, result["task_id"], artifact_dir,
+                        )
+                        LOG.info("Order draft artifact exported: %s", exported["path"])
+                    except Exception:
+                        errors += 1
+                        LOG.exception("Order completed but local artifact export failed")
             else:
                 errors += 1
         except Exception:
