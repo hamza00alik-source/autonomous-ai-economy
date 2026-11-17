@@ -13,6 +13,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      NOWPAYMENTS_API_KEY: ${{ secrets.NOWPAYMENTS_API_KEY }}
+      NOWPAYMENTS_IPN_SECRET: ${{ secrets.NOWPAYMENTS_IPN_SECRET }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -58,7 +61,7 @@ jobs:
           AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
         run: printf '%s' "$AAE_QUEUE_TOKEN" | npx wrangler secret put AAE_QUEUE_TOKEN
       - name: Set optional NOWPayments API key
-        if: ${{ secrets.NOWPAYMENTS_API_KEY != '' }}
+        if: ${{ env.NOWPAYMENTS_API_KEY != '' }}
         working-directory: cloudflare/worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -66,7 +69,7 @@ jobs:
           NOWPAYMENTS_API_KEY: ${{ secrets.NOWPAYMENTS_API_KEY }}
         run: printf '%s' "$NOWPAYMENTS_API_KEY" | npx wrangler secret put NOWPAYMENTS_API_KEY
       - name: Set optional NOWPayments IPN secret
-        if: ${{ secrets.NOWPAYMENTS_IPN_SECRET != '' }}
+        if: ${{ env.NOWPAYMENTS_IPN_SECRET != '' }}
         working-directory: cloudflare/worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
