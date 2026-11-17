@@ -63,6 +63,35 @@ jobs:
         run: economy-product build --output dist/store-catalog-cleaner.zip
       - name: Build original MOBA game asset pack
         run: economy-game-assets build --output dist/moba-objective-props.zip
+      - name: Verify official Gumroad CLI draft and upload dry-run
+        run: |
+          set -euo pipefail
+          version="v0.20261106.1"
+          base="https://github.com/antiwork/gumroad-cli/releases/download/$version"
+          curl -fsSL "$base/checksums.txt" -o checksums.txt
+          curl -fsSL "$base/gumroad-cli_linux_amd64.tar.gz" -o gumroad-cli.tar.gz
+          grep 'gumroad-cli_linux_amd64.tar.gz      - name: Upload MOBA game asset pack for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: moba-objective-props
+          path: dist/moba-objective-props.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload product bundle for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-catalog-cleaner
+          path: dist/store-catalog-cleaner.zip
+          if-no-files-found: error
+          retention-days: 14
+ checksums.txt | sha256sum --check -
+          mkdir -p gumroad-cli-extracted
+          tar -xzf gumroad-cli.tar.gz -C gumroad-cli-extracted
+          binary="$(find gumroad-cli-extracted -type f -name gumroad -perm -u+x -print -quit)"
+          test -n "$binary"
+          chmod +x "$binary"
+          "$binary" products create --name "MOBA Objective Props CI Draft Check" --price 5.00 --currency usd --description "<p>CI dry-run only.</p>" --custom-summary "Five low-poly GLB props for Godot 4." --category 3d --draft --file dist/moba-objective-props.zip --file-name "moba-objective-props.zip" --file-description "3D asset pack" --tag low-poly --tag "GLB models" --dry-run --json --no-input --quiet > gumroad-dry-run.json
+          python -c 'import json; d=json.load(open("gumroad-dry-run.json")); assert d.get("dry_run") is True; assert d.get("uploads"), d'
       - name: Upload MOBA game asset pack for review
         uses: actions/upload-artifact@v4
         with:
