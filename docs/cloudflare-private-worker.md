@@ -29,16 +29,15 @@ Sources:
 
 The repository includes a **manual-only** GitHub Actions workflow at `.github/workflows/deploy-cloudflare-worker.yml`. It does not deploy automatically on code changes and has not been run. You can configure it from the GitHub website:
 
-1. Create a Cloudflare account and open Workers & Pages → D1 SQL Databases. Create a database named `aae-private-ai-economy`.
-2. Copy the D1 database ID.
-3. In the GitHub repository, open Settings → Secrets and variables → Actions.
-4. Add this repository variable:
-   - `CLOUDFLARE_D1_DATABASE_ID` = the D1 database ID.
-5. Add these repository secrets:
+1. The private D1 database `aae-private-ai-economy` has already been created in the connected Cloudflare account in the APAC region. Its database ID is `25bdc73f-615b-4b71-a7cd-86ba5cd615f8`; the repository's `wrangler.toml` is already bound to it.
+2. In the GitHub repository, open Settings → Secrets and variables → Actions.
+3. Add this repository variable:
+   - `CLOUDFLARE_D1_DATABASE_ID` = `25bdc73f-615b-4b71-a7cd-86ba5cd615f8`.
+4. Add these repository secrets:
    - `CLOUDFLARE_ACCOUNT_ID` = your Cloudflare account ID.
    - `CLOUDFLARE_API_TOKEN` = a scoped token with permission to deploy Workers and manage this D1 database.
    - `AAE_QUEUE_TOKEN` = a long random owner-only API secret. Generate it with a password manager or `openssl rand -hex 32`; keep your own copy so you can call the private API.
-6. In GitHub Actions, select **Deploy private Cloudflare AI worker** → **Run workflow**.
+5. In GitHub Actions, select **Deploy private Cloudflare AI worker** → **Run workflow**.
 
 The workflow installs Wrangler, applies the D1 migration, stores `AAE_QUEUE_TOKEN` as a Cloudflare Worker secret, and deploys the Worker. It fails closed if any required value is missing. Never put secrets in repository variables, code, issues, logs, or chat.
 
@@ -47,7 +46,7 @@ After deployment, copy the `workers.dev` URL printed by Wrangler and add one mor
 
 The Gumroad draft workflow uses `AAE_WORKER_URL` and `AAE_QUEUE_TOKEN` to queue AI listing copy in this Worker's persistent D1 budget. This avoids resetting the local Python budget on every GitHub Actions run.
 
-Creating the D1 database and configuring GitHub secrets are account-owner setup steps. The workflow itself is only a deployment mechanism; it has not been triggered and no Cloudflare resource has been created by this repository change.
+The D1 database is provisioned. The Worker has not yet been deployed: the GitHub Actions secrets above are still required. The deployment workflow is manual-only, and the public store and payment flags must remain unset/false.
 
 ## API
 
