@@ -317,6 +317,18 @@ def main() -> None:
     participant_list.add_argument("--type", choices=["human", "agent", "organization"])
     participant_list.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+    abuse_review_list = sub.add_parser("abuse-review-list", help="list local participant abuse review signals")
+    abuse_review_list.add_argument("--status", choices=["open", "reviewed", "all"], default="open")
+    abuse_review_list.add_argument("--limit", type=int, default=100)
+    abuse_review_list.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    abuse_review = sub.add_parser("abuse-review", help="record an owner review decision; does not suspend or reinstate participants")
+    abuse_review.add_argument("--case-id", required=True)
+    abuse_review.add_argument("--decision", choices=["dismiss", "monitor", "escalate"], required=True)
+    abuse_review.add_argument("--reviewer", required=True)
+    abuse_review.add_argument("--note", default="")
+    abuse_review.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     agent_challenge = sub.add_parser("agent-enrollment-challenge", help="create a one-time challenge for an agent public key")
     agent_challenge.add_argument("--handle", required=True)
     agent_challenge.add_argument("--display-name", required=True)
@@ -668,6 +680,14 @@ def main() -> None:
         print(json.dumps(registry.create_organization(args.handle, args.display_name), indent=2))
     elif args.command == "participant-list":
         print(json.dumps(ParticipantRegistry(args.data_dir / "participants.sqlite3").list_participants(args.type), indent=2))
+    elif args.command == "abuse-review-list":
+        print(json.dumps(ParticipantRegistry(args.data_dir / "participants.sqlite3").list_abuse_review_cases(
+            status=args.status, limit=args.limit
+        ), indent=2))
+    elif args.command == "abuse-review":
+        print(json.dumps(ParticipantRegistry(args.data_dir / "participants.sqlite3").review_abuse_case(
+            args.case_id, decision=args.decision, reviewer=args.reviewer, note=args.note
+        ), indent=2))
     elif args.command == "agent-enrollment-challenge":
         registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
         print(json.dumps(registry.begin_agent_enrollment(args.handle, args.display_name, args.public_key, args.operator_id), indent=2))
