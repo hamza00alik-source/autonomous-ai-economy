@@ -171,6 +171,12 @@ class ParticipantRegistry:
         now_text = _iso(now)
         db.execute("BEGIN IMMEDIATE")
         try:
+            # Keep only a bounded 30-day operational history for this limiter.
+            retention_cutoff = _iso(now - timedelta(days=30))
+            db.execute(
+                "DELETE FROM participant_operation_events WHERE occurred_at<=?",
+                (retention_cutoff,),
+            )
             count = db.execute(
                 """SELECT COUNT(*) AS n FROM participant_operation_events
                    WHERE participant_id=? AND operation=? AND occurred_at>?""",
