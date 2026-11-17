@@ -120,7 +120,10 @@ class CapabilityStore:
                 participant = (db.execute(
                     "SELECT status FROM participants WHERE participant_id=?", (subject_id,)
                 ).fetchone() if participant_table else None)
-                if participant_table and (participant is None or participant["status"] != "active"):
+                if participant_table is None:
+                    reason = "participant registry is unavailable"
+                    rows = []
+                elif participant is None or participant["status"] != "active":
                     reason = "subject participant is missing or inactive"
                     rows = []
                 else:
