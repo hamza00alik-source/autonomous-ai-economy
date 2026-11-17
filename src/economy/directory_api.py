@@ -223,7 +223,7 @@ class DirectoryApplication:
 
     def _signed_json_body(self, environ, start_response, path):
         """Authenticate exact raw bytes before parsing a bounded JSON object."""
-        if self.registry is None or self.authenticator is None:
+        if self.authenticator is None:
             return None, None, self._response(start_response, "503 Service Unavailable",
                                                {"error": "authenticated_api_unavailable"})
         if environ.get("QUERY_STRING", ""):
