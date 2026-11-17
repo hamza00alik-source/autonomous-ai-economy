@@ -230,13 +230,25 @@ class DirectoryApplication:
             raw = stream.read(length) if stream is not None else b""
             if len(raw) != length:
                 raise ValueError("incomplete request body")
-            participant_id = environ.get("HTTP_X_AAE_PARTICIPANT", "")
             timestamp = int(environ.get("HTTP_X_AAE_TIMESTAMP", ""))
-            nonce = environ.get("HTTP_X_AAE_NONCE", "")
-            signature = environ.get("HTTP_X_AAE_SIGNATURE", "")
+        except (ValueError, TypeError):
+            return None, None, self._response(start_response, "400 Bad Request",
+                                               {"error": "invalid_request"})
+        participant_id = environ.get("HTTP_X_AAE_PARTICIPANT", "")
+        nonce = environ.get("HTTP_X_AAE_NONCE", "")
+        signature = environ.get("HTTP_X_AAE_SIGNATURE", "")
+        try:
             principal = self.authenticator.authenticate(
                 participant_id, "POST", path, raw, timestamp, nonce, signature
             )
+        except ValueError:
+            return None, None, self._response(start_response, "401 Unauthorized",
+                                               {"error": "authentication_failed"},
+                                               [("WWW-Authenticate", "AAE-Signature")])
+        except Exception:
+            return None, None, self._response(start_response, "503 Service Unavailable",
+                                               {"error": "authentication_temporarily_unavailable"})
+        try:
             def no_duplicate_keys(pairs):
                 result = {}
                 for key, value in pairs:
@@ -250,10 +262,7 @@ class DirectoryApplication:
             return principal, payload, None
         except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
             return None, None, self._response(start_response, "400 Bad Request",
-                                               {"error": "invalid_request_or_signature"})
-        except Exception:
-            return None, None, self._response(start_response, "503 Service Unavailable",
-                                               {"error": "authentication_temporarily_unavailable"})
+                                               {"error": "invalid_json_body"})
 
     def _create_task_offer(self, environ, start_response):
         if self.agreements is None:
