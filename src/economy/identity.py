@@ -451,6 +451,18 @@ class ParticipantRegistry:
         with self._connect() as db:
             return [self._participant(row) for row in db.execute(sql, params).fetchall()]
 
+    def summary_counts(self) -> dict[str, dict[str, int]]:
+        """Return aggregate participant counts without exposing participant records."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT participant_type, status, COUNT(*) AS total "
+                "FROM participants GROUP BY participant_type, status"
+            ).fetchall()
+        result: dict[str, dict[str, int]] = {}
+        for row in rows:
+            result.setdefault(row["participant_type"], {})[row["status"]] = row["total"]
+        return result
+
     def add_claim(self, participant_id: str, claim_type: str, issuer: str,
                   scope: str, status: str = "self_asserted",
                   expires_at: str | None = None, evidence_ref: str | None = None) -> str:
