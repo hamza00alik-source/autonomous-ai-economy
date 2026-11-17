@@ -10,7 +10,7 @@ Implemented in `src/economy/ai_runtime.py` and exposed as `economy-ai`.
 - Prompt limit: 8,000 characters across messages.
 - Output limit: 512 tokens.
 - Credentials: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` environment variables.
-- Network calls: only explicit `economy-ai invoke`; status and CI tests do not call the provider.
+- Network calls occur only through `economy-ai invoke`, `economy-ai draft-copy`, or the supervisor when an `ai-product-copy-agent` task is queued and credentials are configured. Status and CI tests do not call the provider.
 - No tool calls, shell access, browser actions, publishing, customer messaging, or financial actions.
 - No model prompts or API tokens are written to the local budget database. Only a SHA-256 prompt digest, estimated reservation, model, request status and timestamps are stored.
 - Failed/ambiguous requests keep their reservation; no automatic retries.
