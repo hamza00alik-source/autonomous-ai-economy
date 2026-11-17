@@ -17,7 +17,7 @@ MAX_RESULT = 2048
 TIMEOUT_SECONDS = 5
 _ALLOWED = {"opportunity-researcher", "verification-auditor"}
 _CHILD = Path(__file__).with_name("_builtin_agent_child.py")
-_RUNTIME_PATHS = ("/usr", "/bin", "/lib", "/lib64", "/etc")
+_RUNTIME_PATHS = ("/usr", "/bin", "/lib", "/lib64")
 
 
 class SandboxUnavailable(RuntimeError):
@@ -33,9 +33,17 @@ def _sandbox_command(bwrap: str, payload: bytes) -> list[str]:
         "--unshare-all",
         "--clearenv",
     ]
+    mounted = []
     for host_path in _RUNTIME_PATHS:
         if Path(host_path).exists():
             command.extend(["--ro-bind", host_path, host_path])
+            mounted.append(Path(host_path).resolve())
+    prefix = Path(sys.prefix).resolve()
+    if not any(prefix == root or root in prefix.parents for root in mounted):
+        for parent in reversed(prefix.parents):
+            if str(parent) != "/":
+                command.extend(["--dir", str(parent)])
+        command.extend(["--ro-bind", str(prefix), str(prefix)])
     command.extend([
         "--proc", "/proc",
         "--dev", "/dev",
