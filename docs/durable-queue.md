@@ -32,3 +32,12 @@ Task events now form a single global SHA-256 hash chain ordered by the SQLite `e
 Use `TaskStore.verify_event_chain()` to verify the complete chain. It reports the number of checked events, the head hash, or the first failed event and reason. Legacy databases are backfilled once when all existing event hashes are absent. A partially populated chain is rejected rather than silently repaired.
 
 **Security boundary:** this detects ordinary row edits, deletion, insertion, and reordering when the attacker cannot rewrite every dependent hash. It is not a cryptographic trust anchor against an administrator who can rewrite the database and recompute the entire chain. Stronger assurance requires regularly exporting and signing the head hash or storing it in an independently controlled append-only service. No such external checkpoint integration is enabled in this prototype.
+
+
+Run the local verifier with:
+
+```bash
+economy verify-audit --data-dir ./data
+```
+
+It prints a JSON verification report and exits non-zero when verification fails.
