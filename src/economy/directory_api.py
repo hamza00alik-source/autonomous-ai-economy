@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import ipaddress
 import json
 from urllib.parse import parse_qs
 
@@ -104,7 +105,7 @@ class DirectoryApplication:
         if path == "/health":
             return self._response(start_response, "200 OK", {"status": "ok"})
         if path == "/v1/local/owner/overview":
-            return self._owner_overview(start_response)
+            return self._owner_overview(environ, start_response)
         if path == "/v1/tasks/mine":
             return self._my_tasks(environ, start_response)
         if path == "/v1/participants/me":
@@ -205,8 +206,15 @@ class DirectoryApplication:
             "items": public_items, "count": len(public_items),
         })
 
-    def _owner_overview(self, start_response):
+    def _owner_overview(self, environ, start_response):
         """Loopback-only operational summary; never returns participant or task records."""
+        try:
+            remote = ipaddress.ip_address(environ.get("REMOTE_ADDR", ""))
+        except ValueError:
+            remote = None
+        if remote is None or not remote.is_loopback:
+            return self._response(start_response, "403 Forbidden",
+                                  {"error": "local_access_only"})
         if self.registry is None or self.task_store is None:
             return self._response(start_response, "503 Service Unavailable",
                                   {"error": "owner_overview_unavailable"})
