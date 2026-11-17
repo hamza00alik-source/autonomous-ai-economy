@@ -59,10 +59,10 @@ def _cylinder(parts, center, radius, height, material, sides=10, top_radius=None
     bottom_center, top_center = _v(x,y-height/2,z), _v(x,y+height/2,z)
     for i in range(sides):
         j=(i+1)%sides
-        _triangle(parts, material, lower[i], lower[j], upper[j])
-        _triangle(parts, material, lower[i], upper[j], upper[i])
-        _triangle(parts, material, bottom_center, lower[j], lower[i])
-        _triangle(parts, material, top_center, upper[i], upper[j])
+        _triangle(parts, material, lower[i], upper[j], lower[j])
+        _triangle(parts, material, lower[i], upper[i], upper[j])
+        _triangle(parts, material, bottom_center, lower[i], lower[j])
+        _triangle(parts, material, top_center, upper[j], upper[i])
 
 
 def _cone(parts, center, radius, height, material, sides=8):
@@ -73,8 +73,8 @@ def _cone(parts, center, radius, height, material, sides=8):
     base=_v(x,y-height/2,z)
     for i in range(sides):
         j=(i+1)%sides
-        _triangle(parts,material,ring[i],ring[j],tip)
-        _triangle(parts,material,base,ring[j],ring[i])
+        _triangle(parts,material,ring[i],tip,ring[j])
+        _triangle(parts,material,base,ring[i],ring[j])
 
 
 def _crystal(parts, center, radius, height, material="crystal", light="crystal_light", sides=8):
@@ -89,9 +89,9 @@ def _crystal(parts, center, radius, height, material="crystal", light="crystal_l
     for i in range(sides):
         j=(i+1)%sides
         mat=light if i%2==0 else material
-        _triangle(parts,mat,lower[i],lower[j],middle[j])
-        _triangle(parts,mat,lower[i],middle[j],middle[i])
-        _triangle(parts,mat,middle[i],middle[j],tip)
+        _triangle(parts,mat,lower[i],middle[j],lower[j])
+        _triangle(parts,mat,lower[i],middle[i],middle[j])
+        _triangle(parts,mat,middle[i],tip,middle[j])
 
 
 def _new_parts():
