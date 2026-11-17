@@ -1,0 +1,59 @@
+name: Deploy private Cloudflare AI worker
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-private-cloudflare-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate deployment secrets and D1 ID
+        working-directory: cloudflare/worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_DATABASE_ID: ${{ vars.CLOUDFLARE_D1_DATABASE_ID }}
+          AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_D1_DATABASE_ID"
+          test -n "$AAE_QUEUE_TOKEN"
+          echo "$CLOUDFLARE_D1_DATABASE_ID" | grep -Eq '^[0-9a-fA-F-]{36}$'
+          sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$CLOUDFLARE_D1_DATABASE_ID/" wrangler.toml
+      - name: Install Wrangler
+        working-directory: cloudflare/worker
+        run: npm install --no-audit --no-fund
+      - name: Apply D1 migrations
+        working-directory: cloudflare/worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler d1 migrations apply aae-private-ai-economy --remote
+      - name: Set private queue secret
+        working-directory: cloudflare/worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
+        run: printf '%s' "$AAE_QUEUE_TOKEN" | npx wrangler secret put AAE_QUEUE_TOKEN
+      - name: Deploy worker
+        working-directory: cloudflare/worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy
