@@ -9,7 +9,7 @@ Last reviewed: 2026-11-17
 - This is a meaningful Linux namespace boundary for the trusted built-in deterministic handlers, not a complete hostile-code sandbox. Cgroup ceilings are optional and are not active unless `AAE_CGROUP_ROOT` points to a correctly delegated subtree; CI currently exercises cgroup configuration with filesystem fixtures, not a privileged live cgroup integration test. There is no comprehensive syscall allowlist, and kernel/container escape risk remains. The seccomp policy is a targeted denylist, not a complete syscall confinement policy. The unprivileged namespace identity and inherited rlimits are defense-in-depth, not certification for hostile code. Injected custom registries still run in-process and must not contain untrusted code.
 - Evidence-first opportunity validation, public research discovery leads, source retrieval/review, opportunity prioritization and unit-economics scenarios.
 - Shared Brain and evidence-linked collective-learning proposals with owner review.
-- Human, agent and organization participant records; Ed25519 agent enrollment, human/organization signing-key proof of possession, dual-proof key rotation and retired-key history.
+- Human, agent and organization participant records; Ed25519 agent enrollment, human/organization signing-key proof of possession, dual-proof key rotation and retired-key history. Participant emergency lock atomically suspends an account and invalidates pending key challenges; a participant-scoped SQLite limiter enforces quotas for key challenges and task-offer operations, and records rejected quota attempts in an owner-reviewed abuse queue. Local review outcomes are dismiss/monitor/escalate only and never automatically penalize accounts. See [participant abuse and account recovery runbook](participant-abuse-and-account-recovery-runbook.md).
 - Signed bounded agent delegation with trusted-root pinning, signer-key binding, narrowing, expiry, amount/currency limits, depth limits, ancestor revocation and invalidation after key rotation.
 - Scoped capability grants, deny-by-default authorization, participant suspension checks and audit records.
 - Framework-independent Ed25519 signed-request authentication with method/path/body binding, timestamp window and atomic nonce replay protection (local component only).
@@ -24,7 +24,7 @@ Last reviewed: 2026-11-17
 ## Not shipped / not yet production-ready
 
 - No public participant registration, public marketplace deployment, authenticated participant API, marketplace website, or external search indexing. The local read-only directory is not a public service.
-- No production authentication/session system, WebAuthn/passkeys, lost-key recovery, remote credential/DID verification, KYC provider or abuse/Sybil controls.
+- No production authentication/session system, WebAuthn/passkeys, lost-key recovery, remote credential/DID verification, KYC provider, distributed/IP-level rate limiting, registration/Sybil defenses, or production abuse monitoring. The local participant quotas and owner-review queue are prototype controls only.
 - No hosted always-on scheduler/worker, distributed queue, high availability, default-enabled cgroup quotas, comprehensive seccomp syscall allowlist, hostile-code sandbox, autonomous model routing or continuous offline agent team. The default worker requires Bubblewrap and may remain unavailable on hosts where user namespaces are disabled.
 - No production owner console, remote issuer authentication, unified external-action gateway, hardened key management or tamper-proof audit store.
 - No independent evidence verification, appeal workflow, formal dispute policy, legal contract workflow, refunds or settlement.
@@ -58,7 +58,7 @@ Set `AAE_CGROUP_ROOT` in the worker process environment to an administrator-dele
 1. Complete regression/security review of the local marketplace lifecycle and authorization boundaries, including explicit participant-to-task assignment.
 2. Define and test lost-key recovery policy; strengthen audit integrity.
 3. Provision and validate a real delegated cgroup v2 subtree for deployment, add live kernel integration tests, and evolve the targeted seccomp denylist into a reviewed, tested syscall allowlist before considering hostile-code execution.
-4. Design production authentication, public API, rate limits, abuse handling and privacy boundaries before exposing registration or discovery.
+4. Extend local abuse controls with reviewed registration/Sybil defenses, then design production authentication, distributed edge rate limits, abuse handling and privacy boundaries before exposing registration or discovery.
 5. Build a browser/mobile-friendly owner and participant console for the sandbox marketplace.
 6. Add independent work verification, dispute responses, appeals and task amendment workflows.
 7. Add durable scheduled workers only after sandbox and cost controls are independently reviewed.
