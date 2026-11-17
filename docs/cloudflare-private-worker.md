@@ -67,4 +67,4 @@ The API accepts at most 8 KB of facts. It has one private bearer credential, not
 
 ## Current limitation
 
-This worker only creates listing-copy drafts. Gumroad's official help centre says product creation and content upload are not available through its API, so this worker cannot publish or upload the actual 3D ZIP. A storefront upload workflow and real payment reconciliation remain separate, unimplemented steps.
+This worker only creates listing-copy drafts. The repository now includes a separate official Gumroad CLI workflow that can create an unpublished product and upload the 3D ZIP, plus a second manual workflow for explicit publication. These workflows are not automatically triggered by this Cloudflare worker. Real payment reconciliation and autonomous customer acquisition remain separate, unimplemented steps.
