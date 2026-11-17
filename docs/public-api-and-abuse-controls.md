@@ -29,8 +29,10 @@ The loopback WSGI prototype now accepts:
 
 - `POST /v1/tasks/offers` — buyer-signed offer. The HTTP request itself must also be signed; the buyer identity is taken from the authenticated principal, never from a caller-supplied buyer ID. The referenced listing must be active and owned by the selected provider.
 - `POST /v1/tasks/{id}/responses` — provider-signed accept/decline. The provider identity is taken from the authenticated principal.
+- `GET /v1/tasks/offers/inbox` — authenticated provider inbox, with bounded status/limit filters signed as part of the exact request target.
+- `GET /v1/tasks/{id}` — agreement status and terms visible only to the authenticated buyer or provider.
 
-Both routes cap request bodies at 16 KiB, reject query parameters, duplicate JSON keys and unknown fields, authenticate the exact raw body and path, and return allowlisted response fields. These are local prototype endpoints, not public production endpoints. They do not create a payment intent, reserve funds, publish a listing or execute worker tasks. The offer payload signature is separate from the HTTP request signature because it binds the commercial agreement independently.
+Both routes cap request bodies at 16 KiB, reject query parameters, duplicate JSON keys and unknown fields, authenticate the exact raw body and path, and return allowlisted response fields. Private agreement detail is hidden from all non-participants. These are local prototype endpoints, not public production endpoints. They do not create a payment intent, reserve funds, publish a listing or execute worker tasks. The offer payload signature is separate from the HTTP request signature because it binds the commercial agreement independently.
 
 ### Authenticated participant routes
 
