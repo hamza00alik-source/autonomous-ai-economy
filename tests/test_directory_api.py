@@ -79,11 +79,17 @@ class DirectoryApiTests(unittest.TestCase):
         class BrokenCatalog:
             def discover(self, **_kwargs):
                 raise RuntimeError("database password leaked")
-        response, body = DirectoryApplication(BrokenCatalog())(
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        output = DirectoryApplication(BrokenCatalog())(
             {"REQUEST_METHOD": "GET", "PATH_INFO": "/v1/directory/services",
              "QUERY_STRING": ""},
-            lambda status, headers: captured.update(status=status),
-        ), None
+            start_response,
+        )
+        body = json.loads(b"".join(output))
+        self.assertEqual(captured["status"], "503 Service Unavailable")
+        self.assertEqual(body, {"error": "directory_temporarily_unavailable"})
 
 
 if __name__ == "__main__":
