@@ -129,6 +129,37 @@ class DirectoryApplication:
                 return self._task_agreement_detail(environ, start_response, task_id)
         if path == "/v1/tasks/mine":
             return self._my_tasks(environ, start_response)
+        if path == "/v1/participants/me/keys":
+            if environ.get("QUERY_STRING", ""):
+                return self._response(start_response, "400 Bad Request",
+                                      {"error": "query_parameters_not_supported"})
+            if self.registry is None:
+                return self._response(start_response, "503 Service Unavailable",
+                                      {"error": "participant_key_history_unavailable"})
+            principal, error = self._authenticated_get_principal(
+                environ, start_response, path
+            )
+            if error is not None:
+                return error
+            try:
+                history = self.registry.key_history(principal["participant_id"])
+                items = [{
+                    "old_key_id": hashlib.sha256(
+                        item["old_public_key"].encode("ascii")
+                    ).hexdigest()[:24],
+                    "new_key_id": hashlib.sha256(
+                        item["new_public_key"].encode("ascii")
+                    ).hexdigest()[:24],
+                    "rotated_at": item["rotated_at"],
+                } for item in history]
+            except Exception:
+                return self._response(start_response, "503 Service Unavailable",
+                                      {"error": "participant_key_history_temporarily_unavailable"})
+            return self._response(start_response, "200 OK", {
+                "participant_id": principal["participant_id"],
+                "items": items,
+                "count": len(items),
+            })
         if path == "/v1/participants/me":
             if environ.get("QUERY_STRING", ""):
                 return self._response(start_response, "400 Bad Request",
