@@ -72,7 +72,7 @@ The status command makes no network request and never displays secrets. To test 
 economy-ai invoke --prompt-file ./prompt.txt
 ```
 
-Install with `pip install -e ".[dev]"`. The runtime does not call the model automatically, does not start a background service, and is not yet wired into the opportunity or product agents. It is a bounded provider foundation; actual agent workflows and always-on hosting remain separate work. Failed or ambiguous requests retain their budget reservation rather than risking unbounded retries.
+Install with `pip install -e ".[dev]"`. The local adapter calls the model only for explicit `invoke`/`draft-copy` commands or when the supervisor finds a queued AI copy task and credentials are configured. The model is connected to the product-copy specialist, but opportunity research and 3D asset generation are not yet model-driven. Failed or ambiguous requests retain their budget reservation rather than risking unbounded retries.
 
 
 The first model-assisted specialist, `ai-product-copy-agent`, can draft a validated, unpublished marketplace listing from factual product metadata. Queue it for the supervisor:
