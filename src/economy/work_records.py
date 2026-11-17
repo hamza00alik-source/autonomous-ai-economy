@@ -1,6 +1,7 @@
 """Signed work receipts, acceptance, disputes and evidence-derived reputation."""
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -125,10 +126,15 @@ class WorkRecordStore:
         return _canonical(payload)
 
     @staticmethod
-    def acceptance_payload(receipt_id: str, buyer_id: str, provider_id: str) -> bytes:
-        return _canonical({"version": "1", "event": "work_accepted",
-                           "receipt_id": receipt_id, "buyer_id": buyer_id,
-                           "provider_id": provider_id})
+    def acceptance_payload(receipt_id: str, buyer_id: str, provider_id: str,
+                           task_id: str, agreement_digest: str,
+                           artifact_digests: list[str]) -> bytes:
+        """Bind buyer acceptance to the exact accepted agreement and submitted artifacts."""
+        return _canonical({"version": "2", "event": "work_accepted",
+                           "receipt_id": receipt_id, "task_id": task_id,
+                           "agreement_id": task_id, "agreement_digest": agreement_digest,
+                           "buyer_id": buyer_id, "provider_id": provider_id,
+                           "artifact_digests": sorted(set(artifact_digests))})
 
     @staticmethod
     def dispute_payload(receipt_id: str, dispute_id: str, actor_id: str,
@@ -187,8 +193,28 @@ class WorkRecordStore:
             row = db.execute("SELECT * FROM work_receipts WHERE receipt_id=?", (receipt_id,)).fetchone()
             if row is None or row["buyer_id"] != buyer_id or row["status"] != "submitted":
                 raise ValueError("submitted receipt not found or buyer is not authorized")
+            agreement = db.execute(
+                "SELECT buyer_id,provider_id,status,offer_payload FROM task_agreements WHERE task_id=?",
+                (row["task_id"],),
+            ).fetchone()
+            if (agreement is None or agreement["status"] != "accepted"
+                    or agreement["buyer_id"] != buyer_id
+                    or agreement["provider_id"] != row["provider_id"]):
+                raise ValueError("buyer acceptance requires the matching accepted task agreement")
+            agreement_digest = hashlib.sha256(
+                _canonical(json.loads(agreement["offer_payload"]))
+            ).hexdigest()
+            evidence_refs = json.loads(row["evidence_json"])
+            artifact_digests = [
+                ref.removeprefix("artifact:sha256:")
+                for ref in evidence_refs if ref.startswith("artifact:sha256:")
+            ]
             key = self._participant_key(db, buyer_id)
-            if not self.verifier(key, self.acceptance_payload(receipt_id, buyer_id, row["provider_id"]), signature):
+            payload = self.acceptance_payload(
+                receipt_id, buyer_id, row["provider_id"], row["task_id"],
+                agreement_digest, artifact_digests,
+            )
+            if not self.verifier(key, payload, signature):
                 raise ValueError("buyer acceptance signature is invalid")
             updated = db.execute(
                 "UPDATE work_receipts SET status='accepted',buyer_signature=?,outcome='accepted',updated_at=? WHERE receipt_id=? AND status='submitted'",
