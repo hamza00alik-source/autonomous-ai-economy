@@ -20,6 +20,11 @@ STATUSES = {"active", "suspended", "revoked"}
 CLAIM_STATUSES = {"self_asserted", "verified", "expired", "revoked"}
 
 
+class ParticipantRateLimitExceeded(Exception):
+    """Raised when a participant exceeds a durable operation quota."""
+
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -115,6 +120,15 @@ class ParticipantRegistry:
                     challenge_id TEXT NOT NULL UNIQUE,
                     FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
                 );
+                CREATE TABLE IF NOT EXISTS participant_operation_events (
+                    event_id TEXT PRIMARY KEY,
+                    participant_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_participant_operation_events
+                    ON participant_operation_events(participant_id, operation, occurred_at);
                 CREATE TABLE IF NOT EXISTS participant_security_events (
                     event_id TEXT PRIMARY KEY,
                     participant_id TEXT NOT NULL,
@@ -146,6 +160,36 @@ class ParticipantRegistry:
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA busy_timeout=10000")
         return db
+
+    @staticmethod
+    def _consume_operation_quota(db: sqlite3.Connection, participant_id: str,
+                                 operation: str, *, limit: int = 5,
+                                 window_seconds: int = 3600) -> None:
+        """Atomically record one operation or reject it inside a rolling UTC window."""
+        now = _now()
+        cutoff = _iso(now - timedelta(seconds=window_seconds))
+        now_text = _iso(now)
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            count = db.execute(
+                """SELECT COUNT(*) AS n FROM participant_operation_events
+                   WHERE participant_id=? AND operation=? AND occurred_at>?""",
+                (participant_id, operation, cutoff),
+            ).fetchone()["n"]
+            if count >= limit:
+                db.rollback()
+                raise ParticipantRateLimitExceeded(operation)
+            db.execute(
+                """INSERT INTO participant_operation_events
+                   (event_id,participant_id,operation,occurred_at) VALUES(?,?,?,?)""",
+                (str(uuid.uuid4()), participant_id, operation, now_text),
+            )
+            db.commit()
+        except ParticipantRateLimitExceeded:
+            raise
+        except Exception:
+            db.rollback()
+            raise
 
     @staticmethod
     def _participant(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -205,6 +249,7 @@ class ParticipantRegistry:
         challenge = "AAE-AGENT-ENROLL-V1:" + secrets.token_urlsafe(32)
         expires = _iso(_now() + timedelta(seconds=self.challenge_ttl_seconds))
         with self._connect() as db:
+            self._consume_operation_quota(db, participant_id, "key_binding_challenge")
             if self._key_used_in_history(db, public_key):
                 raise ValueError("public key has already appeared in participant key history")
             if operator_id:
@@ -346,6 +391,7 @@ class ParticipantRegistry:
         challenge = "AAE-PARTICIPANT-KEY-ROTATE-V1:" + secrets.token_urlsafe(32)
         expires = _iso(_now() + timedelta(seconds=self.challenge_ttl_seconds))
         with self._connect() as db:
+            self._consume_operation_quota(db, participant_id, "key_rotation_challenge")
             participant = db.execute(
                 "SELECT status,public_key FROM participants WHERE participant_id=?",
                 (participant_id,),
