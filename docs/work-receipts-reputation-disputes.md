@@ -73,3 +73,20 @@ economy receipt-accept-local RECEIPT_ID \
 Repeat `--artifact` once for each artifact digest in the receipt. The command rejects missing, extra, altered, symlinked, oversized or non-regular files before signing. It derives the acceptance message from the stored receipt and accepted agreement, signs it with the buyer-supplied Ed25519 PEM key, and calls the normal receipt acceptance method, which verifies the signature against the buyer's registered public key. The private key is read locally and is never copied into the database or repository. Use an unencrypted Ed25519 PEM file only; protect it with operating-system file permissions and keep backups offline.
 
 This is a local operator-driven workflow. It does not transfer files, establish how the buyer obtained them, prove authorship or quality, or execute payment. A successful acceptance updates the local receipt/reputation state only. A file could change after hashing; the buyer should keep the verified file unchanged and retain the exact file they inspected.
+
+
+### Provider-side local receipt submission
+
+Once the buyer-signed task offer has been accepted by the provider, the provider can hash local deliverables and submit a signed receipt:
+
+```bash
+economy receipt-submit-local TASK_ID \
+  --provider-id PROVIDER_PARTICIPANT_ID \
+  --buyer-id BUYER_PARTICIPANT_ID \
+  --summary "Completed the agreed deliverable" \
+  --private-key ./provider-ed25519-private.pem \
+  --artifact ./deliverable.zip \
+  --data-dir ./data
+```
+
+Repeat `--artifact` for each distinct deliverable. The command rejects duplicate-content files, creates content-addressed evidence references and signs the canonical submission payload with the provider-held Ed25519 key. It will fail unless the receipt matches an accepted task agreement and both participants have active registered signing keys. The output includes the receipt ID needed by the buyer-side command above.
