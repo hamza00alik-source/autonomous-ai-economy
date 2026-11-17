@@ -17,6 +17,12 @@ def build_report(sales_path: str | Path, payouts_path: str | Path) -> dict:
         "refunded_units", "currency", "from", "to",
     )
     summary = {key: sales.get(key) for key in sales_fields}
+    breakdown_fields = ("key", "label", "gross_cents", "net_cents", "units", "refunded_cents", "refunded_units")
+    breakdown = [
+        {key: item.get(key) for key in breakdown_fields}
+        for item in sales.get("breakdown", [])
+        if isinstance(item, dict)
+    ]
     payout_fields = (
         "id", "payout_period", "amount_cents", "formatted_amount",
         "is_upcoming", "display_payout_period",
@@ -30,6 +36,7 @@ def build_report(sales_path: str | Path, payouts_path: str | Path) -> dict:
         "schema": "aae.gumroad-revenue-report/v1",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "sales_summary": summary,
+        "product_breakdown": breakdown,
         "payouts": payout_rows,
         "privacy": {
             "buyer_emails_included": False,
