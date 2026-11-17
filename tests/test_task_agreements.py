@@ -86,6 +86,25 @@ class TaskAgreementTests(unittest.TestCase):
         self.assertEqual(accepted["status"], "accepted")
         self.assertEqual(len(self.store.events(offer["task_id"])), 2)
 
+    def test_acceptance_policy_runs_only_after_provider_signature_verification(self):
+        offer = self._offer("task-policy-order")
+        calls = []
+        def policy(_offer):
+            calls.append(_offer["task_id"])
+        with self.assertRaisesRegex(ValueError, "provider response signature"):
+            self.store.respond(
+                offer["task_id"], provider_id=self.provider["participant_id"],
+                decision="accept", signature="bad", before_accept=policy,
+            )
+        self.assertEqual(calls, [])
+        self.assertEqual(self.store.get(offer["task_id"])["status"], "offered")
+        accepted = self.store.respond(
+            offer["task_id"], provider_id=self.provider["participant_id"],
+            decision="accept", signature="provider-acceptance", before_accept=policy,
+        )
+        self.assertEqual(accepted["status"], "accepted")
+        self.assertEqual(calls, [offer["task_id"]])
+
     def test_provider_can_decline_and_buyer_can_withdraw_open_offer(self):
         declined = self._offer("task-decline")
         self.store.respond(
