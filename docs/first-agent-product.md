@@ -1,60 +1,69 @@
 # First digital product pilot
 
-Status: **product source and reproducible bundle implemented; demand and sales unverified.**
+Status: **original 3D asset source and reproducible GLB bundle implemented; engine QA, demand, listing, and sales unverified.**
 
-## Product
+## Current product candidate: MOBA Objective Props
 
-The first product artifact is **Store Catalog Cleaner**, a standalone browser utility for small online-store operators who need to inspect and clean CSV product/inventory catalogs before importing them into another system.
+Five original procedural low-poly fantasy props:
+- Mana Crystal
+- Health Vial
+- Rune Altar
+- Supply Chest
+- Ancient Coin Stack
 
-It supports local CSV parsing, duplicate and blank-row checks, missing-value summaries, generic header normalization, optional duplicate-key removal, preview and CSV export. It has no remote scripts, analytics, accounts, uploads or API dependency.
+Each object is generated as a separate glTF 2.0 binary model (.glb). The pack also includes a combined preview scene, a Godot 4 demo scene, PBR material definitions, a README, a draft license and marketplace listing copy.
 
-Source: products/store-catalog-cleaner/
-
-Build a reproducible ZIP with a root-level index.html:
+Build the ZIP:
 
 ```bash
-pip install -e ".[dev]"
-economy-product build --output dist/store-catalog-cleaner.zip
+pip install -e ".[dev,identity]"
+economy-game-assets build --output dist/moba-objective-props.zip
 pytest
 ```
 
-The ZIP contains the browser app, README, listing copy and SHA-256 manifest. The build command does not publish or upload it.
+The build is deterministic and includes a SHA-256 manifest. GitHub Actions also builds the ZIP and uploads it as a temporary workflow artifact. This is a downloadable prototype, not a published listing or verified commercial product.
 
-## Why this is the first pilot
+## Market evidence and limits
 
-- The deliverable is software, not an AI-written instruction manual.
-- It can run offline in a modern browser and does not need paid APIs or a hosted database.
-- The product can be mechanically packaged and integrity-checked.
-- It is a narrow utility with a clear buyer task: cleaning CSV catalog data before import.
+The category has active marketplace listings. itch.io currently exposes hundreds of low-poly fantasy asset products, including packs priced around $2–$15; examples include character packs and modular environment/prop packs. Unity Asset Store examples include multi-hundred-object stylized fantasy environment packs priced much higher. These listings show category activity and strong competition, **not verified unit sales or demand for this specific pack**.
 
-This is a testable product hypothesis, **not verified market demand**. Generic CSV tools are widely available; do not claim a unique market gap or willingness to pay without independent evidence and actual customer tests.
+References:
+- itch.io top-selling low-poly fantasy assets under $15: https://itch.io/game-assets/top-sellers/15-dollars-or-less/tag-fantasy/tag-low_poly
+- itch.io top-selling paid low-poly fantasy assets: https://itch.io/game-assets/top-sellers/store/tag-fantasy/tag-low-poly
+- Unity Asset Store stylized fantasy market pack: https://assetstore.unity.com/packages/3d/environments/fantasy/stylized-fantasy-market-low-poly-3d-art-260824
+
+Potential differentiation to test: small, cohesive MOBA objective/consumable props delivered as individual GLB files plus a ready-to-open Godot scene. This is a hypothesis only. The current pack is deliberately modest: no rigging, animations, collision shapes, LODs, texture maps, Blender source, or Unity/Unreal-specific prefabs. It must be opened and visually inspected in Godot before any sale.
+
+## Previous CSV tool prototype
+
+Store Catalog Cleaner remains in the repository as a product-pipeline and packaging test. It is **not the first commercial offer**: direct competitors already sell or offer very similar CSV-cleaning utilities, including an $8.99 downloadable tool and free/paid Shopify-focused alternatives. Do not publish it as a differentiated product without substantial new capability and customer evidence.
 
 ## Candidate storefront: Gumroad
 
-Gumroad documents a browser-app upload format: ZIP file with index.html at the top level. Its help article describes uploading the ZIP as a web app. Gumroad also currently lists Pakistan among supported local-bank payout countries. Verify the actual seller account's payout settings and identity checks before relying on this route.
+Gumroad documents browser-app ZIP uploads with a root-level index.html and currently lists Pakistan among supported local-bank payout countries. For this 3D asset ZIP, it would be a normal downloadable digital product rather than a browser app. The seller must verify the actual account's country, identity, bank details and payout eligibility.
 
 Important restrictions and gaps:
 
-- Gumroad's terms require truthful seller registration and place responsibility for account activity on the registered user/entity; they prohibit sharing account/password credentials and false identity.
-- The Gumroad AI connector can draft products, read sales and payouts, and publish with product access. Its help page says a new draft has no files: the product files must still be added in Gumroad.
-- The connector must be separately connected and authorized; no access token or account credentials are stored in this repository.
-- The current repository does not have a Gumroad connector or verified seller account.
-- No listing is created, uploaded or published by this build.
+- Seller registration and payout verification must use the true legal person or entity; do not fabricate an overseas identity or use another person's account.
+- Gumroad's AI connector can draft products, read sales and payouts, and publish with product access. Its help page says a new draft has no files: product files must still be added in Gumroad.
+- The connector is not connected to this repository or the economy runtime. No account credentials or tokens are stored here.
+- No listing is created, uploaded or published by the current build.
 - Do not automate browser login, share passwords, misrepresent an AI agent as a human, or bypass seller verification.
 
 ## First-sale measurement
 
 Only count revenue after a real external buyer pays, receives the product, the payment provider confirms settlement, and net proceeds after fees/refunds are reconciled. A draft, listing, click, download, pending balance, simulated ledger entry or test order is not revenue.
 
-Track: impressions, product-page visits, conversion, refunds, support burden, platform fees, payout status and net amount. If there is no buyer traffic or conversion, change the product based on evidence rather than multiplying unvalidated products.
+Track impressions, product-page visits, conversion, refunds, support burden, platform fees, payout status and net proceeds. If no buyers arrive, change the offer based on evidence rather than multiplying unvalidated packs.
 
 ## Remaining blockers
 
-1. Verify the product solves a real recurring problem and has a reason to be purchased instead of free alternatives.
-2. Confirm Gumroad seller eligibility and local-bank payout setup for the true account holder.
-3. Connect an approved Gumroad integration with least-privilege permissions, if available.
-4. Add the ZIP to a Gumroad product draft and confirm platform terms permit the intended disclosed AI-assisted workflow.
-5. Obtain explicit publication authority before the first live listing.
-6. Verify actual buyer payments and cleared payouts.
+1. Import the generated pack into Godot 4 and inspect every mesh, material, scale and demo-scene reference.
+2. Verify the exact product license and marketplace AI-disclosure requirements.
+3. Test the candidate with marketplace demand signals; category listings alone do not validate this product.
+4. Confirm Gumroad seller eligibility and local-bank payout setup for the true account holder.
+5. Connect an approved Gumroad integration with least-privilege permissions, if available, and determine how product files can be uploaded lawfully.
+6. Obtain explicit publication authority before the first live listing.
+7. Verify real buyer payments, refunds and cleared payouts.
 
 The economy cannot be called always-on or revenue-generating until the production runtime, buyer channel, seller identity, payment settlement and customer support loops are live and tested.
