@@ -64,7 +64,7 @@ class LocalDeliveryTests(unittest.TestCase):
     def test_buyer_can_verify_and_accept_receipt_end_to_end(self):
         result = accept_receipt_locally(
             self.db_path, self.receipt["receipt_id"], self.buyer["participant_id"],
-            [self.artifact], signer=lambda payload: "valid",
+            [self.artifact], signer=lambda payload: "valid", verifier=lambda *_: True,
         )
         self.assertEqual(result["receipt"]["status"], "accepted")
         self.assertEqual(result["verified_artifacts"][0]["sha256"], self.digest)
@@ -78,7 +78,7 @@ class LocalDeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not match"):
             accept_receipt_locally(
                 self.db_path, self.receipt["receipt_id"], self.buyer["participant_id"],
-                [self.artifact], signer=lambda payload: "valid",
+                [self.artifact], signer=lambda payload: "valid", verifier=lambda *_: True,
             )
         self.assertEqual(self.store.get_receipt(self.receipt["receipt_id"])["status"], "submitted")
 
