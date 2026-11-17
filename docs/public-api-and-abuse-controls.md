@@ -104,3 +104,8 @@ Before production:
 ## Release gates
 
 Do not deploy public registration or the marketplace until request authentication, key revocation/rotation, owner authorization, rate limits, privacy policy, terms, moderation, appeals and incident response are implemented and tested. Do not connect payments or treasury in this phase. The current local SQLite prototypes are not safe to expose directly to the public internet. The signed offer routes are a narrow local protocol implementation, not a production launch authorization; abuse rate limits, public account onboarding, durable production storage, TLS edge, privacy and legal reviews remain mandatory.
+
+
+## Legacy local database migration
+
+On registry startup, the application detects an early development schema that imposed a table-level unique constraint on participant, operation and case status. That constraint incorrectly limited a participant to one reviewed case per operation. Startup performs a transactional table rebuild, preserves existing case rows and reinstates the intended partial unique index: at most one open case per participant and operation, with unlimited reviewed history. The migration is idempotent and rolls back on failure. Back up the local SQLite database before upgrading any existing installation; this is a schema migration, not a substitute for tested production backup/restore.
