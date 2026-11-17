@@ -1,3 +1,5 @@
+> **DEPRECATED — NOT THE ACTIVE BUSINESS MODEL.** This was a human-freelancer Upwork experiment. It does not satisfy the project's controlling requirement that an AI agent independently earns revenue. Retained for historical research only. See [agent-native revenue strategy](agent-native-revenue-strategy.md).
+
 # First-Revenue Pilot: Evidence-Based Etsy Listing Audit
 
 Status: internal commercial experiment — draft only. Not published, not an offer to any customer, and not evidence of revenue.
