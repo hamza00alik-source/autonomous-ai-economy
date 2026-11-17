@@ -38,7 +38,15 @@ Potential differentiation to test: small, cohesive MOBA objective/consumable pro
 
 Store Catalog Cleaner remains in the repository as a product-pipeline and packaging test. It is **not the first commercial offer**: direct competitors already sell or offer very similar CSV-cleaning utilities, including an $8.99 downloadable tool and free/paid Shopify-focused alternatives. Do not publish it as a differentiated product without substantial new capability and customer evidence.
 
-## Candidate storefront: Gumroad
+## First payment route: crypto-first
+
+The active payment direction is automated crypto receipt, not a bank-account-dependent payout route. The private Cloudflare Worker now has a code-only NOWPayments hosted-invoice/IPN adapter. It verifies the provider's HMAC-SHA-512 signature, matches the order and invoice, checks the USD price and full crypto amount, rejects duplicate callbacks, and marks only a fully paid `finished` event as settled. Partial or mismatched payments do not unlock delivery. The integration is not deployed and has not processed a payment. It also does not yet connect settlement to automatic file delivery.
+
+NOWPayments states that crypto-only merchants generally do not need KYB/KYC at onboarding, but suspicious transactions can trigger checks and service may be restricted where local law requires. Its hosted payment flow uses provider infrastructure before funds reach the merchant wallet; do not describe it as non-custodial. A self-hosted BTCPay Server is the non-custodial Bitcoin/Lightning alternative, but has a server and maintenance requirement. See [crypto-first payment rail](crypto-first-payment-rail.md).
+
+Pakistan's Virtual Assets Act, 2026 and PVARA's 2026 regulations are now in force. The Act regulates listed virtual-asset services, including custody, exchange and transfer/settlement, and contains a narrow own-account exemption in its broker-dealer schedule. That is not a blanket legal clearance for every merchant checkout. Confirm the exact activity, provider eligibility, tax and foreign-exchange treatment with qualified local counsel or PVARA before enabling crypto checkout. Do not provide exchange, custody, escrow or transfer services to third parties unless separately authorized.
+
+## Fallback storefront: Gumroad (optional fiat route)
 
 Gumroad currently supports local-bank payouts in Pakistan in PKR. The standard payout threshold is US$100, and bank transfers commonly take 2–7 business days after payout processing. Payoneer and Wise are not supported payout destinations; the verified Payoneer account alone does not qualify. The seller must set up a real Pakistani bank account and complete identity/address verification under their true legal details.
 
@@ -91,7 +99,7 @@ Track impressions, product-page visits, conversion, refunds, support burden, pla
 1. Import the generated pack into Godot 4 and inspect every mesh, material, scale and demo-scene reference.
 2. Verify the exact product license and marketplace AI-disclosure requirements.
 3. Test the candidate with marketplace demand signals; category listings alone do not validate this product.
-4. Confirm Gumroad seller eligibility and local-bank payout setup for the true account holder.
+4. Confirm crypto-provider eligibility and the Pakistan legal/tax position before enabling the crypto checkout; keep Gumroad only as an optional fallback if its bank/KYC requirements are acceptable.
 5. Connect an approved Gumroad integration with least-privilege permissions, if available, and determine how product files can be uploaded lawfully.
 6. Obtain explicit publication authority before the first live listing.
 7. Verify real buyer payments, refunds and cleared payouts.
