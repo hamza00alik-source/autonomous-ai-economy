@@ -1,5 +1,7 @@
 import argparse
 import json
+import os
+import base64
 from wsgiref.simple_server import make_server
 from pathlib import Path
 
@@ -28,6 +30,26 @@ from .permissions import CapabilityStore
 from .artifact_evidence import create_manifest, verify_local_artifact
 from .local_delivery import accept_receipt_locally, submit_receipt_locally
 from .task_agreements import TaskAgreementStore
+from .service_catalog import ServiceCatalog, CatalogApprovalStore
+
+
+def _pem_signer(path: Path):
+    try:
+        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    except ImportError as exc:
+        raise SystemExit("Install identity support first: pip install -e '.[identity]'") from exc
+    key = load_pem_private_key(path.read_bytes(), password=None)
+    if not isinstance(key, Ed25519PrivateKey):
+        raise SystemExit("private key must be an unencrypted Ed25519 PEM key")
+    return lambda message: base64.urlsafe_b64encode(key.sign(message)).decode("ascii").rstrip("=")
+
+
+def _catalog_secret() -> str:
+    secret = os.environ.get("AAE_CATALOG_APPROVAL_SECRET", "")
+    if len(secret.encode("utf-8")) < 32:
+        raise SystemExit("Set AAE_CATALOG_APPROVAL_SECRET to a locally managed secret of at least 32 bytes.")
+    return secret
 
 
 def demo(data_dir: Path) -> None:
@@ -102,6 +124,61 @@ def main() -> None:
     receipt_submit.add_argument("--private-key", type=Path, required=True, help="provider-held Ed25519 PEM key; never commit")
     receipt_submit.add_argument("--artifact", type=Path, action="append", required=True, help="local deliverable; repeat for each file")
     receipt_submit.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    catalog_draft = sub.add_parser("catalog-draft", help="create a provider-signed private service listing draft")
+    catalog_draft.add_argument("--provider-id", required=True)
+    catalog_draft.add_argument("--slug", required=True)
+    catalog_draft.add_argument("--title", required=True)
+    catalog_draft.add_argument("--description", required=True)
+    catalog_draft.add_argument("--category", required=True)
+    catalog_draft.add_argument("--delivery-format", required=True)
+    catalog_draft.add_argument("--terms", required=True)
+    catalog_draft.add_argument("--private-key", type=Path, required=True)
+    catalog_draft.add_argument("--price-minor", type=int)
+    catalog_draft.add_argument("--currency")
+    catalog_draft.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    catalog_approve = sub.add_parser("catalog-approval-create", help="create an exact-listing, short-lived owner approval token; remains local")
+    catalog_approve.add_argument("listing_id")
+    catalog_approve.add_argument("--ttl-seconds", type=int, default=600)
+    catalog_approve.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    catalog_publish = sub.add_parser("catalog-publish", help="activate a local listing using its single-use owner approval token")
+    catalog_publish.add_argument("listing_id")
+    catalog_publish.add_argument("--approval-token", required=True)
+    catalog_publish.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    task_offer = sub.add_parser("task-offer-create", help="create a buyer-signed offer against an active local listing")
+    task_offer.add_argument("--task-id", required=True)
+    task_offer.add_argument("--listing-id", required=True)
+    task_offer.add_argument("--buyer-id", required=True)
+    task_offer.add_argument("--provider-id", required=True)
+    task_offer.add_argument("--title", required=True)
+    task_offer.add_argument("--scope", required=True)
+    task_offer.add_argument("--acceptance-criteria", required=True)
+    task_offer.add_argument("--private-key", type=Path, required=True)
+    task_offer.add_argument("--due-at")
+    task_offer.add_argument("--price-minor", type=int)
+    task_offer.add_argument("--currency")
+    task_offer.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    task_respond = sub.add_parser("task-offer-respond", help="provider-sign an accept or decline response")
+    task_respond.add_argument("task_id")
+    task_respond.add_argument("--provider-id", required=True)
+    task_respond.add_argument("--decision", choices=["accept", "decline"], required=True)
+    task_respond.add_argument("--private-key", type=Path, required=True)
+    task_respond.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    task_withdraw = sub.add_parser("task-offer-withdraw", help="buyer-sign withdrawal of an open task offer")
+    task_withdraw.add_argument("task_id")
+    task_withdraw.add_argument("--buyer-id", required=True)
+    task_withdraw.add_argument("--private-key", type=Path, required=True)
+    task_withdraw.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    task_agreement = sub.add_parser("task-agreement", help="show one local task agreement")
+    task_agreement.add_argument("task_id")
+    task_agreement.add_argument("--data-dir", type=Path, default=Path("./data"))
+
 
     export_audit_checkpoint = sub.add_parser("export-audit-checkpoint", help="sign the current audit-chain head with an operator-supplied Ed25519 key")
     export_audit_checkpoint.add_argument("--private-key", type=Path, required=True, help="operator-held PEM private key; never commit this file")
@@ -304,6 +381,58 @@ def main() -> None:
         print(json.dumps(result, indent=2))
         if not result["valid"]:
             raise SystemExit(1)
+
+    elif args.command == "catalog-draft":
+        fields = {
+            "provider_id": args.provider_id, "slug": args.slug, "title": args.title,
+            "description": args.description, "category": args.category,
+            "delivery_format": args.delivery_format, "terms": args.terms,
+            "price_minor": args.price_minor, "currency": args.currency,
+        }
+        signature = _pem_signer(args.private_key)(ServiceCatalog.listing_signing_bytes(**fields))
+        listing = ServiceCatalog(args.data_dir / "participants.sqlite3").create_draft(**fields, signature=signature)
+        print(json.dumps(listing, indent=2))
+    elif args.command == "catalog-approval-create":
+        store = ServiceCatalog(args.data_dir / "participants.sqlite3")
+        listing = store.get(args.listing_id)
+        payload = store.publication_payload(args.listing_id, listing["payload"])
+        token = CatalogApprovalStore.create_token(
+            args.listing_id, payload, _catalog_secret(), ttl_seconds=args.ttl_seconds
+        )
+        print(json.dumps({"listing_id": args.listing_id, "approval_token": token,
+                          "notice": "Owner approval token is exact-listing-bound, short-lived and single-use. It does not publish externally."}, indent=2))
+    elif args.command == "catalog-publish":
+        listing = ServiceCatalog(args.data_dir / "participants.sqlite3").publish_with_token(
+            args.listing_id, approval_token=args.approval_token,
+            approval_secret=_catalog_secret(),
+        )
+        print(json.dumps(listing, indent=2))
+    elif args.command == "task-offer-create":
+        fields = {
+            "task_id": args.task_id, "listing_id": args.listing_id,
+            "buyer_id": args.buyer_id, "provider_id": args.provider_id,
+            "title": args.title, "scope": args.scope,
+            "acceptance_criteria": args.acceptance_criteria,
+            "due_at": args.due_at, "price_minor": args.price_minor,
+            "currency": args.currency,
+        }
+        signature = _pem_signer(args.private_key)(TaskAgreementStore.offer_signing_bytes(**fields))
+        offer = TaskAgreementStore(args.data_dir / "participants.sqlite3").create_offer(**fields, signature=signature)
+        print(json.dumps(offer, indent=2))
+    elif args.command == "task-offer-respond":
+        store = TaskAgreementStore(args.data_dir / "participants.sqlite3")
+        payload = store.response_signing_bytes(args.task_id, args.provider_id, args.decision)
+        result = store.respond(args.task_id, provider_id=args.provider_id,
+                               decision=args.decision, signature=_pem_signer(args.private_key)(payload))
+        print(json.dumps(result, indent=2))
+    elif args.command == "task-offer-withdraw":
+        store = TaskAgreementStore(args.data_dir / "participants.sqlite3")
+        payload = store.withdrawal_signing_bytes(args.task_id, args.buyer_id)
+        store.withdraw(args.task_id, buyer_id=args.buyer_id,
+                       signature=_pem_signer(args.private_key)(payload))
+        print(json.dumps({"task_id": args.task_id, "status": "withdrawn"}, indent=2))
+    elif args.command == "task-agreement":
+        print(json.dumps(TaskAgreementStore(args.data_dir / "participants.sqlite3").get(args.task_id), indent=2))
     elif args.command == "receipt-submit-local":
         try:
             from cryptography.hazmat.primitives.serialization import load_pem_private_key
