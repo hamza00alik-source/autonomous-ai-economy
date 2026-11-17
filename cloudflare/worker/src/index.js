@@ -212,7 +212,7 @@ async function createNowPaymentsInvoice(request, env, storeOrder = null) {
 
   const now = new Date().toISOString();
   const reservation = await env.DB.prepare(
-    "INSERT OR IGNORE INTO crypto_payment_invoices (order_id,provider,price_amount,price_currency,status,product_id,buyer_token_hash,created_at,updated_at) VALUES (?,'nowpayments',?,'usd','creating',?,?,?,?,?)"
+    "INSERT OR IGNORE INTO crypto_payment_invoices (order_id,provider,price_amount,price_currency,status,product_id,buyer_token_hash,created_at,updated_at) VALUES (?,'nowpayments',?,'usd','creating',?,?,?,?)"
   ).bind(body.order_id, amountText, storeOrder?.productId || "manual",
     storeOrder?.buyerTokenHash || null, now, now).run();
   if (reservation.meta?.changes !== 1) {
