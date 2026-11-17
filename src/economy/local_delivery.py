@@ -1,0 +1,49 @@
+"""Operator-driven local buyer acceptance after verifying delivered artifact bytes."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Callable, Any
+
+from .artifact_evidence import verify_artifact_digests
+from .task_agreements import TaskAgreementStore
+from .work_records import WorkRecordStore
+
+
+def accept_receipt_locally(
+    database_path: str | Path,
+    receipt_id: str,
+    buyer_id: str,
+    artifact_paths: list[str | Path],
+    signer: Callable[[bytes], str],
+) -> dict[str, Any]:
+    """Verify every receipt artifact locally, sign its exact acceptance payload, and accept.
+
+    The caller owns private-key handling. No files are uploaded and no money moves.
+    """
+    path = Path(database_path)
+    # Initialize the agreement schema so a missing/uninitialized store fails through
+    # the normal accepted-agreement check rather than an opaque SQLite table error.
+    TaskAgreementStore(path)
+    store = WorkRecordStore(path)
+    receipt = store.get_receipt(receipt_id)
+    if receipt["buyer_id"] != buyer_id or receipt["status"] != "submitted":
+        raise ValueError("submitted receipt not found or buyer is not authorized")
+    expected = sorted({
+        ref.removeprefix("artifact:sha256:")
+        for ref in receipt["evidence_refs"]
+        if ref.startswith("artifact:sha256:")
+    })
+    if not expected:
+        raise ValueError("receipt has no content-addressed local artifacts to verify")
+    verification = verify_artifact_digests(artifact_paths, expected)
+    # Derive bytes from the stored receipt and accepted agreement, never caller input.
+    signing_bytes = store.acceptance_signing_bytes(receipt_id, buyer_id=buyer_id)
+    signature = signer(signing_bytes)
+    if not isinstance(signature, str) or not signature:
+        raise ValueError("signer must return a non-empty encoded signature")
+    accepted = store.accept(receipt_id, buyer_id=buyer_id, signature=signature)
+    return {
+        "receipt": accepted,
+        "verified_artifacts": verification,
+        "notice": "Local byte hashes matched the receipt before buyer signing. This does not prove provenance, delivery channel, authorship, quality, or payment. No payout or transfer was performed.",
+    }
