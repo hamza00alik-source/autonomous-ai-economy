@@ -1,5 +1,6 @@
 import argparse
 import json
+from wsgiref.simple_server import make_server
 from pathlib import Path
 
 from .agents import AgentRegistry, RuleBasedAgent
@@ -172,6 +173,10 @@ def main() -> None:
 
     learning_summary = sub.add_parser("learning-summary", help="summarize observed outcomes and emitted learning proposals")
     learning_summary.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    serve_directory = sub.add_parser("serve-directory", help="serve the read-only local service directory on loopback")
+    serve_directory.add_argument("--data-dir", type=Path, default=Path("./data"))
+    serve_directory.add_argument("--port", type=int, default=8765)
 
     participant_human = sub.add_parser("participant-create-human", help="create a local basic human account record; not KYC")
     participant_human.add_argument("--handle", required=True)
@@ -408,6 +413,18 @@ def main() -> None:
             ))
         print(json.dumps([result.to_dict() for result in rank_readiness(opportunities)], indent=2))
 
+    elif args.command == "serve-directory":
+        from .directory_api import create_directory_app
+        if not 1024 <= args.port <= 65535:
+            raise SystemExit("port must be between 1024 and 65535")
+        app = create_directory_app(args.data_dir)
+        print(f"Read-only directory available at http://127.0.0.1:{args.port}")
+        print("Loopback only; no public registration, writes, authentication or payments.")
+        with make_server("127.0.0.1", args.port, app) as server:
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                print("Directory server stopped.")
     elif args.command == "participant-create-human":
         registry = ParticipantRegistry(args.data_dir / "participants.sqlite3")
         print(json.dumps(registry.create_human(args.handle, args.display_name, args.account_control), indent=2))
