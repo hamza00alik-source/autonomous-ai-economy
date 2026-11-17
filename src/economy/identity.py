@@ -361,7 +361,8 @@ class ParticipantRegistry:
                 "required_signatures": "current_and_new_key"}
 
     def complete_key_rotation(self, challenge_id: str, old_signature: str,
-                              new_signature: str, verifier=verify_ed25519) -> dict[str, Any]:
+                              new_signature: str, verifier=verify_ed25519, *,
+                              expected_participant_id: str | None = None) -> dict[str, Any]:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -371,6 +372,10 @@ class ParticipantRegistry:
             if row is None:
                 db.rollback()
                 raise ValueError("unknown key rotation challenge")
+            if (expected_participant_id is not None
+                    and row["participant_id"] != expected_participant_id):
+                db.rollback()
+                raise ValueError("key rotation challenge belongs to another participant")
             if row["consumed_at"] is not None:
                 db.rollback()
                 raise ValueError("key rotation challenge already consumed")
