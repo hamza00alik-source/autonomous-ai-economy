@@ -13,7 +13,7 @@ The agent:
 
 ## Run for MOBA Objective Props
 
-Configure the Workers AI environment variables as described in `docs/ai-model-runtime.md`, then run:
+Configure the Workers AI environment variables as described in `docs/ai-model-runtime.md`. For a one-off direct draft, run:
 
 ```bash
 economy-ai draft-copy \
@@ -23,4 +23,4 @@ economy-ai draft-copy \
 
 The output file is created only if it does not already exist. Review all claims and technical details before using the copy. The model may produce invalid or unsupported text; validation is a guard, not proof of truth.
 
-The command makes one model request and reserves estimated usage from the shared 6,500-neuron daily safety budget. It does not publish the listing or upload product files.
+The command makes one model request and reserves estimated usage from the shared 6,500-neuron daily safety budget. It does not publish the listing or upload product files.\n\nFor queued autonomous execution, submit an idempotent task and let the supervisor process it:\n\n```bash\neconomy-ai queue-copy --facts-file products/moba-objective-props/product-facts.json\neconomy-supervisor --data-dir ./data\n```\n\nThe supervisor runs the AI task lane outside the no-network built-in sandbox. It only processes `ai-product-copy-agent` tasks when valid provider credentials are present. Tasks are single-attempt by default to avoid repeated model usage on failures. The result is stored in the task queue as an unpublished draft.
