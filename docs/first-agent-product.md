@@ -40,21 +40,40 @@ Store Catalog Cleaner remains in the repository as a product-pipeline and packag
 
 ## Candidate storefront: Gumroad
 
-Gumroad currently lists Pakistan for local-bank payouts in PKR. The standard minimum payout is US$100; bank payout timing and verification are subject to Gumroad/Stripe review. Payoneer is not a supported Gumroad payout method, so the verified Payoneer account alone does not qualify. The account holder must complete the real local bank and identity verification.
+Gumroad currently supports local-bank payouts in Pakistan in PKR. The standard payout threshold is US$100, and bank transfers commonly take 2–7 business days after payout processing. Payoneer and Wise are not supported payout destinations; the verified Payoneer account alone does not qualify. The seller must set up a real Pakistani bank account and complete identity/address verification under their true legal details.
 
 Commercial economics:
 - Direct Gumroad sales: 10% + US$0.50 per transaction, plus card processing (currently 2.9% + US$0.30).
 - Gumroad Discover marketplace sales: 30% fee, including processing.
 - No monthly platform fee is listed.
+- Discover is not an immediate source of first buyers: Gumroad requires payout settings, at least US$100 in genuine sales, a risk review (typically around three weeks after reaching the threshold), and at least one successful sale plus a product category before a product is eligible for Discover.
 
-Critical automation limitation: Gumroad's own help centre says product creation and content upload are not currently possible through its API. This means our current agent cannot fully automate the storefront upload/publishing loop through the API. A permitted browser-based workflow may be evaluated later, but would still require a real logged-in seller account, completed identity verification, file upload and explicit publication authorization.
+### Product creation and file upload automation
 
-The repository has no Gumroad credentials, no connected seller account, and no listing. Do not store account passwords or API tokens in GitHub or chat. No product has been uploaded or published.
+The older Gumroad Help Center API article still says product creation and content upload are unavailable. The newer official Gumroad CLI has since added both capabilities. We pinned official release `v0.20261106.1`, which supports:
+- `gumroad products create --draft --file ./pack.zip` to create an unpublished product and upload the ZIP through Gumroad's multipart file flow;
+- JSON output for checking the product ID and whether Gumroad reports it as published;
+- separate `gumroad products publish` and `unpublish` commands.
+
+This repository now includes two manual-only GitHub workflows:
+1. **Prepare Gumroad product draft** — rebuilds the 3D pack, uses the AI copy agent, uploads the ZIP, and creates an unpublished draft at the price entered when starting the workflow.
+2. **Publish Gumroad product** — requires the exact confirmation word `PUBLISH` and a product ID. It is separate from draft creation.
+
+The draft-creation helper performs a CLI dry-run first, requests `--draft`, checks the returned `published=false` state, and stops if that state is not confirmed. If Gumroad unexpectedly reports a published product, it attempts to unpublish it and raises an error. Neither workflow has been triggered. No Gumroad account, product, token, or listing has been created by this repository work.
+
+To use the workflows, the account owner must add GitHub Actions secrets:
+- `GUMROAD_ACCESS_TOKEN` — seller token with product-edit and file-upload permissions;
+- `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` — for the free-tier AI listing-copy request.
+
+Generate the Gumroad token through the official CLI's seller OAuth login or Gumroad's application settings. Keep it in GitHub Secrets; never commit or paste it into chat. The first draft workflow does not publish. The second workflow is a separate public action requiring explicit confirmation.
 
 Sources:
-- https://gumroad.com/help/article/13-getting-paid
-- https://gumroad.com/help/article/66-gumroads-fees
-- https://gumroad.com/help/article/76-license-keys (API product creation/content upload limitation)
+- Gumroad payout countries and thresholds: https://gumroad.com/help/article/13-getting-paid
+- Gumroad Payoneer exclusion: https://gumroad.com/help/article/223-payoneer-and-gumroad
+- Gumroad Discover eligibility: https://gumroad.com/help/article/79-gumroad-discover
+- Official Gumroad CLI: https://github.com/antiwork/gumroad-cli
+- Pinned CLI release: https://github.com/antiwork/gumroad-cli/releases/tag/v0.20261106.1
+- Older Help Center API limitation notice (superseded by newer CLI capability): https://gumroad.com/help/article/76-license-keys
 
 ## First-sale measurement
 
