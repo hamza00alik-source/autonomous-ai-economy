@@ -6,13 +6,19 @@ import json
 from urllib.parse import parse_qs
 
 from .service_catalog import ServiceCatalog
+from .identity import ParticipantRegistry
+from .request_auth import RequestAuthenticator
 
 
 class DirectoryApplication:
     """Expose only explicitly active listings; no participant PII or write routes."""
 
-    def __init__(self, catalog: ServiceCatalog) -> None:
+    def __init__(self, catalog: ServiceCatalog, *,
+                 registry: ParticipantRegistry | None = None,
+                 authenticator: RequestAuthenticator | None = None) -> None:
         self.catalog = catalog
+        self.registry = registry
+        self.authenticator = authenticator
 
     @staticmethod
     def _response(start_response, status: str, payload: dict, headers=None):
@@ -94,6 +100,44 @@ class DirectoryApplication:
                                   [("Allow", "GET")])
         if path == "/health":
             return self._response(start_response, "200 OK", {"status": "ok"})
+        if path == "/v1/participants/me":
+            if self.registry is None or self.authenticator is None:
+                return self._response(start_response, "503 Service Unavailable",
+                                      {"error": "authenticated_profile_unavailable"})
+            try:
+                raw_length = environ.get("CONTENT_LENGTH") or "0"
+                body_length = int(raw_length)
+                if not 0 <= body_length <= 65536:
+                    raise ValueError("request body length is invalid")
+                stream = environ.get("wsgi.input")
+                body = stream.read(body_length) if stream is not None and body_length else b""
+                if len(body) != body_length:
+                    raise ValueError("request body is incomplete")
+                participant_id = environ.get("HTTP_X_AAE_PARTICIPANT", "")
+                timestamp = int(environ.get("HTTP_X_AAE_TIMESTAMP", ""))
+                nonce = environ.get("HTTP_X_AAE_NONCE", "")
+                signature = environ.get("HTTP_X_AAE_SIGNATURE", "")
+                principal = self.authenticator.authenticate(
+                    participant_id, method, path, body, timestamp, nonce, signature
+                )
+                participant = self.registry.get(principal["participant_id"])
+                if participant is None:
+                    raise ValueError("participant no longer exists")
+            except (ValueError, TypeError, KeyError):
+                return self._response(start_response, "401 Unauthorized",
+                                      {"error": "authentication_failed"},
+                                      [("WWW-Authenticate", "AAE-Signature")])
+            except Exception:
+                return self._response(start_response, "503 Service Unavailable",
+                                      {"error": "authentication_temporarily_unavailable"})
+            public_profile = {
+                key: participant[key] for key in (
+                    "participant_id", "participant_type", "handle",
+                    "display_name", "status", "created_at",
+                )
+            }
+            return self._response(start_response, "200 OK",
+                                  {"participant": public_profile})
         if path == "/":
             params = parse_qs(environ.get("QUERY_STRING", ""), keep_blank_values=True)
             if any(len(values) != 1 for values in params.values()) or set(params) - {"q"}:
@@ -157,4 +201,12 @@ class DirectoryApplication:
 
 def create_directory_app(data_dir="./data") -> DirectoryApplication:
     from pathlib import Path
-    return DirectoryApplication(ServiceCatalog(Path(data_dir) / "participants.sqlite3"))
+    data_dir = Path(data_dir)
+    registry = ParticipantRegistry(data_dir / "participants.sqlite3")
+    authenticator = RequestAuthenticator(
+        registry, data_dir / "request-replay.sqlite3"
+    )
+    return DirectoryApplication(
+        ServiceCatalog(data_dir / "participants.sqlite3"),
+        registry=registry, authenticator=authenticator,
+    )
