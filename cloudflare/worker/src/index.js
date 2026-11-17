@@ -562,11 +562,11 @@ export default {
     if (url.pathname === "/v1/store/checkout" && request.method === "POST") {
       return createStoreCheckout(request, env);
     }
-    const storeDownloadMatch = url.pathname.match(/^\\/v1\\/store\\/orders\\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\\/download$/);
+    const storeDownloadMatch = url.pathname.match(new RegExp("^/v1/store/orders/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})/download$"));
     if (storeDownloadMatch && request.method === "GET") {
       return downloadStoreProduct(request, env, storeDownloadMatch[1]);
     }
-    const storeOrderMatch = url.pathname.match(/^\\/v1\\/store\\/orders\\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})$/);
+    const storeOrderMatch = url.pathname.match(new RegExp("^/v1/store/orders/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})$"));
     if (storeOrderMatch && request.method === "GET") {
       return getStoreOrder(request, env, storeOrderMatch[1]);
     }
