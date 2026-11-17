@@ -513,5 +513,83 @@ class DirectoryApiTests(unittest.TestCase):
         self.assertEqual(captured["status"], "400 Bad Request")
         self.assertEqual(body, {"error": "invalid_key_rotation_fields"})
 
+    def test_emergency_security_lock_requires_signed_explicit_confirmation(self):
+        class FakeRegistry:
+            def emergency_lock_account(self, participant_id):
+                self.participant_id = participant_id
+                return {"participant_id": participant_id, "status": "suspended",
+                        "locked_at": "now"}
+        class FakeAuthenticator:
+            def authenticate(self, participant_id, method, path, body, timestamp, nonce, signature):
+                self.args = (participant_id, method, path, body)
+                return {"participant_id": participant_id}
+        registry, auth = FakeRegistry(), FakeAuthenticator()
+        app = DirectoryApplication(self.catalog, registry=registry, authenticator=auth)
+        raw = json.dumps({"confirm": "LOCK_ACCOUNT"}).encode()
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        environ = {"REQUEST_METHOD": "POST",
+                   "PATH_INFO": "/v1/participants/me/security-lock",
+                   "QUERY_STRING": "", "CONTENT_LENGTH": str(len(raw)),
+                   "wsgi.input": __import__("io").BytesIO(raw),
+                   "HTTP_X_AAE_PARTICIPANT": "human_9", "HTTP_X_AAE_TIMESTAMP": "1800000000",
+                   "HTTP_X_AAE_NONCE": "abcdefghijklmnop", "HTTP_X_AAE_SIGNATURE": "signed"}
+        body = json.loads(b"".join(app(environ, start_response)))
+        self.assertEqual(captured["status"], "202 Accepted")
+        self.assertEqual(registry.participant_id, "human_9")
+        self.assertEqual(auth.args[2], "/v1/participants/me/security-lock")
+        self.assertIn("no self-service unlock", body["notice"])
+
+    def test_emergency_security_lock_rejects_missing_confirmation(self):
+        class FakeRegistry:
+            def emergency_lock_account(self, _participant_id):
+                raise AssertionError("must not lock without exact confirmation")
+        class FakeAuthenticator:
+            def authenticate(self, participant_id, *_args):
+                return {"participant_id": participant_id}
+        app = DirectoryApplication(self.catalog, registry=FakeRegistry(),
+                                   authenticator=FakeAuthenticator())
+        raw = b'{"confirm":"lock"}'
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        environ = {"REQUEST_METHOD": "POST",
+                   "PATH_INFO": "/v1/participants/me/security-lock",
+                   "QUERY_STRING": "", "CONTENT_LENGTH": str(len(raw)),
+                   "wsgi.input": __import__("io").BytesIO(raw),
+                   "HTTP_X_AAE_PARTICIPANT": "human_9", "HTTP_X_AAE_TIMESTAMP": "1800000000",
+                   "HTTP_X_AAE_NONCE": "abcdefghijklmnop", "HTTP_X_AAE_SIGNATURE": "signed"}
+        body = json.loads(b"".join(app(environ, start_response)))
+        self.assertEqual(captured["status"], "400 Bad Request")
+        self.assertEqual(body, {"error": "explicit_lock_confirmation_required"})
+
+    def test_security_event_history_is_private_and_allowlisted(self):
+        class FakeRegistry:
+            def security_events(self, participant_id):
+                self.seen = participant_id
+                return [{"event_id": "event-1",
+                         "event_type": "participant_requested_account_lock",
+                         "occurred_at": "now", "details_json": '{"secret":"hidden"}'}]
+        class FakeAuthenticator:
+            def authenticate(self, participant_id, *_args):
+                return {"participant_id": participant_id}
+        registry = FakeRegistry()
+        app = DirectoryApplication(self.catalog, registry=registry,
+                                   authenticator=FakeAuthenticator())
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        body = json.loads(b"".join(app({
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/v1/participants/me/security-events",
+            "QUERY_STRING": "", "CONTENT_LENGTH": "0",
+            "HTTP_X_AAE_PARTICIPANT": "human_9", "HTTP_X_AAE_TIMESTAMP": "1800000000",
+            "HTTP_X_AAE_NONCE": "abcdefghijklmnop", "HTTP_X_AAE_SIGNATURE": "signed",
+        }, start_response)))
+        self.assertEqual(captured["status"], "200 OK")
+        self.assertEqual(registry.seen, "human_9")
+        self.assertNotIn("details_json", json.dumps(body))
+        self.assertNotIn("hidden", json.dumps(body))
+
 if __name__ == "__main__":
     unittest.main()
