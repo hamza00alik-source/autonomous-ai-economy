@@ -37,6 +37,9 @@ function validFacts(facts) {
     if (!Array.isArray(facts[key]) || facts[key].length < 1 || facts[key].length > 40) return "invalid product fact list: " + key;
     if (facts[key].some(item => typeof item !== "string" || !item.trim() || item.length > 240)) return "invalid item in product fact list: " + key;
   }
+  for (const key of ["engine", "license_summary", "market_evidence"]) {
+    if (key in facts && (typeof facts[key] !== "string" || facts[key].length > 1000)) return "invalid optional product fact: " + key;
+  }
   return null;
 }
 
@@ -99,9 +102,7 @@ async function enqueueCopy(request, env) {
   if (problem) return json({ error: problem }, 400);
   const canonical = JSON.stringify(facts, Object.keys(facts).sort());
   const digest = await sha256(canonical);
-  const suppliedKey = request.headers.get("idempotency-key");
-  const idempotencyKey = suppliedKey || digest;
-  if (!/^[A-Za-z0-9:_-]{8,128}$/.test(idempotencyKey)) return json({ error: "invalid idempotency key" }, 400);
+  const idempotencyKey = digest;
   const taskId = crypto.randomUUID();
   const now = new Date().toISOString();
   await env.DB.prepare(
