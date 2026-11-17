@@ -109,3 +109,15 @@ def test_daily_budget_reservations_are_atomic_and_bounded(tmp_path):
         budget.reserve(model=MODEL_ID, prompt="two", estimated_neurons=41)
     budget.finish(first, "failed")
     assert budget.status()["reserved_neurons"] == 60
+
+from economy.ai_runtime import runtime_status
+
+
+def test_status_reports_unconfigured_without_network_or_secret_leak(tmp_path, monkeypatch):
+    monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+    status = runtime_status(tmp_path)
+    assert status["configured"] is False
+    assert status["network_calls_made"] is False
+    assert status["credentials_values_displayed"] is False
+    assert status["daily_budget"]["daily_safety_budget_neurons"] == 6500
