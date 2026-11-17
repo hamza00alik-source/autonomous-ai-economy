@@ -256,10 +256,12 @@ class DirectoryApiTests(unittest.TestCase):
         class FakeTasks:
             def summary_counts(self):
                 return {"queued": 3, "completed": 4}
-        class FakeCatalog(FakeCatalog):
+        class FakeOverviewCatalog:
             def summary_counts(self):
                 return {"active": 2, "draft": 1}
-        app = DirectoryApplication(FakeCatalog(), registry=FakeRegistry(),
+            def discover(self, **_kwargs):
+                return []
+        app = DirectoryApplication(FakeOverviewCatalog(), registry=FakeRegistry(),
                                    task_store=FakeTasks())
         captured = {}
         def start_response(status, headers):
