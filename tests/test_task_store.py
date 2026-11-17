@@ -2,6 +2,7 @@ import base64
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from economy.identity import ParticipantRegistry
@@ -18,7 +19,8 @@ class TaskStoreTests(unittest.TestCase):
     def test_persists_across_instances_and_worker_completes(self):
         task = self.store.enqueue("Research", "Find evidence requirements", "opportunity-researcher")
         reopened = TaskStore(Path(self.tmp.name) / "queue.sqlite3")
-        result = run_once(reopened)
+        with patch("economy.worker.execute_builtin", return_value="sandboxed deterministic result"):
+            result = run_once(reopened)
         self.assertEqual(result["task_id"], task["task_id"])
         self.assertEqual(result["status"], "completed")
         self.assertIsNone(result["lease_token"])
