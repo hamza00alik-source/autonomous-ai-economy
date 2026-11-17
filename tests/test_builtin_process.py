@@ -26,11 +26,15 @@ class BuiltinProcessTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn("--unshare-all", command)
         self.assertIn("--cap-drop", command)
+        self.assertIn("--uid", command)
+        self.assertIn("65534", command)
+        self.assertIn("--gid", command)
         self.assertIn("ALL", command)
         self.assertIn("--clearenv", command)
         self.assertIn("--ro-bind", command)
         self.assertEqual(run.call_args.kwargs["timeout"], 5)
         self.assertEqual(run.call_args.kwargs["env"], {})
+        self.assertIsNotNone(run.call_args.kwargs["preexec_fn"])
 
     @patch("economy.builtin_process.shutil.which", return_value=None)
     def test_fails_closed_when_bubblewrap_is_missing(self, _which):
