@@ -61,9 +61,10 @@ This repository now includes two manual-only GitHub workflows:
 
 The draft-creation helper performs a CLI dry-run first, requests `--draft`, checks the returned `published=false` state, and stops if that state is not confirmed. If Gumroad unexpectedly reports a published product, it attempts to unpublish it and raises an error. Neither workflow has been triggered. No Gumroad account, product, token, or listing has been created by this repository work.
 
-To use the workflows, the account owner must add GitHub Actions secrets:
+To use the workflows, the account owner must first deploy the private Cloudflare worker (see `docs/cloudflare-private-worker.md`), then add GitHub Actions secrets:
 - `GUMROAD_ACCESS_TOKEN` — seller token with product-edit and file-upload permissions;
-- `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` — for the free-tier AI listing-copy request.
+- `AAE_WORKER_URL` — the deployed private Cloudflare Worker origin;
+- `AAE_QUEUE_TOKEN` — the same owner-only bearer secret configured in the Cloudflare Worker.
 
 Generate the Gumroad token through the official CLI's seller OAuth login or Gumroad's application settings. Keep it in GitHub Secrets; never commit or paste it into chat. The first draft workflow does not publish. The second workflow is a separate public action requiring explicit confirmation.
 
