@@ -26,7 +26,7 @@ from .collective_learning import CollectiveLearningEngine
 from .identity import ParticipantRegistry
 from .permissions import CapabilityStore
 from .artifact_evidence import create_manifest, verify_local_artifact
-from .local_delivery import accept_receipt_locally
+from .local_delivery import accept_receipt_locally, submit_receipt_locally
 from .task_agreements import TaskAgreementStore
 
 
@@ -90,6 +90,18 @@ def main() -> None:
     receipt_accept.add_argument("--private-key", type=Path, required=True, help="buyer-held Ed25519 PEM key; never commit")
     receipt_accept.add_argument("--artifact", type=Path, action="append", required=True, help="local delivered file; repeat for each artifact")
     receipt_accept.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    receipt_submit = sub.add_parser(
+        "receipt-submit-local",
+        help="hash local deliverables and submit a provider-signed receipt against an accepted task agreement",
+    )
+    receipt_submit.add_argument("task_id")
+    receipt_submit.add_argument("--provider-id", required=True)
+    receipt_submit.add_argument("--buyer-id", required=True)
+    receipt_submit.add_argument("--summary", required=True)
+    receipt_submit.add_argument("--private-key", type=Path, required=True, help="provider-held Ed25519 PEM key; never commit")
+    receipt_submit.add_argument("--artifact", type=Path, action="append", required=True, help="local deliverable; repeat for each file")
+    receipt_submit.add_argument("--data-dir", type=Path, default=Path("./data"))
 
     export_audit_checkpoint = sub.add_parser("export-audit-checkpoint", help="sign the current audit-chain head with an operator-supplied Ed25519 key")
     export_audit_checkpoint.add_argument("--private-key", type=Path, required=True, help="operator-held PEM private key; never commit this file")
@@ -292,6 +304,23 @@ def main() -> None:
         print(json.dumps(result, indent=2))
         if not result["valid"]:
             raise SystemExit(1)
+    elif args.command == "receipt-submit-local":
+        try:
+            from cryptography.hazmat.primitives.serialization import load_pem_private_key
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        except ImportError as exc:
+            raise SystemExit("Install identity support first: pip install -e '.[identity]'") from exc
+        import base64
+        key = load_pem_private_key(args.private_key.read_bytes(), password=None)
+        if not isinstance(key, Ed25519PrivateKey):
+            raise SystemExit("private key must be an unencrypted Ed25519 PEM key")
+        def signer(message: bytes) -> str:
+            return base64.urlsafe_b64encode(key.sign(message)).decode("ascii").rstrip("=")
+        result = submit_receipt_locally(
+            args.data_dir / "participants.sqlite3", args.task_id, args.provider_id,
+            args.buyer_id, args.summary, args.artifact, signer,
+        )
+        print(json.dumps(result, indent=2))
     elif args.command == "receipt-accept-local":
         try:
             from cryptography.hazmat.primitives.serialization import load_pem_private_key
