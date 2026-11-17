@@ -1,6 +1,7 @@
 """Local service directory and signed participant task-offer API."""
 from __future__ import annotations
 
+import hashlib
 import html
 import ipaddress
 import json
@@ -161,12 +162,20 @@ class DirectoryApplication:
             except Exception:
                 return self._response(start_response, "503 Service Unavailable",
                                       {"error": "authentication_temporarily_unavailable"})
+            public_key = participant.get("public_key")
             public_profile = {
                 key: participant[key] for key in (
                     "participant_id", "participant_type", "handle",
                     "display_name", "status", "created_at",
                 )
             }
+            # Expose only a stable fingerprint, never the signing key itself.
+            public_profile["key_bound"] = bool(public_key)
+            public_profile["key_id"] = (
+                hashlib.sha256(public_key.encode("ascii")).hexdigest()[:24]
+                if isinstance(public_key, str) and public_key.isascii()
+                else None
+            )
             return self._response(start_response, "200 OK",
                                   {"participant": public_profile})
         if path == "/":
