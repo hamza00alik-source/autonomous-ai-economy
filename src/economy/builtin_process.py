@@ -19,6 +19,7 @@ except ImportError:
 from pathlib import Path
 
 from .seccomp_filter import SeccompUnavailable, create_filter_fd
+from .cgroup_v2 import CgroupUnavailable, CgroupV2Limits
 
 MAX_OBJECTIVE = 4096
 MAX_RESULT = 2048
@@ -41,6 +42,12 @@ def ensure_sandbox_available() -> str:
         raise SandboxUnavailable(
             "bubblewrap is required; refusing to execute without OS isolation"
         )
+    cgroup_root = os.environ.get("AAE_CGROUP_ROOT")
+    if cgroup_root:
+        try:
+            CgroupV2Limits.check_root(cgroup_root)
+        except CgroupUnavailable as exc:
+            raise SandboxUnavailable(str(exc)) from exc
     return bwrap
 
 
@@ -86,14 +93,20 @@ def _sandbox_command(bwrap: str, payload: bytes) -> list[str]:
     return command
 
 
-def _apply_process_limits() -> None:
-    """Apply inherited hard limits to Bubblewrap and every sandbox descendant."""
+def _apply_process_limits(cgroup_procs: str | None = None) -> None:
+    """Apply inherited rlimits and optionally join a delegated cgroup."""
     if resource is None:
         raise SandboxUnavailable("POSIX resource limits are unavailable")
     resource.setrlimit(resource.RLIMIT_CPU, (3, 3))
     resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
+    if cgroup_procs is not None:
+        fd = os.open(cgroup_procs, os.O_WRONLY | os.O_CLOEXEC)
+        try:
+            os.write(fd, str(os.getpid()).encode("ascii"))
+        finally:
+            os.close(fd)
 
 def execute_builtin(agent_id: str, objective: str) -> str:
     if agent_id not in _ALLOWED:
@@ -108,9 +121,18 @@ def execute_builtin(agent_id: str, objective: str) -> str:
         raise ValueError("execution request is too large")
 
     bwrap = ensure_sandbox_available()
+    cgroup = None
+    cgroup_root = os.environ.get("AAE_CGROUP_ROOT")
+    if cgroup_root:
+        try:
+            cgroup = CgroupV2Limits.create(cgroup_root)
+        except CgroupUnavailable as exc:
+            raise SandboxUnavailable(str(exc)) from exc
     try:
         seccomp_fd = create_filter_fd()
     except SeccompUnavailable as exc:
+        if cgroup is not None:
+            cgroup.cleanup()
         raise SandboxUnavailable(str(exc)) from exc
     command = _sandbox_command(bwrap, payload)
     command[command.index('--clearenv'):command.index('--clearenv') + 1] += ['--seccomp', str(seccomp_fd)]
@@ -124,13 +146,15 @@ def execute_builtin(agent_id: str, objective: str) -> str:
             check=False,
             close_fds=True,
             env={},
-            preexec_fn=_apply_process_limits if resource is not None else None,
+            preexec_fn=(lambda: _apply_process_limits(cgroup.procs_file if cgroup else None)) if resource is not None else None,
             pass_fds=(seccomp_fd,),
         )
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError("sandboxed built-in agent exceeded its execution time limit") from exc
     finally:
         os.close(seccomp_fd)
+        if cgroup is not None:
+            cgroup.cleanup()
     if completed.returncode != 0:
         message = completed.stderr[:1024].decode("utf-8", errors="replace")
         raise RuntimeError(f"sandboxed built-in agent failed: {message}")
