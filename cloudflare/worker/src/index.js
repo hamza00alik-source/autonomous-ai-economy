@@ -364,6 +364,12 @@ const STORE_PRODUCT_PRICE_USD = "5.00";
 const STORE_DOWNLOAD_PATH = "/downloads/moba-objective-props.zip";
 const STORE_DOWNLOAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
+function publicCheckoutEnabled(env) {
+  return env.AAE_PUBLIC_CHECKOUT_ENABLED === "true" &&
+    env.AAE_CRYPTO_ENABLEMENT_APPROVED === "true" &&
+    Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET && env.ASSETS);
+}
+
 function randomHex(bytes = 32) {
   const data = crypto.getRandomValues(new Uint8Array(bytes));
   return [...data].map(byte => byte.toString(16).padStart(2, "0")).join("");
@@ -381,9 +387,7 @@ async function authorizeBuyer(request, row) {
 }
 
 async function createStoreCheckout(request, env) {
-  if (env.AAE_PUBLIC_CHECKOUT_ENABLED !== "true" ||
-      env.AAE_CRYPTO_ENABLEMENT_APPROVED !== "true" ||
-      !env.NOWPAYMENTS_API_KEY || !env.NOWPAYMENTS_IPN_SECRET) {
+  if (!publicCheckoutEnabled(env)) {
     return json({ error: "crypto checkout is not enabled for this store" }, 503);
   }
   if (!env.CHECKOUT_LIMITER) return json({ error: "checkout protection is not configured" }, 503);
@@ -531,9 +535,7 @@ async function status(env) {
     tasks: counts.results || [],
     payment_actions_enabled: false,
     crypto_checkout_configured: Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET),
-    public_checkout_enabled: env.AAE_PUBLIC_CHECKOUT_ENABLED === "true" &&
-      env.AAE_CRYPTO_ENABLEMENT_APPROVED === "true" &&
-      Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET),
+    public_checkout_enabled: publicCheckoutEnabled(env),
     automatic_delivery_enabled: Boolean(env.ASSETS),
     outbound_payouts_enabled: false,
     public_registration_enabled: false,
@@ -617,7 +619,7 @@ export default {
       return json({ error: "direct product file access is disabled" }, 404);
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      if (!env.ASSETS) return json({ error: "storefront is not deployed" }, 404);
+      if (!publicCheckoutEnabled(env)) return json({ error: "storefront is not published" }, 404);
       const page = await env.ASSETS.fetch(request);
       const headers = new Headers(page.headers);
       headers.set("content-security-policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
