@@ -13,7 +13,8 @@ def test_revenue_report_contains_aggregates_but_no_buyer_data(tmp_path):
     sales.write_text(json.dumps({
         "success": True, "gross_cents": 5000, "net_cents": 3555,
         "units": 1, "refunded_cents": 0, "refunded_units": 0,
-        "currency": "USD", "from": "2026-01-01", "to": "2026-11-17",\n        "breakdown": [{"key": "prod-1", "label": "MOBA Objective Props", "gross_cents": 5000, "net_cents": 3555, "units": 1, "refunded_cents": 0, "refunded_units": 0, "buyer_email": "private@example.com"}],
+        "currency": "USD", "from": "2026-01-01", "to": "2026-11-17",
+        "breakdown": [{"key": "prod-1", "label": "MOBA Objective Props", "gross_cents": 5000, "net_cents": 3555, "units": 1, "refunded_cents": 0, "refunded_units": 0, "buyer_email": "private@example.com"}],
         "buyers": [{"email": "private@example.com"}],
     }))
     payouts.write_text(json.dumps({
@@ -26,7 +27,9 @@ def test_revenue_report_contains_aggregates_but_no_buyer_data(tmp_path):
         }],
     }))
     report = build_report(sales, payouts)
-    assert report["sales_summary"]["net_cents"] == 3555\n    assert report["product_breakdown"][0]["key"] == "prod-1"\n    assert "buyer_email" not in report["product_breakdown"][0]
+    assert report["sales_summary"]["net_cents"] == 3555
+    assert report["product_breakdown"][0]["key"] == "prod-1"
+    assert "buyer_email" not in report["product_breakdown"][0]
     assert report["payouts"][0]["id"] == "pay-1"
     assert "email" not in report["payouts"][0]
     assert report["privacy"]["buyer_emails_included"] is False
