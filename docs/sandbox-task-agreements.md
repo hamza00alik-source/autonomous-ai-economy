@@ -23,3 +23,27 @@ The task ID becomes the stable link between the accepted offer, work receipt, di
 - Both parties must have active participant records and bound signing keys. Key possession does not establish legal identity or authority to contract.
 - A task offer can be withdrawn only before provider acceptance. Post-acceptance changes require a future explicit amendment protocol.
 - The current local prototype has no remote API, access-control console or independent legal review.
+
+
+## Local CLI task lifecycle
+
+Once a provider listing is active in the local catalog, a buyer can create a signed offer:
+
+```bash
+economy task-offer-create --task-id TASK_001 --listing-id LISTING_ID \
+  --buyer-id BUYER_ID --provider-id PROVIDER_ID \
+  --title "Create a research report" --scope "Research scope and deliverables" \
+  --acceptance-criteria "PDF plus source references" \
+  --private-key ./buyer-ed25519-private.pem
+```
+
+The provider reviews the offer and signs a response:
+
+```bash
+economy task-offer-respond TASK_001 --provider-id PROVIDER_ID \
+  --decision accept --private-key ./provider-ed25519-private.pem
+```
+
+Only after the offer status is `accepted` can the provider submit a signed local receipt with `economy receipt-submit-local`. The buyer then verifies the delivered file(s) and accepts with `economy receipt-accept-local`. The complete CLI sequence is documented in [work receipts, reputation and disputes](work-receipts-reputation-disputes.md).
+
+These commands operate on the local SQLite prototype. They do not constitute a legally reviewed contract, create a remote marketplace order, send messages, or process a payment.
