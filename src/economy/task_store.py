@@ -125,8 +125,16 @@ class TaskStore:
             idempotency_key=idempotency_key, max_attempts=max_attempts,
         )
 
-    def claim(self) -> dict[str, Any] | None:
-        """Recover expired worker leases, then atomically claim one queued task."""
+    def claim(self, allowed_agent_ids: list[str] | tuple[str, ...] | None = None) -> dict[str, Any] | None:
+        """Recover expired leases, then claim one queued task.
+
+        When an allowlist is supplied, only tasks assigned to those exact agent IDs
+        are eligible. An empty allowlist deliberately claims nothing.
+        """
+        if allowed_agent_ids is not None:
+            if any(not isinstance(item, str) or not item.strip() for item in allowed_agent_ids):
+                raise ValueError("allowed_agent_ids must contain non-empty strings")
+            allowed_agent_ids = list(dict.fromkeys(allowed_agent_ids))
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             now_dt = datetime.now(timezone.utc)
@@ -147,9 +155,19 @@ class TaskStore:
                     "lease_expired_retry" if retry else "lease_expired_failed",
                     {"attempt": old["attempts"]},
                 )
-            row = db.execute(
-                "SELECT * FROM tasks WHERE status='queued' ORDER BY created_at, task_id LIMIT 1"
-            ).fetchone()
+            if allowed_agent_ids is None:
+                row = db.execute(
+                    "SELECT * FROM tasks WHERE status='queued' ORDER BY created_at, task_id LIMIT 1"
+                ).fetchone()
+            elif not allowed_agent_ids:
+                row = None
+            else:
+                placeholders = ",".join("?" for _ in allowed_agent_ids)
+                row = db.execute(
+                    f"SELECT * FROM tasks WHERE status='queued' AND assigned_agent IN ({placeholders}) "
+                    "ORDER BY created_at, task_id LIMIT 1",
+                    tuple(allowed_agent_ids),
+                ).fetchone()
             if row is None:
                 db.commit()
                 return None
