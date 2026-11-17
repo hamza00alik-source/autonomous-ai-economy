@@ -32,6 +32,17 @@ aae task <queue-task-id> --data-dir ./data
 aae verify-audit --data-dir ./data
 ```
 
+6. Export a completed order-agent draft to a local Markdown artifact:
+
+```sh
+aae export-order-artifact <queue-task-id> --data-dir ./data --output-dir ./data/deliverables
+```
+
+The command writes a private mode-0600 file and a SHA-256 manifest. It is
+idempotent when the existing file has identical bytes and refuses to overwrite
+a changed or unsafe path. The file remains an execution brief, not a completed
+customer deliverable.
+
 Dispatch is idempotent by original order ID. It can be run repeatedly; an
 accepted order is queued once. The worker produces an order-specific execution
 brief containing the scope, acceptance criteria, and completion checklist.
