@@ -55,11 +55,11 @@ class WorkRecordTests(unittest.TestCase):
         buyer_id = self.buyer["participant_id"]
         payload = self.store.submission_payload(
             task_id=task, provider_id=provider_id, buyer_id=buyer_id,
-            summary="Completed test deliverable", evidence_refs=["artifact:sha256:abc"],
+            summary="Completed test deliverable", evidence_refs=["artifact:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
         )
         return self.store.submit(
             task_id=task, provider_id=provider_id, buyer_id=buyer_id,
-            summary="Completed test deliverable", evidence_refs=["artifact:sha256:abc"],
+            summary="Completed test deliverable", evidence_refs=["artifact:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
             signature="valid",
         )
 
@@ -90,7 +90,7 @@ class WorkRecordTests(unittest.TestCase):
             isolated_store.submit(
                 task_id="unlinked", provider_id=provider["participant_id"],
                 buyer_id=buyer["participant_id"], summary="Unlinked work",
-                evidence_refs=["artifact:unlinked"], signature="valid",
+                evidence_refs=["artifact:sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"], signature="valid",
             )
 
     def test_invalid_signature_and_duplicate_task_rejected(self):
@@ -100,7 +100,7 @@ class WorkRecordTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "signature"):
             self.store.submit(
                 task_id="invalid", provider_id=provider_id, buyer_id=buyer_id,
-                summary="Work", evidence_refs=["artifact:x"], signature="bad",
+                summary="Work", evidence_refs=["artifact:sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"], signature="bad",
             )
         self._submit()
         with self.assertRaises(Exception):
@@ -111,19 +111,19 @@ class WorkRecordTests(unittest.TestCase):
         dispute_id = "dispute"
         payload = self.store.dispute_payload(
             receipt["receipt_id"], dispute_id, self.buyer["participant_id"],
-            "Deliverable incomplete", ["artifact:review"],
+            "Deliverable incomplete", ["artifact:sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"],
         )
         self.assertTrue(payload)
         dispute = self.store.open_dispute(
             receipt["receipt_id"], actor_id=self.buyer["participant_id"],
-            reason="Deliverable incomplete", evidence_refs=["artifact:review"],
+            reason="Deliverable incomplete", evidence_refs=["artifact:sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"],
             signature="valid",
         )
         self.assertEqual(dispute["status"], "open")
         with self.assertRaisesRegex(ValueError, "already has an open dispute"):
             self.store.open_dispute(
                 receipt["receipt_id"], actor_id=self.provider["participant_id"],
-                reason="Duplicate dispute", evidence_refs=["artifact:other"], signature="valid",
+                reason="Duplicate dispute", evidence_refs=["artifact:sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"], signature="valid",
             )
         self.assertEqual(self.store.reputation(self.provider["participant_id"])["disputed"], 1)
         self.store.resolve_dispute(
@@ -138,13 +138,23 @@ class WorkRecordTests(unittest.TestCase):
         receipt = self._submit()
         dispute = self.store.open_dispute(
             receipt["receipt_id"], actor_id=self.buyer["participant_id"],
-            reason="Need review", evidence_refs=["artifact:review"], signature="valid",
+            reason="Need review", evidence_refs=["artifact:sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"], signature="valid",
         )
         with self.assertRaisesRegex(ValueError, "trusted adjudicator"):
             self.store.resolve_dispute(
                 dispute["dispute_id"], resolver_id="unknown", outcome="buyer_favor",
                 note="review", signature="valid",
             )
+
+    def test_artifact_evidence_requires_full_sha256_content_address(self):
+        with self.assertRaisesRegex(ValueError, "content-addressed"):
+            self.store._validate_evidence_refs(["artifact:sha256:abc"])
+        valid = "artifact:sha256:" + "f" * 64
+        self.assertEqual(self.store._validate_evidence_refs([valid]), [valid])
+
+    def test_https_evidence_rejects_embedded_credentials(self):
+        with self.assertRaisesRegex(ValueError, "embedded credentials"):
+            self.store._validate_evidence_refs(["https://user:pass@example.com/file"])
 
 
 if __name__ == "__main__":
