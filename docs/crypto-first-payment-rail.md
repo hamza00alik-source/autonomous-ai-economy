@@ -14,19 +14,20 @@ This is not a request to evade KYC, sanctions screening, provider rules or local
 
 The current adapter uses the hosted invoice API and Instant Payment Notifications (IPN).
 
-- Crypto-only merchants are generally not asked for KYB/KYC at onboarding, according to the provider; the provider may request checks if a transaction is flagged as suspicious.
-- Fiat conversion and fiat cash-out require KYB/KYC through the relevant providers.
-- The provider may restrict service in territories where local law or licensing requirements prevent it from operating.
-- Published crypto-processing fees start at 1% for payments without exchange and 1.5% for multi-currency/fixed-rate/fee-paid-by-user options; network fees may also apply.
-- Customer payments pass through the provider's payment infrastructure before reaching the merchant's configured payout wallet. Do not describe this flow as self-custodial.
-- Separate outbound payout API calls are not enabled. Provider payout operations can have authentication/2FA requirements.
+- The provider says crypto-only merchants generally do not need KYB/KYC at onboarding; it may request identity and source-of-funds checks in the rare case that a transaction is flagged as suspicious.
+- Fiat options, including fiat charging or fiat cash-out, require KYB/KYC.
+- The provider says it is non-custodial for its standard payment flow: the customer pays a provider deposit address, then funds are automatically forwarded to the merchant's configured payout wallet. It says it does not store merchant funds or hold the merchant's private keys. If exchange is required, the provider processes the conversion before forwarding; avoid enabling its separate custody-balance product.
+- Its published processing fee is 0.5% for payments without exchange and 1% for multi-currency, fixed-rate or fee-paid-by-user payments; blockchain network fees are additional.
+- The provider says it operates globally except where prohibited by applicable law and reserves the right to restrict territories where local licensing requirements prevent service. Pakistan eligibility must be confirmed before activation.
+- Outbound payout APIs are not implemented in this project; incoming payments are the only scope of this adapter.
 
 Official references:
-- https://nowpayments.io/help
 - https://nowpayments.io/help/security/kyc-aml/kyc-aml-procedure
+- https://nowpayments.io/help/about-nowpayments/about/where-are-my-funds-stored
+- https://nowpayments.io/help/about-nowpayments/about
 - https://nowpayments.zendesk.com/hc/en-us/articles/21395546303389-IPN-and-how-to-setup
 - https://nowpayments.zendesk.com/hc/en-us/articles/18395434917149-Payment-statuses
-- https://nowpayments.zendesk.com/hc/en-us/articles/21345824322717-API-and-endpoint-description
+- https://documenter.getpostman.com/view/7907941/2s93JusNJt
 
 ### 2. BTCPay Server — self-custodial Bitcoin alternative
 
@@ -35,19 +36,24 @@ BTCPay is open-source and non-custodial. It can accept Bitcoin and Lightning dir
 Official references:
 - https://docs.btcpayserver.org/FAQ/Deployment/
 - https://docs.btcpayserver.org/btcpay-basics/btcpayvsothers/
+- https://docs.btcpayserver.org/FAQ/General/
 - https://docs.btcpayserver.org/API/Greenfield/v1/
 
 ## Pakistan legal boundary
 
 The Virtual Assets Act, 2026 came into force on 5 March 2026. It applies to Virtual Asset Service Providers operating in or from Pakistan and requires licensing for listed Virtual Asset Services. Schedule I includes broker-dealer, custody, exchange, and transfer/settlement services. The Act's broker-dealer schedule includes an own-account exemption where a person deals solely on its own account, does not execute orders for customers, and does not hold or control customer assets. That wording is not a blanket legal opinion for this project or every crypto payment arrangement.
 
-PVARA published the 2026 services regulations on 21 August 2026. Before enabling a crypto checkout from Pakistan, verify the exact merchant activity, provider eligibility, foreign-exchange/tax treatment and any licensing implications with qualified local counsel or PVARA. Do not provide exchange, custody, escrow, or transfer services to third parties unless separately authorized.
+PVARA's official site says the Pakistan Virtual Asset Services Regulations, 2026 and Activity-Specific Regulations, 2026 were notified on 21 August 2026. Before enabling a crypto checkout from Pakistan, verify the exact merchant activity, provider eligibility, foreign-exchange/tax treatment and any licensing implications with qualified local counsel or PVARA. Do not provide exchange, custody, escrow, or transfer services to third parties unless separately authorized.
 
 Official references:
 - https://www.pvara.gov.pk/regulations
 - https://pvara.gov.pk/licensing
 - https://www.sbp.org.pk/circulars/bprd-circular-letter-no-10
 - https://staging.na.gov.pk/uploads/documents/69aae92ebf61c_955.pdf
+
+## Other online payout rails
+
+Crypto is the first automated receipt rail, not the only permitted rail. A second class of methods is platform-native payout to an already verified online account (for example, Payoneer where a chosen marketplace supports it). That can avoid a human checking every individual payout, although account-level verification and provider controls may still apply. This repository does not yet connect to Payoneer or any other fiat payout API; add such an adapter only after selecting a specific marketplace/provider and confirming its country, payout, API and compliance terms.
 
 ## Implemented private Worker API
 
