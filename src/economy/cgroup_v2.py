@@ -73,8 +73,8 @@ class CgroupV2Limits:
             raise CgroupUnavailable("cannot read delegated cgroup controller files") from exc
         if not _REQUIRED.issubset(available) or not _REQUIRED.issubset(enabled):
             raise CgroupUnavailable("delegated cgroup must expose enabled cpu, memory and pids controllers")
-        if not os.access(resolved, os.W_OK | os.X_OK):
-            raise CgroupUnavailable("delegated cgroup root is not writable")
+        if not os.access(resolved, os.W_OK | os.X_OK) or not os.access(resolved / "cgroup.procs", os.W_OK):
+            raise CgroupUnavailable("delegated cgroup root and cgroup.procs must be writable")
         return resolved
 
     @classmethod
