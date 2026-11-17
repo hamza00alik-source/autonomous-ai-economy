@@ -326,9 +326,6 @@ async function nowPaymentsIPN(request, env) {
     payload.actually_paid === undefined ? null : String(payload.actually_paid),
     payload.pay_currency === undefined ? null : String(payload.pay_currency).toLowerCase(),
     now, orderId).run();
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO crypto_payment_events (event_hash,order_id,invoice_id,payment_id,provider_status,normalized_status,received_at) VALUES (?,?,?,?,?,?,?)"
-  ).bind(eventHash, orderId, invoiceId, paymentId, providerStatus, normalized, now).run();
   const updated = await env.DB.prepare(
     "SELECT status FROM crypto_payment_invoices WHERE order_id=?"
   ).bind(orderId).first();
@@ -351,6 +348,11 @@ async function nowPaymentsIPN(request, env) {
       "UPDATE agent_revenue_events SET status=CASE WHEN status='reconciled' THEN 'refund_review' ELSE 'reversed' END,updated_at=? WHERE order_id=?"
     ).bind(now, orderId).run();
   }
+  // Record the callback last. If revenue attribution fails, the provider can retry;
+  // all preceding writes are idempotent and will be safely completed on retry.
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO crypto_payment_events (event_hash,order_id,invoice_id,payment_id,provider_status,normalized_status,received_at) VALUES (?,?,?,?,?,?,?)"
+  ).bind(eventHash, orderId, invoiceId, paymentId, providerStatus, normalized, now).run();
   return json({ accepted: true, order_id: orderId, status: finalStatus,
     settled: finalStatus === "settled" }, 200);
 }
