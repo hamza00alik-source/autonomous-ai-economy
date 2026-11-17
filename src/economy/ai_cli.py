@@ -1,4 +1,4 @@
-"""Safe status and explicit invocation CLI for the optional AI provider."""
+"""Safe status, queue, and explicit invocation CLI for the optional AI provider."""
 from __future__ import annotations
 
 import argparse
@@ -7,6 +7,8 @@ from pathlib import Path
 
 from .ai_runtime import CloudflareWorkersAI, InferenceBudget, runtime_status
 from .ai_product_agent import AIProductCopyAgent
+from .ai_task_worker import queue_product_copy_task
+from .task_store import TaskStore
 
 
 def main() -> int:
@@ -25,9 +27,26 @@ def main() -> int:
     copy.add_argument("--facts-file", type=Path, required=True)
     copy.add_argument("--output", type=Path, help="new JSON output file; existing files are never overwritten")
 
+    queue = sub.add_parser("queue-copy", help="queue a product-copy task for the always-on AI supervisor")
+    queue.add_argument("--facts-file", type=Path, required=True)
+
     args = parser.parse_args()
     if args.command == "status":
         print(json.dumps(runtime_status(args.data_dir), indent=2))
+        return 0
+
+    if args.command == "queue-copy":
+        facts = json.loads(args.facts_file.read_text(encoding="utf-8"))
+        store = TaskStore(args.data_dir / "economy.sqlite3")
+        task = queue_product_copy_task(store, facts)
+        print(json.dumps({
+            "task_id": task["task_id"],
+            "assigned_agent": task["assigned_agent"],
+            "status": task["status"],
+            "idempotent": True,
+            "max_attempts": task["max_attempts"],
+            "notice": "Task is queued. The AI supervisor processes it only when provider credentials are configured.",
+        }, indent=2))
         return 0
 
     provider = CloudflareWorkersAI(InferenceBudget(args.data_dir / "ai-runtime.sqlite3"))
