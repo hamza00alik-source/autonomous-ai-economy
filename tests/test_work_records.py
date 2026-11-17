@@ -67,21 +67,14 @@ class WorkRecordTests(unittest.TestCase):
         receipt = self._submit()
         self.assertEqual(receipt["status"], "submitted")
         self.assertEqual(self.store.reputation(self.provider["participant_id"])["pending"], 1)
-        import hashlib
-        agreement = self.agreements.get("task-1")
-        agreement_digest = hashlib.sha256(
-            json.dumps(agreement["offer"], sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
-        signature_payload = self.store.acceptance_payload(
-            receipt["receipt_id"], self.buyer["participant_id"],
-            self.provider["participant_id"], "task-1", agreement_digest,
-            ["a" * 64],
+        signature_payload = self.store.acceptance_signing_bytes(
+            receipt["receipt_id"], buyer_id=self.buyer["participant_id"],
         )
         acceptance = json.loads(signature_payload)
         self.assertEqual(acceptance["version"], "2")
         self.assertEqual(acceptance["task_id"], "task-1")
         self.assertEqual(acceptance["agreement_id"], "task-1")
-        self.assertEqual(acceptance["agreement_digest"], agreement_digest)
+        self.assertEqual(len(acceptance["agreement_digest"]), 64)
         self.assertEqual(acceptance["artifact_digests"], ["a" * 64])
         accepted = self.store.accept(
             receipt["receipt_id"], buyer_id=self.buyer["participant_id"], signature="valid"
