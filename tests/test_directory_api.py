@@ -184,5 +184,70 @@ class DirectoryApiTests(unittest.TestCase):
         self.assertEqual(body, {"error": "directory_temporarily_unavailable"})
 
 
+    def test_authenticated_tasks_are_scoped_to_requesting_participant(self):
+        class FakeRegistry:
+            def get(self, participant_id):
+                return {"participant_id": participant_id, "status": "active"}
+        class FakeAuthenticator:
+            def authenticate(self, participant_id, method, path, body, timestamp, nonce, signature):
+                self.args = (participant_id, method, path, body, timestamp, nonce, signature)
+                return {"participant_id": participant_id}
+        class FakeTasks:
+            def list_for_agent(self, agent_id, *, status=None, limit=50):
+                self.args = (agent_id, status, limit)
+                return [{
+                    "task_id": "task_1", "title": "Research",
+                    "assigned_agent": agent_id, "status": "queued",
+                    "attempts": 0, "max_attempts": 3,
+                    "created_at": "now", "updated_at": "now",
+                    "objective": "private objective", "result": "private result",
+                    "idempotency_key": "secret",
+                }]
+        auth, tasks = FakeAuthenticator(), FakeTasks()
+        app = DirectoryApplication(self.catalog, registry=FakeRegistry(),
+                                   authenticator=auth, task_store=tasks)
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        environ = {
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/v1/tasks/mine",
+            "QUERY_STRING": "status=queued&limit=5", "CONTENT_LENGTH": "0",
+            "HTTP_X_AAE_PARTICIPANT": "agent_1", "HTTP_X_AAE_TIMESTAMP": "1800000000",
+            "HTTP_X_AAE_NONCE": "abcdefghijklmnop", "HTTP_X_AAE_SIGNATURE": "signed",
+        }
+        body = json.loads(b"".join(app(environ, start_response)))
+        self.assertEqual(captured["status"], "200 OK")
+        self.assertEqual(tasks.args, ("agent_1", "queued", 5))
+        self.assertEqual(body["items"][0]["task_id"], "task_1")
+        self.assertNotIn("objective", body["items"][0])
+        self.assertNotIn("result", body["items"][0])
+        self.assertNotIn("idempotency_key", body["items"][0])
+        self.assertEqual(auth.args[2], "/v1/tasks/mine")
+
+    def test_tasks_endpoint_rejects_invalid_filters_and_missing_auth(self):
+        class FakeRegistry:
+            def get(self, _participant_id):
+                return None
+        class FakeAuthenticator:
+            def authenticate(self, *_args):
+                raise ValueError("missing signature")
+        class FakeTasks:
+            def list_for_agent(self, *_args, **_kwargs):
+                return []
+        app = DirectoryApplication(self.catalog, registry=FakeRegistry(),
+                                   authenticator=FakeAuthenticator(), task_store=FakeTasks())
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        for query in ("status=all", "limit=1000", "admin=true"):
+            environ = {"REQUEST_METHOD": "GET", "PATH_INFO": "/v1/tasks/mine",
+                       "QUERY_STRING": query}
+            b"".join(app(environ, start_response))
+            self.assertEqual(captured["status"], "400 Bad Request")
+        environ = {"REQUEST_METHOD": "GET", "PATH_INFO": "/v1/tasks/mine",
+                   "QUERY_STRING": ""}
+        body = json.loads(b"".join(app(environ, start_response)))
+        self.assertEqual(captured["status"], "401 Unauthorized")
+        self.assertEqual(body, {"error": "authentication_failed"})
 if __name__ == "__main__":
     unittest.main()
