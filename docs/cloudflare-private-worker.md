@@ -25,43 +25,24 @@ Sources:
 - https://developers.cloudflare.com/workers/configuration/cron-triggers/
 - https://developers.cloudflare.com/workers-ai/platform/pricing/
 
-## Deploy
+## Deploy from GitHub (phone-friendly)
 
-Requires a Cloudflare account. Do not paste tokens into chat or commit them.
+The repository includes a **manual-only** GitHub Actions workflow at `.github/workflows/deploy-cloudflare-worker.yml`. It does not deploy automatically on code changes and has not been run. You can configure it from the GitHub website:
 
-1. On a computer with Node.js 22+, open this directory:
+1. Create a Cloudflare account and open Workers & Pages → D1 SQL Databases. Create a database named `aae-private-ai-economy`.
+2. Copy the D1 database ID.
+3. In the GitHub repository, open Settings → Secrets and variables → Actions.
+4. Add this repository variable:
+   - `CLOUDFLARE_D1_DATABASE_ID` = the D1 database ID.
+5. Add these repository secrets:
+   - `CLOUDFLARE_ACCOUNT_ID` = your Cloudflare account ID.
+   - `CLOUDFLARE_API_TOKEN` = a scoped token with permission to deploy Workers and manage this D1 database.
+   - `AAE_QUEUE_TOKEN` = a long random owner-only API secret. Generate it with a password manager or `openssl rand -hex 32`; keep your own copy so you can call the private API.
+6. In GitHub Actions, select **Deploy private Cloudflare AI worker** → **Run workflow**.
 
-   `cd cloudflare/worker`
+The workflow installs Wrangler, applies the D1 migration, stores `AAE_QUEUE_TOKEN` as a Cloudflare Worker secret, and deploys the Worker. It fails closed if any required value is missing. Never put secrets in repository variables, code, issues, logs, or chat.
 
-2. Install the pinned Wrangler development dependency:
-
-   `npm install`
-
-3. Authenticate Wrangler with your own Cloudflare account:
-
-   `npx wrangler login`
-
-4. Create the D1 database:
-
-   `npx wrangler d1 create aae-private-ai-economy`
-
-5. Copy the returned database ID into `wrangler.toml`, replacing `REPLACE_WITH_D1_DATABASE_ID`.
-
-6. Apply the initial schema:
-
-   `npx wrangler d1 migrations apply aae-private-ai-economy --remote`
-
-7. Create a long random queue token locally and store it as a Worker secret:
-
-   `npx wrangler secret put AAE_QUEUE_TOKEN`
-
-   Never put this value in source control, an issue, a log, or chat. Treat it as an owner-only API credential.
-
-8. Deploy:
-
-   `npx wrangler deploy`
-
-The deployment URL is shown by Wrangler. The scheduled trigger runs every five minutes. The worker will remain idle until an authenticated task is queued.
+Creating the D1 database and configuring GitHub secrets are account-owner setup steps. The workflow itself is only a deployment mechanism; it has not been triggered and no Cloudflare resource has been created by this repository change.
 
 ## API
 
