@@ -4,8 +4,10 @@ This file intentionally uses only the Python standard library. It is not an
 untrusted-code interpreter and must never be extended to eval/exec user code.
 """
 import json
+import errno
 import os
 import resource
+import socket
 import sys
 
 MAX_INPUT = 8192
@@ -14,6 +16,16 @@ AGENTS = {
     "opportunity-researcher": "opportunity research",
     "verification-auditor": "verification",
 }
+
+
+def _probe_blocked_socket():
+    try:
+        sock = socket.socket()
+    except OSError as exc:
+        return exc.errno
+    else:
+        sock.close()
+        return 0
 
 
 def sandbox_facts():
@@ -25,6 +37,8 @@ def sandbox_facts():
         "address_space_bytes": list(resource.getrlimit(resource.RLIMIT_AS)),
         "file_size_bytes": list(resource.getrlimit(resource.RLIMIT_FSIZE)),
         "open_files": list(resource.getrlimit(resource.RLIMIT_NOFILE)),
+        "seccomp_mode": int(next((line.split()[1] for line in open("/proc/self/status", encoding="ascii") if line.startswith("Seccomp:")), "0")),
+        "blocked_socket_errno": _probe_blocked_socket(),
     }
 
 
