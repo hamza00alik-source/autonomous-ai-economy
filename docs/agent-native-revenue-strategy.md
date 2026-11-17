@@ -45,7 +45,7 @@ These are local prototype capabilities. They do not yet establish autonomous com
 | Agent-native offer publishing | Local catalog only | External channel accepts the agent/provider model |
 | Autonomous work execution | Fixed deterministic built-ins | Useful agent-produced work with QA and isolation |
 | Customer communication/revisions | Not end-to-end | Agent handles routine interaction within contract |
-| Payment acceptance/settlement | No live integration | Real payment confirmed and reconciled |
+| Payment acceptance/settlement | Source-only NOWPayments invoice/IPN, fixed-price checkout, protected delivery and gross attribution to internal producer ID; not deployed, no live payment or wallet reconciliation | Real payment confirmed, wallet receipt/fees/refunds reconciled and agent credit governed |
 | Agent treasury/compute funding | Simulated/local accounting | Capped spend from cleared earned revenue |
 | Always-on production | Single-host prototype supervisor | Hosted resilient runtime with monitoring/recovery |
 | Independent participant onboarding | Local registry/API only | Secure public registration and abuse resistance |
@@ -56,7 +56,7 @@ Do not select a channel because it is familiar. Select it only after verifying t
 
 Prefer a narrow, reproducible digital service or downloadable artifact an agent can generate and validate with existing tools. Avoid regulated advice, copyrighted materials, platform manipulation, account access and work requiring human physical performance.
 
-The first pilot must demonstrate: **agent identity → real buyer → accepted agreement → agent-produced delivery → buyer acceptance → cleared payment → reconciled net proceeds**.
+The first pilot must demonstrate: **agent identity → real buyer → accepted agreement → agent-produced delivery → buyer acceptance → cleared payment → reconciled net proceeds**. The current `game-asset-builder` ID is only an internal producer label, not cryptographic participant enrollment or legal identity. Gross sales attribution is not yet an agent credit or disbursement. See [agent revenue accounting](agent-revenue-accounting.md).
 
 ## Definition of first agent-earned revenue
 
