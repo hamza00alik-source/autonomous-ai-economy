@@ -171,6 +171,10 @@ class FakeD1Statement {
       return { meta: { changes: 1 } };
     }
     if (this.sql.startsWith("INSERT OR IGNORE INTO agent_revenue_events")) {
+      if (this.db.failRevenueInsertOnce) {
+        this.db.failRevenueInsertOnce = false;
+        throw new Error("simulated revenue-ledger write failure");
+      }
       const [order_id, agent_id, product_id, gross_amount_minor, gross_currency,
         provider_payment_id, crypto_received_amount, crypto_currency,
         provider_outcome_amount, provider_outcome_currency, settled_at, created_at, updated_at] = this.values;
@@ -485,4 +489,35 @@ test("agent revenue endpoint exposes gross attribution but no unreconciled agent
   assert.equal(report.credited_to_agent_minor, 0);
   assert.equal(report.events[0].agent_credit_minor, null);
   assert.match(report.notice, /not a legal identity/);
+});
+
+
+test("provider callback remains retryable when agent revenue attribution fails", async () => {
+  const db = fakePaymentDb({
+    order_id: "order-retry-123", invoice_id: "invoice-retry-456",
+    price_amount: "5.00", price_currency: "usd", status: "pending",
+    product_id: "moba-objective-props", agent_id: "game-asset-builder"
+  });
+  db.failRevenueInsertOnce = true;
+  const payload = {
+    payment_id: 123456, invoice_id: "invoice-retry-456", payment_status: "finished",
+    order_id: "order-retry-123", price_amount: 5, price_currency: "usd",
+    pay_amount: 0.25, actually_paid: 0.25, pay_currency: "btc"
+  };
+  const secret = "retry-test-secret";
+  const makeRequest = () => new Request("https://worker.example/v1/payments/nowpayments/ipn", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-nowpayments-sig": signedIPN(payload, secret) },
+    body: JSON.stringify(payload)
+  });
+  const env = { NOWPAYMENTS_IPN_SECRET: secret, DB: db };
+  await assert.rejects(() => worker.fetch(makeRequest(), env), /simulated revenue-ledger write failure/);
+  assert.equal(db.invoice.status, "settled");
+  assert.equal(db.events.size, 0);
+  assert.equal(db.revenue.size, 0);
+  const retry = await worker.fetch(makeRequest(), env);
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).status, "settled");
+  assert.equal(db.events.size, 1);
+  assert.equal(db.revenue.get("order-retry-123").status, "settled_pending_reconciliation");
 });
