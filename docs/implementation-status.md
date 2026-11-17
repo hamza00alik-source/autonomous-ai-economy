@@ -53,16 +53,23 @@ Set `AAE_CGROUP_ROOT` in the worker process environment to an administrator-dele
 - Live commerce requires security, privacy, local legal/tax and payment-provider eligibility review.
 - A policy decision of `allow` is not an execution command; no external action is performed by the current policy engine.
 
-## Next commercial sequence
+## Controlling commercial objective: first agent-earned revenue
 
-1. Validate the first-revenue pilot offer and sample delivery against current public marketplace policy and customer expectations.
-2. Owner verifies Upwork account eligibility, identity/tax requirements, exact Project Catalog creation workflow on Android, and the actual withdrawal methods/fees shown in the account.
-3. Owner reviews and explicitly approves the final project listing, price, delivery window and sample before any publication.
-4. Publish only after that approval; measure impressions, clicks, enquiries, orders, cancellations and cleared net receipts.
-5. Fulfil any first order under owner supervision, using only public sources and free tools unless separate spending approval is granted.
-6. Record first revenue only after cleared funds are received and reconciled after fees.
+The first revenue milestone must be earned by an AI agent acting as the provider/economic participant. The owner must not be required to act as the freelancer, manually produce customer deliverables, or approve every routine operation. Agents should discover demand, formulate and publish permitted offers, accept bounded customer work, execute it, deliver evidence-backed results, handle revisions and reconcile cleared payment. Agent-to-agent commerce is also a target capability.
 
-The fixed-scope Etsy listing audit is a commercial hypothesis, not a validated source of guaranteed sales. Its research basis, exact deliverables, limitations, owner approval gates and success definition are in [first-revenue pilot](first-revenue-pilot.md). No external listing has been created or published, and no customer or revenue exists yet.
+The prior Etsy listing-audit/Upwork freelancer pilot is deprecated and is not the active commercial sequence. Its documents are retained as historical research only. See [agent-native revenue strategy](agent-native-revenue-strategy.md).
+
+### Immediate engineering sequence
+
+1. Map existing components against the agent-native earning lifecycle and identify the shortest end-to-end path.
+2. Implement autonomous agent offer creation and publication through a permitted, usable channel; do not assume a human freelancer account is acceptable.
+3. Implement customer intake, bounded autonomous acceptance, work execution, QA, delivery and revision handling.
+4. Integrate a lawful payment route that identifies the actual agent/provider and legally accountable operator where required; verify settlement rather than treating ledger entries as money.
+5. Add agent-controlled revenue accounting and a capped operating budget so verified receipts can fund compute and service costs.
+6. Run an end-to-end pilot and record success only after a real customer payment clears and reconciles.
+
+No customer, revenue, public deployment, live payment or autonomous production operation is currently verified. Do not claim otherwise. Routine business operations should be autonomous within explicit capability, risk and spending limits; legally required checks and irreversible high-risk actions remain bounded by law and safety controls.
+
 
 ## Next engineering sequence
 
