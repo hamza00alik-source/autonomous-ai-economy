@@ -16,6 +16,7 @@ jobs:
     env:
       NOWPAYMENTS_API_KEY: ${{ secrets.NOWPAYMENTS_API_KEY }}
       NOWPAYMENTS_IPN_SECRET: ${{ secrets.NOWPAYMENTS_IPN_SECRET }}
+      AAE_CRYPTO_ENABLEMENT_APPROVED: ${{ vars.AAE_CRYPTO_ENABLEMENT_APPROVED }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -32,6 +33,7 @@ jobs:
           AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
           NOWPAYMENTS_API_KEY: ${{ secrets.NOWPAYMENTS_API_KEY }}
           NOWPAYMENTS_IPN_SECRET: ${{ secrets.NOWPAYMENTS_IPN_SECRET }}
+          AAE_CRYPTO_ENABLEMENT_APPROVED: ${{ vars.AAE_CRYPTO_ENABLEMENT_APPROVED }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_ACCOUNT_ID"
@@ -41,6 +43,7 @@ jobs:
           if [ -n "$NOWPAYMENTS_API_KEY" ] || [ -n "$NOWPAYMENTS_IPN_SECRET" ]; then
             test -n "$NOWPAYMENTS_API_KEY"
             test -n "$NOWPAYMENTS_IPN_SECRET"
+            test "$AAE_CRYPTO_ENABLEMENT_APPROVED" = "true"
           fi
           echo "$CLOUDFLARE_D1_DATABASE_ID" | grep -Eq '^[0-9a-fA-F-]{36}$'
           sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$CLOUDFLARE_D1_DATABASE_ID/" wrangler.toml
