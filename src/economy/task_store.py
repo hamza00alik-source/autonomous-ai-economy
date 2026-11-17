@@ -202,6 +202,14 @@ class TaskStore:
                 rows = db.execute("SELECT * FROM tasks ORDER BY created_at")
             return [dict(row) for row in rows.fetchall()]
 
+    def summary_counts(self) -> dict[str, int]:
+        """Return task totals grouped by status without exposing task contents."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT status, COUNT(*) AS total FROM tasks GROUP BY status"
+            ).fetchall()
+        return {row["status"]: row["total"] for row in rows}
+
     def list_for_agent(self, agent_id: str, status: str | None = None,
                        limit: int = 50) -> list[dict[str, Any]]:
         """Return only tasks assigned to one authenticated participant."""
