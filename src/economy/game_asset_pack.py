@@ -272,16 +272,58 @@ def build_game_asset_pack(output: str | Path) -> dict:
     preview=_glb(objects)
     summaries["preview"]=_read_glb_summary(preview)
     files.append(("preview.glb",preview))
-    scene_lines=["[gd_scene load_steps=6 format=3]",""]
+    scene_lines=[
+        "[gd_scene load_steps=9 format=3]","",
+        '[sub_resource type="Environment" id="Environment_default"]',
+        "background_mode = 1",
+        "background_color = Color(0.025, 0.035, 0.055, 1)",
+        "ambient_light_source = 2",
+        "ambient_light_color = Color(0.45, 0.52, 0.68, 1)",
+        "ambient_light_energy = 0.75","",
+        '[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]',
+        "size = Vector2(24, 12)","",
+        '[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]',
+        "albedo_color = Color(0.06, 0.08, 0.12, 1)",
+        "roughness = 0.92","",
+    ]
     for i,(slug,name,_) in enumerate(_ASSETS,1):
         scene_lines.append(f'[ext_resource type="PackedScene" path="res://assets/{slug}.glb" id="{i}"]')
-    scene_lines.extend(["",'[node name="MOBAObjectiveProps" type="Node3D"]',""])
+    scene_lines.extend([
+        "",
+        '[node name="MOBAObjectiveProps" type="Node3D"]',"",
+        '[node name="WorldEnvironment" type="WorldEnvironment" parent="."]',
+        'environment = SubResource("Environment_default")',"",
+        '[node name="KeyLight" type="DirectionalLight3D" parent="."]',
+        "rotation_degrees = Vector3(-48, -32, 0)",
+        "light_energy = 1.6",
+        "shadow_enabled = true","",
+        '[node name="Camera3D" type="Camera3D" parent="."]',
+        "position = Vector3(0, 4.4, 15.5)",
+        "rotation_degrees = Vector3(-14, 0, 0)",
+        "current = true","",
+        '[node name="Floor" type="MeshInstance3D" parent="."]',
+        "position = Vector3(0, -0.04, 0)",
+        'mesh = SubResource("PlaneMesh_floor")',
+        'material_override = SubResource("StandardMaterial3D_floor")',"",
+    ])
     for i,(slug,name,_) in enumerate(_ASSETS,1):
         node_name="".join(part.title() for part in slug.split("_"))
         x=(i-3)*2.6
         scene_lines.extend([f'[node name="{node_name}" parent="." instance=ExtResource("{i}")]',
                            f"position = Vector3({x:.2f}, 0, 0)",""])
     files.append(("godot/MOBAObjectiveProps.tscn",("\n".join(scene_lines)+"\n").encode("utf-8")))
+    project_config="""config_version=5
+
+[application]
+config/name="MOBA Objective Props"
+run/main_scene="res://godot/MOBAObjectiveProps.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+"""
+    files.append(("project.godot",project_config.encode("utf-8")))
     readme="""# MOBA Objective Props — Low-Poly 3D Asset Pack
 
 Five original, procedurally generated low-poly fantasy props for game prototypes:
@@ -294,17 +336,17 @@ Five original, procedurally generated low-poly fantasy props for game prototypes
 ## Formats and use
 - Individual glTF 2.0 binary models (.glb), one object per file.
 - Combined preview scene (preview.glb).
-- Godot 4 scene (godot/MOBAObjectiveProps.tscn) referencing the individual GLB files.
-- Import the ZIP into a project, keep the assets/ and godot/ folders together, then open the Godot scene.
+- A complete Godot 4.7 project (project.godot) with a lit demo scene, camera and floor.
+- Open the extracted folder containing project.godot directly in Godot 4.7 or later and press F6/F5 to preview the scene.
 
 The assets use simple PBR materials and flat-shaded polygon geometry. No external textures, scripts, plugins, fonts, or network calls are required.
 
 ## Technical scope
-These are low-poly static props, not rigged characters. They include no animation, collision shapes, LODs, or platform-specific import presets. Review scale and materials in your target engine before production use. The included Godot scene is a layout/demo scene, not a complete game.
+These are low-poly static props, not rigged characters. They include no animation, collision shapes, LODs, or platform-specific import presets. Review scale and materials in your target engine before production use. The included Godot project is a layout/demo scene, not a complete game.
 
 All meshes are original procedural geometry created for this pack. The pack is not affiliated with Mobile Legends, Unity, Godot, or any game publisher.
 """
-    files.append(("README.md",readme.encode("utf-8")))
+
     license_text="""# License
 
 Original project-created 3D mesh assets. The purchaser may use and modify the assets in personal and commercial games and interactive projects. The assets may not be resold, redistributed, sublicensed, or shared as standalone source files or as a competing asset pack. No trademark or affiliation rights are granted. This is a draft license; confirm marketplace and local legal requirements before sale.
