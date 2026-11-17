@@ -1,0 +1,96 @@
+name: Private AI runtime smoke test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aae-private-ai-smoke-test
+  cancel-in-progress: false
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check private worker health
+        env:
+          WORKER_URL: https://autonomous-ai-economy-private-worker.hamza-00ali-k-f66.workers.dev
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error "$WORKER_URL/health"
+
+      - name: Submit one private AI product-copy task
+        id: submit
+        env:
+          WORKER_URL: https://autonomous-ai-economy-private-worker.hamza-00ali-k-f66.workers.dev
+          AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$AAE_QUEUE_TOKEN" || { echo "AAE_QUEUE_TOKEN secret is missing"; exit 1; }
+          response="$(curl --fail --silent --show-error \
+            -X POST "$WORKER_URL/v1/tasks/product-copy" \
+            -H "Authorization: Bearer $AAE_QUEUE_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @- <<'JSON'
+          {
+            "product_name": "MOBA Objective Props Pack",
+            "buyer_segment": "Indie game developers using Godot",
+            "product_summary": "A downloadable pack of five original low-poly fantasy MOBA objective props for game prototypes and scenes.",
+            "included_files": [
+              "Mana Crystal GLB model",
+              "Health Vial GLB model",
+              "Rune Altar GLB model",
+              "Supply Chest GLB model",
+              "Ancient Coin Stack GLB model",
+              "Combined preview GLB",
+              "Godot 4.7+ demo project and scene",
+              "README and draft license"
+            ],
+            "formats": ["GLB", "Godot project"],
+            "known_limits": [
+              "Static props only",
+              "No rigging or animation",
+              "No collision shapes",
+              "No LODs",
+              "No platform-specific presets",
+              "Market demand and buyer willingness to pay have not been validated"
+            ],
+            "engine": "Godot 4.7+",
+            "license_summary": "A draft license is included and must be reviewed before commercial distribution.",
+            "market_evidence": "No verified sales or demand evidence is available; do not make popularity or sales claims.",
+            "ai_disclosure": "This listing copy was drafted with AI assistance and reviewed against the supplied product facts."
+          }
+          JSON
+          )"
+          task_id="$(printf '%s' "$response" | jq -er '.task_id')"
+          echo "task_id=$task_id" >> "$GITHUB_OUTPUT"
+          echo "Queued private task: $task_id"
+
+      - name: Wait for scheduled AI processing and verify saved result
+        env:
+          WORKER_URL: https://autonomous-ai-economy-private-worker.hamza-00ali-k-f66.workers.dev
+          AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
+          TASK_ID: ${{ steps.submit.outputs.task_id }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 42); do
+            response="$(curl --fail --silent --show-error \
+              "$WORKER_URL/v1/tasks/product-copy/$TASK_ID" \
+              -H "Authorization: Bearer $AAE_QUEUE_TOKEN")"
+            status="$(printf '%s' "$response" | jq -r '.status')"
+            echo "Attempt $attempt: task status=$status"
+            if [ "$status" = "completed" ]; then
+              printf '%s' "$response" | jq '.result'
+              exit 0
+            fi
+            if [ "$status" = "failed" ] || [ "$status" = "blocked_budget" ] || [ "$status" = "stalled" ]; then
+              printf '%s' "$response" | jq '{status,error}'
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "Timed out waiting for the five-minute scheduled processor."
+          exit 1
