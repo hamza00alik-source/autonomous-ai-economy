@@ -83,6 +83,11 @@ class RequestAuthenticationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "inactive"):
             self._request(nonce="ABCDEFGHIJKLMNOP")
 
+    def test_emergency_account_lock_immediately_blocks_signed_requests(self):
+        self.registry.emergency_lock_account(self.person["participant_id"])
+        with self.assertRaisesRegex(ValueError, "inactive"):
+            self._request(nonce="LOCKEDACCOUNT123")
+
     def test_rejects_malformed_nonce_and_path(self):
         with self.assertRaisesRegex(ValueError, "nonce"):
             self.auth.signing_bytes("GET", "/health", b"", self.now, "short")
