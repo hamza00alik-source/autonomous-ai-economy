@@ -58,6 +58,26 @@ class AuditCheckpointTests(unittest.TestCase):
             cp_path.write_text(json.dumps(doc))
             self.assertFalse(verify_checkpoint(cp_path, pub_path)["valid"])
 
+    def test_checkpoint_rejects_timezone_free_timestamp_and_boolean_event_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = TaskStore(root / "economy.sqlite3")
+            private = Ed25519PrivateKey.generate()
+            private_path, public_path = root / "private.pem", root / "public.pem"
+            checkpoint_path = root / "checkpoint.json"
+            private_path.write_bytes(private.private_bytes(serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+            public_path.write_bytes(private.public_key().public_bytes(serialization.Encoding.PEM,
+                serialization.PublicFormat.SubjectPublicKeyInfo))
+            export_checkpoint(store, private_path, checkpoint_path)
+            original = json.loads(checkpoint_path.read_text())
+            for field, value in (("created_at", "2026-11-17T12:00:00"), ("checked_events", True)):
+                altered = dict(original)
+                altered[field] = value
+                checkpoint_path.write_text(json.dumps(altered))
+                with self.assertRaises(ValueError):
+                    verify_checkpoint(checkpoint_path, public_path)
+
     def test_checkpoint_does_not_overwrite_existing_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
