@@ -368,13 +368,13 @@ Add five original low-poly fantasy props to a game prototype: a mana crystal, he
 
 - 5 individual GLB models
 - 1 combined preview GLB
-- 1 Godot 4 scene that instances the five models
+- 1 complete Godot 4.7+ project with a camera-lit demo scene, floor and project.godot
 - PBR material definitions
 - README and draft license
 
 ## Technical limits
 
-Static low-poly props only. No rigging, animation, collision shapes, LODs, texture maps, or platform-specific import presets. Test import and adjust scale/materials in your target engine. This is not a complete game or a character pack.
+Static low-poly props only. No rigging, animation, collision shapes, LODs, texture maps, or platform-specific import presets. Open the included project.godot in Godot 4.7 or later and test the scene. Adjust scale/materials in your target engine. This is not a complete game or a character pack.
 
 ## AI disclosure
 
