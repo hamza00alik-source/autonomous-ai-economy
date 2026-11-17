@@ -130,7 +130,20 @@ def execute_builtin(agent_id: str, objective: str) -> str:
         response = json.loads(completed.stdout.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("sandboxed built-in agent returned an invalid response") from exc
-    result = response.get("result") if isinstance(response, dict) else None
+    if not isinstance(response, dict):
+        raise ValueError("sandboxed built-in agent returned an invalid response")
+    facts = response.get("sandbox")
+    expected = {
+        "uid": 65534,
+        "gid": 65534,
+        "cpu_seconds": [3, 3],
+        "address_space_bytes": [512 * 1024 * 1024, 512 * 1024 * 1024],
+        "file_size_bytes": [1024 * 1024, 1024 * 1024],
+        "open_files": [32, 32],
+    }
+    if facts != expected:
+        raise SandboxUnavailable("sandbox identity or kernel-enforced resource limits did not match policy")
+    result = response.get("result")
     if not isinstance(result, str) or len(result) > MAX_RESULT:
         raise ValueError("sandboxed built-in agent returned an invalid or oversized result")
     return result
