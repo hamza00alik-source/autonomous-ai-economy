@@ -64,5 +64,13 @@ class TaskStoreTests(unittest.TestCase):
             self.store.enqueue("A", "B", "agent", max_attempts=99)
 
 
+    def test_list_for_agent_is_scoped_and_limited(self):
+        self.store.enqueue("A", "objective A", "agent-a")
+        self.store.enqueue("B", "objective B", "agent-b")
+        self.store.enqueue("C", "objective C", "agent-a")
+        rows = self.store.list_for_agent("agent-a", status="queued", limit=1)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["assigned_agent"], "agent-a")
+        self.assertEqual(self.store.list_for_agent("agent-missing"), [])
 if __name__ == "__main__":
     unittest.main()
