@@ -8,6 +8,17 @@ The repository now has a long-running single-host supervisor entry point, `econo
 
 This is a single-process, single-host baseline—not high availability, a distributed queue, multi-region service, or proof of continuous uptime. The built-in worker still requires Linux Bubblewrap and its configured isolation support. Do not expose the local WSGI directory or SQLite database directly to the internet.
 
+## AI model worker lane
+
+The local supervisor now has two separate execution lanes:
+
+- Fixed built-in handlers run inside the existing no-network Bubblewrap sandbox.
+- The optional `ai-product-copy-agent` claims only its own exact task ID and calls the allowlisted Cloudflare Workers AI model from a separate process. It has no shell, browser, arbitrary tool, payment, publishing, or customer-contact capability.
+
+Queue a product-copy task with `economy-ai queue-copy --facts-file products/moba-objective-props/product-facts.json`. The supervisor processes it only when valid Cloudflare credentials are present. With no credentials, the task remains queued. Model failures are single-attempt by default and the estimated daily usage budget is persisted locally.
+
+This is a first bounded model-backed agent lane, not a general multi-agent runtime. It is still a local single-host process; it is not hosted, always-on in production, or connected to a public customer storefront. The API token must be supplied through the host's secret environment, never committed to source control.
+
 ## Separate infrastructure target
 
 Keep this economy on its own account/project, network, database, object storage, secrets scope, monitoring, billing account and deployment pipeline. Do not share OpenCompany infrastructure, credentials, data, domains, or operational dependencies.
