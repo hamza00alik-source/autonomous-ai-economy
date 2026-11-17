@@ -103,6 +103,28 @@ class IdentityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "key history"):
             self.registry.begin_key_binding(other["participant_id"], old_key)
 
+    def test_key_rotation_challenge_is_bound_to_expected_participant(self):
+        first = self.registry.create_human("first", "First")
+        second = self.registry.create_human("second", "Second")
+        old_key = base64.urlsafe_b64encode(b"a" * 32).decode().rstrip("=")
+        new_key = base64.urlsafe_b64encode(b"b" * 32).decode().rstrip("=")
+        binding = self.registry.begin_key_binding(first["participant_id"], old_key)
+        self.registry.complete_key_binding(binding["challenge_id"], "bind",
+                                           verifier=lambda *_: True)
+        rotation = self.registry.begin_key_rotation(first["participant_id"], new_key)
+        verifier = lambda *_: True
+        with self.assertRaisesRegex(ValueError, "another participant"):
+            self.registry.complete_key_rotation(
+                rotation["challenge_id"], "old", "new", verifier=verifier,
+                expected_participant_id=second["participant_id"],
+            )
+        self.assertEqual(self.registry.get(first["participant_id"])["public_key"], old_key)
+        rotated = self.registry.complete_key_rotation(
+            rotation["challenge_id"], "old", "new", verifier=verifier,
+            expected_participant_id=first["participant_id"],
+        )
+        self.assertEqual(rotated["public_key"], new_key)
+
     def test_invalid_agent_signature_rejected(self):
         public_key = base64.urlsafe_b64encode(b"y" * 32).decode().rstrip("=")
         challenge = self.registry.begin_agent_enrollment("worker", "Worker", public_key)
