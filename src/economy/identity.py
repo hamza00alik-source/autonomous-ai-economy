@@ -129,6 +129,23 @@ class ParticipantRegistry:
                 );
                 CREATE INDEX IF NOT EXISTS idx_participant_operation_events
                     ON participant_operation_events(participant_id, operation, occurred_at);
+                CREATE TABLE IF NOT EXISTS participant_abuse_review_cases (
+                    case_id TEXT PRIMARY KEY,
+                    participant_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    signal_count INTEGER NOT NULL,
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('open','reviewed')),
+                    decision TEXT,
+                    reviewer TEXT,
+                    review_note TEXT,
+                    reviewed_at TEXT,
+                    UNIQUE(participant_id, operation, status),
+                    FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_abuse_review_status
+                    ON participant_abuse_review_cases(status, last_seen_at);
                 CREATE TABLE IF NOT EXISTS participant_security_events (
                     event_id TEXT PRIMARY KEY,
                     participant_id TEXT NOT NULL,
@@ -184,6 +201,7 @@ class ParticipantRegistry:
             ).fetchone()["n"]
             if count >= limit:
                 db.rollback()
+                self._record_abuse_quota_signal(participant_id, operation)
                 raise ParticipantRateLimitExceeded(operation)
             db.execute(
                 """INSERT INTO participant_operation_events
@@ -196,6 +214,76 @@ class ParticipantRegistry:
         except Exception:
             db.rollback()
             raise
+
+    def _record_abuse_quota_signal(self, participant_id: str, operation: str) -> None:
+        """Record a review signal; this never changes participant permissions."""
+        now = _iso(_now())
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                """SELECT case_id,signal_count FROM participant_abuse_review_cases
+                   WHERE participant_id=? AND operation=? AND status='open'""",
+                (participant_id, operation),
+            ).fetchone()
+            if row:
+                db.execute(
+                    """UPDATE participant_abuse_review_cases
+                       SET signal_count=signal_count+1,last_seen_at=? WHERE case_id=?""",
+                    (now, row["case_id"]),
+                )
+            else:
+                db.execute(
+                    """INSERT INTO participant_abuse_review_cases
+                       (case_id,participant_id,operation,signal_count,first_seen_at,
+                        last_seen_at,status) VALUES(?,?,?,?,?,?,'open')""",
+                    (str(uuid.uuid4()), participant_id, operation, 1, now, now),
+                )
+            db.commit()
+
+    def list_abuse_review_cases(self, *, status: str = "open",
+                                limit: int = 100) -> list[dict[str, Any]]:
+        if status not in {"open", "reviewed", "all"} or not 1 <= limit <= 500:
+            raise ValueError("invalid abuse review query")
+        where = "" if status == "all" else "WHERE c.status=?"
+        params = () if status == "all" else (status,)
+        with self._connect() as db:
+            rows = db.execute(
+                f"""SELECT c.case_id,c.participant_id,p.handle,c.operation,
+                           c.signal_count,c.first_seen_at,c.last_seen_at,c.status,
+                           c.decision,c.reviewer,c.review_note,c.reviewed_at
+                    FROM participant_abuse_review_cases c
+                    JOIN participants p ON p.participant_id=c.participant_id
+                    {where} ORDER BY c.last_seen_at DESC LIMIT ?""",
+                (*params, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def review_abuse_case(self, case_id: str, *, decision: str,
+                          reviewer: str, note: str = "") -> dict[str, Any]:
+        if decision not in {"dismiss", "monitor", "escalate"}:
+            raise ValueError("decision must be dismiss, monitor, or escalate")
+        if not reviewer.strip() or len(reviewer) > 120 or len(note) > 2000:
+            raise ValueError("invalid reviewer or note")
+        now = _iso(_now())
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            cur = db.execute(
+                """UPDATE participant_abuse_review_cases
+                   SET status='reviewed',decision=?,reviewer=?,review_note=?,reviewed_at=?
+                   WHERE case_id=? AND status='open'""",
+                (decision, reviewer, note, now, case_id),
+            )
+            if cur.rowcount != 1:
+                db.rollback()
+                raise KeyError(case_id)
+            db.commit()
+            row = db.execute(
+                """SELECT case_id,participant_id,operation,signal_count,status,
+                          decision,reviewer,review_note,reviewed_at
+                   FROM participant_abuse_review_cases WHERE case_id=?""",
+                (case_id,),
+            ).fetchone()
+            return dict(row)
 
     def consume_operation_quota(self, participant_id: str, operation: str, *,
                                limit: int, window_seconds: int = 3600) -> None:
