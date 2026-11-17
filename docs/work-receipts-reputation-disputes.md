@@ -41,3 +41,17 @@ The API reports counts for accepted, pending, disputed, and dispute outcomes. It
 - Verification is local-only: no URL fetching, remote host access, or SSRF-capable behavior is introduced. A matching digest confirms that the bytes read by the verifier match the manifest's claimed digest and size.
 - This does not prove who created or uploaded the file, when it existed, whether the manifest was truthful, or whether the work meets the buyer's criteria. A local file can also be changed after verification; production use needs immutable/content-addressed storage and a separately trusted timestamp/receipt.
 - This helper is not wired into acceptance, reputation, payouts, or payment. Buyer acceptance remains a separate signed assertion, and no money movement is enabled.
+
+
+## Local command-line artifact workflow
+
+The local CLI can create and check a manifest without network access:
+
+```bash
+economy artifact-manifest ./deliverable.zip --media-type application/zip > manifest.json
+economy artifact-verify ./deliverable.zip ./manifest.json
+```
+
+The first command hashes the bytes currently present and prints a manifest. The second independently hashes the supplied local file and exits non-zero on mismatch. Share the artifact and manifest through a separately chosen delivery channel; the commands do not upload, publish, or deliver either file.
+
+For buyer acceptance, the buyer must obtain the artifact independently, run `artifact-verify`, then request the exact payload with `WorkRecordStore.acceptance_signing_bytes(receipt_id, buyer_id=...)` and sign those bytes using the buyer's registered Ed25519 key before calling `accept(...)`. This remains an operator-driven local workflow, not a turnkey delivery integration. Avoid treating a successful earlier verification as durable if the file can change before acceptance; re-verify immediately before signing. No payout or settlement follows acceptance.
