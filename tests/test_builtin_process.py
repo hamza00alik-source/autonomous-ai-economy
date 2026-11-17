@@ -31,6 +31,21 @@ class BuiltinProcessTests(unittest.TestCase):
         result = execute_builtin("verification-auditor", "Check source evidence")
         self.assertIn("Check source evidence", result)
 
+    @unittest.skipUnless(shutil.which("bwrap"), "bubblewrap is not installed on this host")
+    def test_order_delivery_agent_builds_scope_bound_execution_draft(self):
+        objective = json.dumps({
+            "schema": "aae.accepted-order/v1", "task_id": "order-42",
+            "title": "Competitor comparison", "scope": "Compare three public products",
+            "acceptance_criteria": "Include a feature table and source links",
+            "due_at": None, "price_minor": 1200, "currency": "USD",
+            "buyer_id": "buyer-1", "provider_id": "agent-1",
+        }, separators=(",", ":"))
+        result = execute_builtin("order-delivery-agent", objective)
+        self.assertIn("Competitor comparison", result)
+        self.assertIn("Include a feature table and source links", result)
+        self.assertIn("DRAFT", result)
+        self.assertIn("No payment was collected", result)
+
     @patch("economy.builtin_process.resource.setrlimit")
     def test_sets_inherited_cpu_memory_file_and_descriptor_limits(self, setrlimit):
         _apply_process_limits()
