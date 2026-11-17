@@ -8,7 +8,7 @@ The local `CapabilityStore` implements:
 - Optional amount ceilings that must include a three-letter currency.
 - Non-negative amount enforcement; a capped grant cannot be used unless the request supplies an amount and matching currency.
 - Revocation by the grant's recorded issuer.
-- Participant-status enforcement when the participant registry exists in the same database; missing, suspended or revoked subjects are denied.
+- Fail-closed participant-status enforcement: the participant registry must exist in the same database, and missing, suspended or revoked subjects are denied.
 - An audit record for each authorization decision.
 - High-risk actions always return `require_approval`, even when a capability matches or an approval-reference string is supplied.
 
