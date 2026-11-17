@@ -115,6 +115,16 @@ class ParticipantRegistry:
                     challenge_id TEXT NOT NULL UNIQUE,
                     FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
                 );
+                CREATE TABLE IF NOT EXISTS participant_security_events (
+                    event_id TEXT PRIMARY KEY,
+                    participant_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    details_json TEXT NOT NULL,
+                    FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_security_events_participant
+                    ON participant_security_events(participant_id, occurred_at);
                 CREATE TABLE IF NOT EXISTS identity_claims (
                     claim_id TEXT PRIMARY KEY,
                     participant_id TEXT NOT NULL,
@@ -430,6 +440,59 @@ class ParticipantRegistry:
         with self._connect() as db:
             return [dict(row) for row in db.execute(
                 "SELECT * FROM participant_key_history WHERE participant_id=? ORDER BY rotated_at",
+                (participant_id,),
+            ).fetchall()]
+
+    def emergency_lock_account(self, participant_id: str) -> dict[str, Any]:
+        """Suspend a participant and invalidate pending key challenges atomically.
+
+        This is intentionally one-way through the participant API. Recovery requires
+        a separate owner-controlled process outside this registry method.
+        """
+        now = _iso()
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            participant = db.execute(
+                "SELECT status FROM participants WHERE participant_id=?",
+                (participant_id,),
+            ).fetchone()
+            if participant is None:
+                db.rollback()
+                raise KeyError(participant_id)
+            if participant["status"] != "active":
+                db.rollback()
+                raise ValueError("participant is not active")
+            db.execute(
+                "UPDATE participants SET status='suspended' WHERE participant_id=? AND status='active'",
+                (participant_id,),
+            )
+            db.execute(
+                """UPDATE participant_key_challenges SET consumed_at=?
+                   WHERE participant_id=? AND consumed_at IS NULL""",
+                (now, participant_id),
+            )
+            db.execute(
+                """UPDATE participant_key_rotation_challenges SET consumed_at=?
+                   WHERE participant_id=? AND consumed_at IS NULL""",
+                (now, participant_id),
+            )
+            db.execute(
+                """INSERT INTO participant_security_events
+                   (event_id,participant_id,event_type,occurred_at,details_json)
+                   VALUES(?,?,?,?,?)""",
+                ("security_" + uuid.uuid4().hex, participant_id,
+                 "participant_requested_account_lock", now, "{}"),
+            )
+            db.commit()
+        return {"participant_id": participant_id, "status": "suspended",
+                "locked_at": now}
+
+    def security_events(self, participant_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            return [dict(row) for row in db.execute(
+                """SELECT event_id,event_type,occurred_at,details_json
+                   FROM participant_security_events WHERE participant_id=?
+                   ORDER BY occurred_at,event_id""",
                 (participant_id,),
             ).fetchall()]
 
