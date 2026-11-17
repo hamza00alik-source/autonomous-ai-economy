@@ -133,3 +133,36 @@ def test_supervisor_exports_completed_order_worker_output(tmp_path):
     files = list((tmp_path / "deliverables").glob("*.md"))
     assert len(files) == 1
     assert order["task_id"] in files[0].read_text()
+
+
+def test_supervisor_runs_optional_ai_worker_lane():
+    calls = []
+
+    def normal_worker(_store):
+        calls.append("sandbox")
+        return None
+
+    def ai_worker(_store):
+        calls.append("model")
+        return {"status": "completed", "assigned_agent": "ai-product-copy-agent"}
+
+    stats = supervise(Store(), poll_seconds=0.1, max_cycles=1,
+                      worker=normal_worker, ai_worker=ai_worker)
+    assert calls == ["sandbox", "model"]
+    assert stats == {"cycles": 1, "completed": 1, "idle": 0, "errors": 0}
+
+
+def test_supervisor_continues_ai_lane_after_builtin_worker_error():
+    calls = []
+
+    def normal_worker(_store):
+        raise RuntimeError("sandbox unavailable")
+
+    def ai_worker(_store):
+        calls.append("model")
+        return {"status": "completed", "assigned_agent": "ai-product-copy-agent"}
+
+    stats = supervise(Store(), poll_seconds=0.1, max_cycles=1,
+                      worker=normal_worker, ai_worker=ai_worker)
+    assert calls == ["model"]
+    assert stats == {"cycles": 1, "completed": 1, "idle": 0, "errors": 1}
