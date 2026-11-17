@@ -42,6 +42,11 @@ The repository includes a **manual-only** GitHub Actions workflow at `.github/wo
 
 The workflow installs Wrangler, applies the D1 migration, stores `AAE_QUEUE_TOKEN` as a Cloudflare Worker secret, and deploys the Worker. It fails closed if any required value is missing. Never put secrets in repository variables, code, issues, logs, or chat.
 
+After deployment, copy the `workers.dev` URL printed by Wrangler and add one more GitHub Actions secret:
+- `AAE_WORKER_URL` = the deployed Worker origin, for example `https://<worker>.<account-subdomain>.workers.dev`.
+
+The Gumroad draft workflow uses `AAE_WORKER_URL` and `AAE_QUEUE_TOKEN` to queue AI listing copy in this Worker's persistent D1 budget. This avoids resetting the local Python budget on every GitHub Actions run.
+
 Creating the D1 database and configuring GitHub secrets are account-owner setup steps. The workflow itself is only a deployment mechanism; it has not been triggered and no Cloudflare resource has been created by this repository change.
 
 ## API
