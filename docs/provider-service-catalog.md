@@ -47,3 +47,19 @@ published = catalog.publish_with_token(
 - Listing content and provider signatures do not prove quality, legal compliance, customer demand or the provider's ability to fulfil the offer.
 - A published listing is only a discoverable offer. It does not create a contract or authorize spending, payment, custody or transfer.
 - Owner approval integration remains a hard gate before any production publication.
+
+
+## Local CLI workflow
+
+With the provider's registered Ed25519 PEM key:
+
+```bash
+economy catalog-draft --provider-id PROVIDER_ID --slug my-service \
+  --title "My service" --description "What is delivered" \
+  --category research --delivery-format "PDF report" --terms "One delivery" \
+  --private-key ./provider-ed25519-private.pem
+```
+
+After the owner has inspected the draft, set `ECONOMY_CATALOG_APPROVAL_SECRET` in the local environment to a random secret of at least 32 bytes, then run `economy catalog-approval-create LISTING_ID`. Review the displayed token and explicitly activate it with `economy catalog-publish LISTING_ID --approval-token TOKEN`. This only activates the private local catalog record; it does not publish to an external marketplace.
+
+Do not put private keys or approval secrets in command arguments, source control, or chat. CLI signing currently accepts unencrypted Ed25519 PEM keys.
