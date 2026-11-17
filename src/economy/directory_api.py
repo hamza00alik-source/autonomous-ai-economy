@@ -101,10 +101,17 @@ class DirectoryApplication:
     def __call__(self, environ, start_response):
         method = environ.get("REQUEST_METHOD", "GET").upper()
         path = environ.get("PATH_INFO", "")
+        if method == "POST" and path == "/v1/tasks/offers":
+            return self._create_task_offer(environ, start_response)
+        if method == "POST" and path.startswith("/v1/tasks/") and path.endswith("/responses"):
+            task_id = path[len("/v1/tasks/"):-len("/responses")]
+            if not task_id or "/" in task_id:
+                return self._response(start_response, "404 Not Found", {"error": "not_found"})
+            return self._respond_to_task_offer(environ, start_response, task_id)
         if method != "GET":
             return self._response(start_response, "405 Method Not Allowed",
                                   {"error": "method_not_allowed"},
-                                  [("Allow", "GET")])
+                                  [("Allow", "GET, POST")])
         if path == "/health":
             return self._response(start_response, "200 OK", {"status": "ok"})
         if path == "/v1/local/owner/overview":
