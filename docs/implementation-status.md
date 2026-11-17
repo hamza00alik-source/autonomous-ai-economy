@@ -12,6 +12,7 @@ Last reviewed: 2026-11-17
 - Scoped capability grants, deny-by-default authorization, participant suspension checks and audit records.
 - Framework-independent Ed25519 signed-request authentication with method/path/body binding, timestamp window and atomic nonce replay protection (local component only).
 - Read-only WSGI service directory with a mobile-friendly HTML page, allowlisted active listings and a signed-request authenticated self-profile endpoint; HTML escaping and loopback-only CLI server.
+- Explicit task assignment to an existing active, cryptographically key-bound agent participant; assignment never guesses from handles or role names, and authenticated task listing uses the participant ID.
 - Local PolicyEngine combining capabilities or delegation with short-lived, exact-request, single-use HMAC owner approvals. It returns decisions only and executes no external action.
 - Provider-signed service listing drafts, exact-listing single-use owner approval, local discovery and provider withdrawal.
 - Buyer-signed task offers, provider acceptance/decline, buyer withdrawal, and work receipts linked to accepted task agreements.
@@ -40,7 +41,7 @@ Last reviewed: 2026-11-17
 
 ## Next engineering sequence
 
-1. Finish regression/security review of the local marketplace lifecycle and authorization boundaries.
+1. Finish regression/security review of the local marketplace lifecycle and authorization boundaries, including explicit participant-to-task assignment.
 2. Finish lost-key recovery policy and strengthen audit integrity.
 3. Design production authentication, public API, rate limits, abuse handling and privacy boundaries before exposing registration or discovery.
 4. Build a browser/mobile-friendly owner and participant console for the sandbox marketplace.
