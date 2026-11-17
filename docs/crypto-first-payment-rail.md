@@ -73,25 +73,30 @@ Sources:
 
 Practical choice: keep direct crypto checkout as the primary rail; investigate TurboSquid as a 3D-asset marketplace route to Payoneer, subject to account eligibility and its 90-day first-payment delay. CGTrader is a backup if its one-time KYC and Payoneer availability are acceptable. Exclude itch.io collected payouts where staff approval conflicts with the automation requirement. This repository does not yet automate listings or marketplace payout APIs.
 
-## Implemented private Worker API
+## Implemented private Worker API and customer delivery
 
-All endpoints are code-only until the Cloudflare Worker and D1 database are deployed.
+The source now includes a small, fixed-price customer storefront for the first asset pack. It is **not deployed and remains disabled** until the owner configures the payment provider, completes the eligibility/legal checks, and explicitly enables the feature flags.
 
-- `POST /v1/payments/nowpayments/invoices` — private owner-token endpoint. Creates a USD-priced hosted invoice and stores its order/invoice relationship. The endpoint is idempotent by order ID. Ambiguous invoice-creation outcomes are marked for reconciliation rather than blindly retried.
+- `GET /` — serves the customer product page from Workers Static Assets.
+- `POST /v1/store/checkout` — public, same-origin, rate-limited checkout for the single fixed product at **US$5.00**. Customers cannot submit a custom price or product ID. It creates a random order ID and 256-bit buyer access token; only the token's SHA-256 hash is stored.
 - `POST /v1/payments/nowpayments/ipn` — public provider callback. Verifies `x-nowpayments-sig` with HMAC-SHA-512 over recursively key-sorted JSON before touching payment state.
-- `GET /v1/payments/{order_id}` — private read-only payment status.
+- `GET /v1/store/orders/{order_id}` — buyer-token authenticated order status. The browser polls this after the provider redirects back.
+- `GET /v1/store/orders/{order_id}/download` — buyer-token authenticated download. It streams the ZIP from the Worker Static Assets binding only after a matching, full, provider-confirmed payment reaches `settled`. Download access expires after seven days; repeat downloads are allowed during that window.
+- `GET /v1/payments/{order_id}` and `POST /v1/payments/nowpayments/invoices` — owner-token authenticated operational endpoints.
 
-Only a valid, matching callback with `payment_status=finished`, the expected invoice/order/price/currency, and the full required crypto amount can become `settled`. Partial payments remain `underpaid`; unknown/mismatched events are quarantined as review records. Duplicate callbacks are idempotent. Lower-status late callbacks cannot downgrade a settled order.
+The deploy workflow rebuilds the ZIP and includes it as a Worker static asset. The Worker runs before static assets and blocks direct requests to `/downloads/*`; the file is served only through the authenticated download route. No separate R2 bucket is needed for this single small product.
 
-The Worker stores only minimal payment metadata and event hashes; it does not retain raw webhook bodies, buyer identity, wallet private keys, or seed phrases. It does not automatically deliver a file, issue a refund, exchange assets, or create an outbound transfer. Delivery must be connected to the order/fulfilment system and tested before the first live sale.
+Only a valid, matching callback with `payment_status=finished`, the expected invoice/order/price/currency, and the full required crypto amount can become `settled`. Partial payments remain `underpaid`; unknown/mismatched events are quarantined. Duplicate callbacks are idempotent. Lower-status late callbacks cannot downgrade a settled order, and a refund changes the order to `refunded`, disabling downloads.
+
+The buyer access token is returned once at checkout and stored in that browser's local storage. The customer must return in the same browser/device to retrieve the download; a lost token currently has no self-service recovery flow. The Worker stores only minimal payment metadata and event hashes; it does not retain raw webhook bodies, buyer identity, wallet private keys, or seed phrases. It does not issue refunds, exchange assets, or create outbound transfers.
 
 ## Enablement prerequisites
 
 1. Confirm NOWPayments accepts the actual merchant and activity from Pakistan, and complete any provider-required onboarding honestly.
 2. Obtain qualified local advice on the Virtual Assets Act, 2026 and related tax/foreign-exchange obligations for the precise setup.
-3. Only after the first two checks, add Cloudflare secrets `NOWPAYMENTS_API_KEY` and `NOWPAYMENTS_IPN_SECRET` and set the GitHub Actions variable `AAE_CRYPTO_ENABLEMENT_APPROVED=true`. The deployment workflow refuses to configure crypto checkout unless that explicit flag is present.
+3. Only after the first two checks, add Cloudflare secrets `NOWPAYMENTS_API_KEY` and `NOWPAYMENTS_IPN_SECRET`, then set GitHub Actions variable `AAE_CRYPTO_ENABLEMENT_APPROVED=true`. Keep `AAE_PUBLIC_CHECKOUT_ENABLED` unset/false until the product QA and test-invoice checks are complete; set it to `true` only when you intentionally want the customer store to accept live orders. The deployment workflow refuses public checkout unless both flags and both provider secrets are present.
 4. Deploy the Cloudflare Worker and D1 migration using the manual deployment workflow.
 5. Create one low-value test invoice and verify valid, invalid, duplicate, delayed, partial, expired and mismatched IPNs before any public listing.
-6. Connect settlement to verified order delivery; reconcile the provider's completed status against actual wallet receipt and fees.
+6. Deploy and run a low-value end-to-end test: create invoice, confirm provider IPN, poll buyer order status, download the asset, test refund lockout, and reconcile actual wallet receipt and fees. Do not open public checkout until the test passes.
 
 Never paste provider credentials, private keys or seed phrases into chat or source control. No account has been created, no secret has been configured, no transaction has been made, and no revenue is claimed.
