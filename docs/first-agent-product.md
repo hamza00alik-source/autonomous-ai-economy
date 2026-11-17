@@ -76,6 +76,10 @@ Sources:
 - Pinned CLI release: https://github.com/antiwork/gumroad-cli/releases/tag/v0.20261106.1
 - Older Help Center API limitation notice (superseded by newer CLI capability): https://gumroad.com/help/article/76-license-keys
 
+## Revenue monitoring
+
+A scheduled, read-only GitHub workflow `Gumroad revenue and payout monitor` now runs daily and can also be triggered manually. It uses the official CLI to fetch aggregate sales summary and payout records, then writes a privacy-minimal report containing gross/net totals, units, refunds, and payout statuses. It deliberately excludes buyer names, emails, and individual order records. The workflow requires a Gumroad seller token with sales-view and payout-view scopes. It has not been run because no seller token is configured.
+
 ## First-sale measurement
 
 Only count revenue after a real external buyer pays, receives the product, the payment provider confirms settlement, and net proceeds after fees/refunds are reconciled. A draft, listing, click, download, pending balance, simulated ledger entry or test order is not revenue.
