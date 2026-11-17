@@ -1,4 +1,4 @@
-"""Loopback-friendly, read-only WSGI service directory."""
+"""Local service directory and signed participant task-offer API."""
 from __future__ import annotations
 
 import html
@@ -10,6 +10,7 @@ from .service_catalog import ServiceCatalog
 from .identity import ParticipantRegistry
 from .request_auth import RequestAuthenticator
 from .task_store import TaskStore
+from .task_agreements import TaskAgreementStore
 
 
 class DirectoryApplication:
@@ -18,11 +19,13 @@ class DirectoryApplication:
     def __init__(self, catalog: ServiceCatalog, *,
                  registry: ParticipantRegistry | None = None,
                  authenticator: RequestAuthenticator | None = None,
-                 task_store: TaskStore | None = None) -> None:
+                 task_store: TaskStore | None = None,
+                 agreements: TaskAgreementStore | None = None) -> None:
         self.catalog = catalog
         self.registry = registry
         self.authenticator = authenticator
         self.task_store = task_store
+        self.agreements = agreements
 
     @staticmethod
     def _response(start_response, status: str, payload: dict, headers=None):
@@ -211,6 +214,111 @@ class DirectoryApplication:
             "items": public_items, "count": len(public_items),
         })
 
+    def _signed_json_body(self, environ, start_response, path):
+        """Authenticate exact raw bytes before parsing a bounded JSON object."""
+        if self.registry is None or self.authenticator is None:
+            return None, None, self._response(start_response, "503 Service Unavailable",
+                                               {"error": "authenticated_api_unavailable"})
+        if environ.get("QUERY_STRING", ""):
+            return None, None, self._response(start_response, "400 Bad Request",
+                                               {"error": "query_parameters_not_supported"})
+        try:
+            length = int(environ.get("CONTENT_LENGTH") or "0")
+            if not 1 <= length <= 16384:
+                raise ValueError("invalid body length")
+            stream = environ.get("wsgi.input")
+            raw = stream.read(length) if stream is not None else b""
+            if len(raw) != length:
+                raise ValueError("incomplete request body")
+            participant_id = environ.get("HTTP_X_AAE_PARTICIPANT", "")
+            timestamp = int(environ.get("HTTP_X_AAE_TIMESTAMP", ""))
+            nonce = environ.get("HTTP_X_AAE_NONCE", "")
+            signature = environ.get("HTTP_X_AAE_SIGNATURE", "")
+            principal = self.authenticator.authenticate(
+                participant_id, "POST", path, raw, timestamp, nonce, signature
+            )
+            def no_duplicate_keys(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError("duplicate JSON key")
+                    result[key] = value
+                return result
+            payload = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicate_keys)
+            if not isinstance(payload, dict):
+                raise ValueError("JSON body must be an object")
+            return principal, payload, None
+        except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+            return None, None, self._response(start_response, "400 Bad Request",
+                                               {"error": "invalid_request_or_signature"})
+        except Exception:
+            return None, None, self._response(start_response, "503 Service Unavailable",
+                                               {"error": "authentication_temporarily_unavailable"})
+
+    def _create_task_offer(self, environ, start_response):
+        if self.agreements is None:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "task_offers_unavailable"})
+        path = "/v1/tasks/offers"
+        principal, body, error = self._signed_json_body(environ, start_response, path)
+        if error is not None:
+            return error
+        required = {"task_id", "listing_id", "provider_id", "title", "scope",
+                    "acceptance_criteria", "offer_signature"}
+        optional = {"due_at", "price_minor", "currency"}
+        if set(body) - required - optional or not required.issubset(body):
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_offer_fields"})
+        try:
+            offer = self.agreements.create_offer(
+                task_id=body["task_id"], listing_id=body["listing_id"],
+                buyer_id=principal["participant_id"], provider_id=body["provider_id"],
+                title=body["title"], scope=body["scope"],
+                acceptance_criteria=body["acceptance_criteria"],
+                due_at=body.get("due_at"), price_minor=body.get("price_minor"),
+                currency=body.get("currency"), signature=body["offer_signature"],
+            )
+        except ValueError:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "offer_validation_failed"})
+        except Exception:
+            return self._response(start_response, "409 Conflict",
+                                  {"error": "offer_could_not_be_created"})
+        return self._response(start_response, "201 Created", {
+            "task": {"task_id": offer["task_id"], "listing_id": offer["listing_id"],
+                     "buyer_id": offer["buyer_id"], "provider_id": offer["provider_id"],
+                     "status": offer["status"], "created_at": offer["created_at"]},
+            "notice": "Offer created; no payment has been requested or processed.",
+        })
+
+    def _respond_to_task_offer(self, environ, start_response, task_id):
+        if self.agreements is None:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "task_offers_unavailable"})
+        path = f"/v1/tasks/{task_id}/responses"
+        principal, body, error = self._signed_json_body(environ, start_response, path)
+        if error is not None:
+            return error
+        if set(body) != {"decision", "response_signature"}:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_response_fields"})
+        try:
+            offer = self.agreements.respond(
+                task_id, provider_id=principal["participant_id"],
+                decision=body["decision"], signature=body["response_signature"],
+            )
+        except ValueError:
+            return self._response(start_response, "409 Conflict",
+                                  {"error": "offer_response_rejected"})
+        except Exception:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "offer_response_temporarily_unavailable"})
+        return self._response(start_response, "200 OK", {
+            "task": {"task_id": offer["task_id"], "status": offer["status"],
+                     "provider_id": offer["provider_id"]},
+            "notice": "Provider response recorded; no payment has been processed.",
+        })
+
     def _owner_dashboard(self, environ, start_response):
         """Loopback-only, aggregate-only HTML owner snapshot; no controls or writes."""
         try:
@@ -364,4 +472,5 @@ def create_directory_app(data_dir="./data") -> DirectoryApplication:
         ServiceCatalog(data_dir / "participants.sqlite3"),
         registry=registry, authenticator=authenticator,
         task_store=TaskStore(data_dir / "economy.sqlite3"),
+        agreements=TaskAgreementStore(data_dir / "participants.sqlite3"),
     )
