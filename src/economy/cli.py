@@ -67,6 +67,9 @@ def main() -> None:
     task.add_argument("task_id")
     task.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+    verify_audit = sub.add_parser("verify-audit", help="verify the local task event hash chain")
+    verify_audit.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     research = sub.add_parser("research-news", help="discover public news leads (unverified; no sales claims)")
     research.add_argument("query")
     research.add_argument("--limit", type=int, default=10)
@@ -262,6 +265,11 @@ def main() -> None:
     elif args.command == "task":
         store = TaskStore(args.data_dir / "economy.sqlite3")
         print(json.dumps({"task": store.get(args.task_id), "events": store.events(args.task_id)}, indent=2))
+    elif args.command == "verify-audit":
+        result = TaskStore(args.data_dir / "economy.sqlite3").verify_event_chain()
+        print(json.dumps(result, indent=2))
+        if not result["valid"]:
+            raise SystemExit(1)
     elif args.command == "research-news":
         candidates = GoogleNewsRSSProvider().search(args.query, limit=args.limit)
         saved = ResearchCandidateStore(args.data_dir / "research.sqlite3").save_many(candidates)
