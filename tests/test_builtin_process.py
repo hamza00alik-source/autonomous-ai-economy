@@ -2,6 +2,7 @@ import json
 import os
 import resource
 import shutil
+import struct
 import subprocess
 import unittest
 from types import SimpleNamespace
@@ -96,6 +97,30 @@ class BuiltinProcessTests(unittest.TestCase):
         finally:
             import os
             os.close(fd)
+
+
+    @patch("economy.seccomp_filter.platform.machine", return_value="x86_64")
+    def test_x86_seccomp_kills_x32_abi_before_syscall_denylist(self, _machine):
+        program = build_filter()
+        instructions = [
+            struct.unpack("=HBBI", program[offset:offset + 8])
+            for offset in range(0, len(program), 8)
+        ]
+        mask_index = instructions.index((0x54, 0, 0, 0x40000000))
+        self.assertEqual(instructions[mask_index + 1], (0x15, 1, 0, 0))
+        self.assertEqual(instructions[mask_index + 2][0], 0x06)
+        self.assertEqual(instructions[mask_index + 2][3], 0x80000000)
+        self.assertEqual(instructions[mask_index + 3], (0x20, 0, 0, 0))
+
+    @patch("economy.seccomp_filter.platform.machine", return_value="aarch64")
+    def test_aarch64_seccomp_policy_uses_native_abi_guard(self, _machine):
+        program = build_filter()
+        instructions = [
+            struct.unpack("=HBBI", program[offset:offset + 8])
+            for offset in range(0, len(program), 8)
+        ]
+        self.assertNotIn((0x54, 0, 0, 0x40000000), instructions)
+
 
     @patch("economy.seccomp_filter.platform.machine", return_value="unknown-cpu")
     def test_unknown_architecture_fails_closed(self, _machine):
