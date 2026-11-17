@@ -469,7 +469,8 @@ class DirectoryApplication:
             if participant is None or participant.get("status") != "active":
                 raise ValueError("participant is inactive")
             rotated = self.registry.complete_key_rotation(
-                body["challenge_id"], body["old_signature"], body["new_signature"]
+                body["challenge_id"], body["old_signature"], body["new_signature"],
+                expected_participant_id=principal["participant_id"]
             )
             if rotated.get("participant_id") != principal["participant_id"]:
                 return self._response(start_response, "409 Conflict",
