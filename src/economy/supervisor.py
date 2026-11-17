@@ -9,12 +9,15 @@ from pathlib import Path
 from typing import Callable
 
 from .task_store import TaskStore
+from .task_agreements import TaskAgreementStore
+from .order_dispatch import dispatch_accepted_orders
 from .worker import run_once
 
 LOG = logging.getLogger("economy.supervisor")
 
 
-def supervise(store: TaskStore, *, poll_seconds: float = 2.0,
+def supervise(store: TaskStore, *, agreements: TaskAgreementStore | None = None,
+              poll_seconds: float = 2.0,
               stop_event: threading.Event | None = None,
               max_cycles: int | None = None,
               worker: Callable[[TaskStore], dict | None] = run_once) -> dict[str, int]:
@@ -28,6 +31,8 @@ def supervise(store: TaskStore, *, poll_seconds: float = 2.0,
     while not stop.is_set() and (max_cycles is None or cycles < max_cycles):
         cycles += 1
         try:
+            if agreements is not None:
+                dispatch_accepted_orders(agreements, store)
             result = worker(store)
             if result is None:
                 idle += 1
@@ -60,9 +65,10 @@ def main() -> int:
     signal.signal(signal.SIGINT, request_stop)
     args.data_dir.mkdir(parents=True, exist_ok=True)
     store = TaskStore(args.data_dir / "economy.sqlite3")
+    agreements = TaskAgreementStore(args.data_dir / "participants.sqlite3")
     LOG.info("Supervisor started; data_dir=%s poll_seconds=%s", args.data_dir, args.poll_seconds)
     try:
-        stats = supervise(store, poll_seconds=args.poll_seconds, stop_event=stop)
+        stats = supervise(store, agreements=agreements, poll_seconds=args.poll_seconds, stop_event=stop)
     except ValueError as exc:
         parser.error(str(exc))
     LOG.info("Supervisor stopped: %s", stats)
