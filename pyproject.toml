@@ -20,6 +20,7 @@ economy-product = "economy.product_bundle:main"
 economy-game-assets = "economy.game_asset_pack:main"
 economy-ai = "economy.ai_cli:main"
 economy-gumroad-draft = "economy.gumroad_draft:main"
+economy-cloudflare-copy = "economy.cloudflare_worker_client:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
