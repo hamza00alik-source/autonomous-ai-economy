@@ -106,7 +106,7 @@ class SignedTaskOfferApiTests(unittest.TestCase):
         raw = b'{"decision":"accept","decision":"decline","response_signature":"sig"}'
         response, body = self.request("POST", "/v1/tasks/task_a/responses", raw)
         self.assertEqual(response["status"], "400 Bad Request")
-        self.assertEqual(body["error"], "invalid_request_or_signature")
+        self.assertEqual(body["error"], "invalid_json_body")
 
     def test_rejects_invalid_request_signature(self):
         response, body = self.request(
@@ -114,8 +114,8 @@ class SignedTaskOfferApiTests(unittest.TestCase):
             {"decision": "accept", "response_signature": "sig"},
             signature="invalid",
         )
-        self.assertEqual(response["status"], "400 Bad Request")
-        self.assertEqual(body["error"], "invalid_request_or_signature")
+        self.assertEqual(response["status"], "401 Unauthorized")
+        self.assertEqual(body["error"], "authentication_failed")
 
 
 if __name__ == "__main__":
