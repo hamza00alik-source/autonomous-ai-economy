@@ -55,6 +55,24 @@ Official references:
 
 Crypto is the first automated receipt rail, not the only permitted rail. A second class of methods is platform-native payout to an already verified online account (for example, Payoneer where a chosen marketplace supports it). That can avoid a human checking every individual payout, although account-level verification and provider controls may still apply. This repository does not yet connect to Payoneer or any other fiat payout API; add such an adapter only after selecting a specific marketplace/provider and confirming its country, payout, API and compliance terms.
 
+## Secondary online marketplace payout route
+
+For customers who buy through a 3D-asset marketplace, the marketplace can collect the sale and pay the creator to an online payout account. This is separate from direct crypto checkout and can run on scheduled payouts without a person manually confirming every sale. Account-level onboarding, tax forms, identity checks or risk reviews may still apply.
+
+| Marketplace | Online payout route | Automation/verification caveat |
+|---|---|---|
+| TurboSquid | Payoneer, PayPal or Skrill | Its current help page says balances are paid monthly and the first payout is subject to a one-time 90-day wait from the first sale. It requires complete artist/payment information; the public help page does not promise that identity review will never be requested. |
+| CGTrader | Hyperwallet destination, with Payoneer available depending on location | Its current seller payout schedule explicitly requires completion of KYC and a verified payment agreement. Earnings become payable 20 days after the sale and are processed weekly. |
+| itch.io | PayPal/Payoneer in its collected-payout system | Not a fit for the no-manual-review goal: it requires a tax interview, a $5 minimum, a 7-day waiting period, fraud review and staff approval before payout. |
+
+Sources:
+- TurboSquid: https://www.turbosquid.com/help/en/articles/9937539-how-do-i-get-paid-what-do-i-need-to-do
+- CGTrader payout schedule: https://www.cgtrader.com/pages/earnings-and-payout-schedule
+- CGTrader payout methods: https://help.cgtrader.com/hc/en-us/articles/360015145137-Payout-methods
+- itch.io payout requirements: https://itch.io/docs/creators/payments
+
+Practical choice: keep direct crypto checkout as the primary rail; investigate TurboSquid as a 3D-asset marketplace route to Payoneer, subject to account eligibility and its 90-day first-payment delay. CGTrader is a backup if its one-time KYC and Payoneer availability are acceptable. Exclude itch.io collected payouts where staff approval conflicts with the automation requirement. This repository does not yet automate listings or marketplace payout APIs.
+
 ## Implemented private Worker API
 
 All endpoints are code-only until the Cloudflare Worker and D1 database are deployed.
