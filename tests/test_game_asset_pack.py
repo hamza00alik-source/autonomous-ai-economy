@@ -44,10 +44,17 @@ def test_game_asset_pack_contains_real_glb_geometry(tmp_path):
             assert len(data) == item["size_bytes"]
             assert hashlib.sha256(data).hexdigest() == item["sha256"]
         assert "godot/MOBAObjectiveProps.tscn" in names
+        assert "project.godot" in names
         assert "listing-copy.md" in names
+        project = archive.read("project.godot").decode("utf-8")
+        assert 'run/main_scene="res://godot/MOBAObjectiveProps.tscn"' in project
+        assert 'renderer/rendering_method="gl_compatibility"' in project
         scene = archive.read("godot/MOBAObjectiveProps.tscn").decode("utf-8")
         assert "ExtResource" in scene
         assert "PackedScene" in scene
+        assert '[node name="Camera3D" type="Camera3D" parent="."]' in scene
+        assert '[node name="KeyLight" type="DirectionalLight3D" parent="."]' in scene
+        assert '[node name="Floor" type="MeshInstance3D" parent="."]' in scene
 
 
 def test_game_asset_pack_is_reproducible(tmp_path):

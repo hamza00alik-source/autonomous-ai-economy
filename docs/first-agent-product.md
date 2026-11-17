@@ -1,6 +1,6 @@
 # First digital product pilot
 
-Status: **original 3D asset source and reproducible GLB bundle implemented; engine QA, demand, listing, and sales unverified.**
+Status: **original 3D asset source and runnable Godot project implemented; automated Godot 4.7.2 import/smoke QA is now in CI, while visual QA, demand, listing, and sales remain unverified.**
 
 ## Current product candidate: MOBA Objective Props
 
@@ -11,7 +11,7 @@ Five original procedural low-poly fantasy props:
 - Supply Chest
 - Ancient Coin Stack
 
-Each object is generated as a separate glTF 2.0 binary model (.glb). The pack also includes a combined preview scene, a Godot 4 demo scene, PBR material definitions, a README, a draft license and marketplace listing copy.
+Each object is generated as a separate glTF 2.0 binary model (.glb). The pack also includes a combined preview scene, a complete Godot 4.7+ project with camera, lighting and floor, PBR material definitions, a README, a draft license and marketplace listing copy.
 
 Build the ZIP:
 
@@ -96,7 +96,7 @@ Track impressions, product-page visits, conversion, refunds, support burden, pla
 
 ## Remaining blockers
 
-1. Import the generated pack into Godot 4 and inspect every mesh, material, scale and demo-scene reference.
+1. CI imports and launches the Godot 4.7.2 project headlessly; visually inspect every mesh, material, scale and demo-scene reference before sale.
 2. Verify the exact product license and marketplace AI-disclosure requirements.
 3. Test the candidate with marketplace demand signals; category listings alone do not validate this product.
 4. Confirm crypto-provider eligibility and the Pakistan legal/tax position before enabling the crypto checkout; keep Gumroad only as an optional fallback if its bank/KYC requirements are acceptable.

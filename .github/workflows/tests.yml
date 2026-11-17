@@ -63,6 +63,36 @@ jobs:
         run: economy-product build --output dist/store-catalog-cleaner.zip
       - name: Build original MOBA game asset pack
         run: economy-game-assets build --output dist/moba-objective-props.zip
+      - name: Install verified Godot 4.7.2 headless
+        env:
+          GODOT_RELEASE: https://github.com/godotengine/godot/releases/download/4.7.2-stable
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/godot-install
+          cd /tmp/godot-install
+          curl -fsSLO "$GODOT_RELEASE/Godot_v4.7.2-stable_linux.x86_64.zip"
+          curl -fsSLO "$GODOT_RELEASE/SHA512-SUMS.txt"
+          sha512sum --ignore-missing -c SHA512-SUMS.txt
+          unzip -q Godot_v4.7.2-stable_linux.x86_64.zip
+          sudo install -m 755 Godot_v4.7.2-stable_linux.x86_64 /usr/local/bin/godot
+          godot --version
+      - name: Import and run the delivered Godot project headlessly
+        run: |
+          set -euo pipefail
+          mkdir -p dist/godot-project
+          unzip -q dist/moba-objective-props.zip -d dist/godot-project
+          test -s dist/godot-project/project.godot
+          godot --headless --path dist/godot-project --import --log-file /tmp/aae-godot-import.log
+          if grep -E 'ERROR:|SCRIPT ERROR:' /tmp/aae-godot-import.log; then
+            cat /tmp/aae-godot-import.log
+            exit 1
+          fi
+          godot --headless --path dist/godot-project --quit-after 3 --log-file /tmp/aae-godot-smoke.log
+          if grep -E 'ERROR:|SCRIPT ERROR:' /tmp/aae-godot-smoke.log; then
+            cat /tmp/aae-godot-smoke.log
+            exit 1
+          fi
+          test -d dist/godot-project/.godot/imported
       - name: Validate Cloudflare Worker and protected static assets (dry run)
         run: |
           set -euo pipefail
