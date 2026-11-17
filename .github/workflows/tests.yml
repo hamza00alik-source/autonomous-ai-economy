@@ -24,6 +24,21 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap
+      - name: Report delegated cgroup v2 availability
+        run: |
+          echo "Process cgroup:"
+          cat /proc/self/cgroup
+          echo "cgroup2 mounts:"
+          findmnt -t cgroup2 -o TARGET,OPTIONS || true
+          if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+            echo "Available controllers:"
+            cat /sys/fs/cgroup/cgroup.controllers
+            echo "Enabled child controllers:"
+            cat /sys/fs/cgroup/cgroup.subtree_control
+            echo "Root writable: $(test -w /sys/fs/cgroup && echo yes || echo no)"
+          else
+            echo "No visible cgroup v2 controller root"
+          fi
       - name: Install package and test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Run test suite
