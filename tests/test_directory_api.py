@@ -298,5 +298,54 @@ class DirectoryApiTests(unittest.TestCase):
         self.assertEqual(captured["status"], "403 Forbidden")
         self.assertEqual(body, {"error": "local_access_only"})
 
+    def test_owner_dashboard_is_loopback_only_and_aggregate_only(self):
+        class FakeRegistry:
+            def summary_counts(self):
+                return {"human": {"active": 2}}
+        class FakeTasks:
+            def summary_counts(self):
+                return {"queued": 3}
+        class FakeDashboardCatalog:
+            def summary_counts(self):
+                return {"active": 1}
+            def discover(self, **_kwargs):
+                return []
+        app = DirectoryApplication(FakeDashboardCatalog(), registry=FakeRegistry(),
+                                   task_store=FakeTasks())
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+            captured["headers"] = dict(headers)
+        page = b"".join(app({
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/owner",
+            "QUERY_STRING": "", "REMOTE_ADDR": "::1",
+        }, start_response)).decode("utf-8")
+        self.assertEqual(captured["status"], "200 OK")
+        self.assertIn("Economy overview", page)
+        self.assertIn('"payments_enabled": false', page)
+        self.assertIn("Aggregate operational counts only", page)
+        self.assertNotIn("participant_id", page)
+        self.assertIn("Content-Security-Policy", captured["headers"])
+
+    def test_owner_dashboard_rejects_remote_and_missing_client_address(self):
+        class FakeRegistry:
+            def summary_counts(self):
+                raise AssertionError("must reject before querying")
+        class FakeTasks:
+            def summary_counts(self):
+                raise AssertionError("must reject before querying")
+        app = DirectoryApplication(self.catalog, registry=FakeRegistry(),
+                                   task_store=FakeTasks())
+        for remote in ("203.0.113.8", ""):
+            captured = {}
+            def start_response(status, headers):
+                captured["status"] = status
+            page = b"".join(app({
+                "REQUEST_METHOD": "GET", "PATH_INFO": "/owner",
+                "QUERY_STRING": "", "REMOTE_ADDR": remote,
+            }, start_response)).decode("utf-8")
+            self.assertEqual(captured["status"], "403 Forbidden")
+            self.assertIn("Local access only", page)
+
 if __name__ == "__main__":
     unittest.main()
