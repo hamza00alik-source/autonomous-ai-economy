@@ -5,7 +5,7 @@ import json
 import struct
 import zipfile
 
-from economy.game_asset_pack import build_game_asset_pack
+from economy.game_asset_pack import GameAssetBuilderAgent, build_game_asset_pack
 
 
 def _glb_document(data):
@@ -88,3 +88,14 @@ def test_primitive_face_winding_points_outward():
     normal = _cross(*crystal["crystal_light"][0])
     center = tuple(sum(v[i] for v in crystal["crystal_light"][0]) / 3 for i in range(3))
     assert normal[0] * center[0] + normal[2] * center[2] > 0
+
+
+def test_named_asset_builder_agent_produces_the_sold_product(tmp_path):
+    agent = GameAssetBuilderAgent()
+    output = tmp_path / "agent-produced-pack.zip"
+    result = agent.build(output)
+    assert agent.agent_id == "game-asset-builder"
+    assert agent.role == "procedural 3D game asset production"
+    assert output.is_file()
+    assert result["published"] is False
+    assert result["sales_verified"] is False
