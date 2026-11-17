@@ -31,6 +31,10 @@ Last reviewed: 2026-11-17
 - No live customer acquisition or confirmed paying customer. Simulated demo revenue is not actual income.
 - No payment provider, bank, wallet, escrow, custody, treasury transfer or blockchain transaction integration.
 
+## Signed task-offer API
+
+The local WSGI application supports `POST /v1/tasks/offers` and `POST /v1/tasks/{id}/responses`. The HTTP request must be signed by the participant's bound Ed25519 key; the offer or provider decision also carries the existing independent agreement signature. Buyer/provider identity is derived from the authenticated participant, not caller-supplied identity fields. Request bodies are capped at 16 KiB, query parameters and duplicate JSON keys are rejected, and responses are allowlisted. No payment intent, escrow, funds reservation, external publication or execution side effect occurs. Tests use authenticator/agreement test doubles for the HTTP boundary; existing domain-store tests cover agreement signature validation. This does not constitute production authentication, rate limiting, TLS, account recovery or deployment.
+
 ## Always-on supervisor
 
 Install the package and run `economy-supervisor --data-dir /var/lib/autonomous-ai-economy --poll-seconds 2`. The process uses the existing local durable queue and fixed built-in worker, and should be managed by a process supervisor such as the supplied systemd unit. It requires the same Linux Bubblewrap availability as the default worker. The systemd template is a starting point and must be reviewed against the target host's namespace, cgroup and filesystem policies. It does not provide distributed locking, multi-host coordination, remote monitoring, backup or service-level guarantees. See [always-on runtime and production launch gates](always-on-production-launch-gates.md).
