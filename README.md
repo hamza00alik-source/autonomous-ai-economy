@@ -74,6 +74,15 @@ economy-ai invoke --prompt-file ./prompt.txt
 
 Install with `pip install -e ".[dev]"`. The runtime does not call the model automatically, does not start a background service, and is not yet wired into the opportunity or product agents. It is a bounded provider foundation; actual agent workflows and always-on hosting remain separate work. Failed or ambiguous requests retain their budget reservation rather than risking unbounded retries.
 
+
+The first model-assisted specialist, `ai-product-copy-agent`, can draft a validated, unpublished marketplace listing from factual product metadata:
+
+```bash
+economy-ai draft-copy --facts-file products/moba-objective-props/product-facts.json --output data/moba-objective-props-listing-draft.json
+```
+
+This requires configured Cloudflare Workers AI credentials. See `docs/ai-product-copy-agent.md`. The agent cannot publish or contact customers.
+
 ## First agent-earned revenue
 
 The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval once properly configured. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
