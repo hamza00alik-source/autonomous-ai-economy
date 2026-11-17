@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from economy.artifact_evidence import (
-    MANIFEST_SCHEMA, MAX_ARTIFACT_BYTES, validate_manifest, verify_local_artifact,
+    MANIFEST_SCHEMA, MAX_ARTIFACT_BYTES, create_manifest, validate_manifest, verify_local_artifact,
 )
 
 
@@ -23,6 +23,16 @@ class ArtifactEvidenceTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_create_manifest_hashes_local_file(self):
+        generated = create_manifest(self.path)
+        self.assertEqual(generated, self.manifest)
+
+    def test_create_manifest_rejects_symlink(self):
+        link = Path(self.tmp.name) / "manifest-link.bin"
+        link.symlink_to(self.path)
+        with self.assertRaisesRegex(ValueError, "non-symlink"):
+            create_manifest(link)
 
     def test_local_bytes_match_manifest(self):
         result = verify_local_artifact(self.path, self.manifest)
