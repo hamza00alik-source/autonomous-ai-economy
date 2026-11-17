@@ -125,6 +125,23 @@ class IdentityTests(unittest.TestCase):
         )
         self.assertEqual(rotated["public_key"], new_key)
 
+    def test_emergency_account_lock_suspends_and_invalidates_pending_challenges(self):
+        person = self.registry.create_human("lock-me", "Lock Me")
+        key = base64.urlsafe_b64encode(b"l" * 32).decode().rstrip("=")
+        challenge = self.registry.begin_key_binding(person["participant_id"], key)
+        locked = self.registry.emergency_lock_account(person["participant_id"])
+        self.assertEqual(locked["status"], "suspended")
+        self.assertEqual(self.registry.get(person["participant_id"])["status"], "suspended")
+        with self.assertRaisesRegex(ValueError, "already consumed"):
+            self.registry.complete_key_binding(
+                challenge["challenge_id"], "proof", verifier=lambda *_: True
+            )
+        events = self.registry.security_events(person["participant_id"])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["event_type"], "participant_requested_account_lock")
+        with self.assertRaisesRegex(ValueError, "not active"):
+            self.registry.emergency_lock_account(person["participant_id"])
+
     def test_invalid_agent_signature_rejected(self):
         public_key = base64.urlsafe_b64encode(b"y" * 32).decode().rstrip("=")
         challenge = self.registry.begin_agent_enrollment("worker", "Worker", public_key)
