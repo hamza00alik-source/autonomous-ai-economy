@@ -15,6 +15,7 @@ identity = ["cryptography>=42"]
 
 [project.scripts]
 economy = "economy.cli:main"
+economy-supervisor = "economy.supervisor:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
