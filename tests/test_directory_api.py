@@ -322,7 +322,7 @@ class DirectoryApiTests(unittest.TestCase):
         }, start_response)).decode("utf-8")
         self.assertEqual(captured["status"], "200 OK")
         self.assertIn("Economy overview", page)
-        self.assertIn('"payments_enabled": false', page)
+        self.assertIn('&quot;payments_enabled&quot;: false', page)
         self.assertIn("Aggregate operational counts only", page)
         self.assertNotIn("participant_id", page)
         self.assertIn("Content-Security-Policy", captured["headers"])
