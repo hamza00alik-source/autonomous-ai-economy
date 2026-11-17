@@ -203,9 +203,15 @@ class TaskStore:
             if row is None:
                 db.rollback()
                 raise KeyError(task_id)
-            if row["status"] != "running" or not row["lease_token"] or not secrets.compare_digest(row["lease_token"], lease_token):
+            lease_expired = (
+                not row["lease_until"]
+                or datetime.fromisoformat(row["lease_until"]) <= datetime.now(timezone.utc)
+            )
+            if (row["status"] != "running" or lease_expired
+                    or not isinstance(lease_token, str) or not row["lease_token"]
+                    or not secrets.compare_digest(row["lease_token"], lease_token)):
                 db.rollback()
-                raise ValueError("active task lease is missing or does not match")
+                raise ValueError("active task lease is missing, expired, or does not match")
             retry = row["attempts"] < row["max_attempts"]
             status = "queued" if retry else "failed"
             now = _now()
@@ -223,7 +229,7 @@ class TaskStore:
                     lease_token: str) -> dict[str, Any]:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT status,lease_token FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+            row = db.execute("SELECT status,lease_token,lease_until FROM tasks WHERE task_id=?", (task_id,)).fetchone()
             if row is None:
                 db.rollback()
                 raise KeyError(task_id)
