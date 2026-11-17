@@ -147,7 +147,7 @@ class WorkRecordTests(unittest.TestCase):
             )
 
     def test_artifact_evidence_requires_full_sha256_content_address(self):
-        with self.assertRaisesRegex(ValueError, "content-addressed"):
+        with self.assertRaisesRegex(ValueError, "64 lowercase hex"):
             self.store._validate_evidence_refs(["artifact:sha256:abc"])
         valid = "artifact:sha256:" + "f" * 64
         self.assertEqual(self.store._validate_evidence_refs([valid]), [valid])
