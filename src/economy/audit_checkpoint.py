@@ -51,7 +51,7 @@ def export_checkpoint(store: TaskStore, private_key_path: str | Path, output_pat
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Exclusive creation avoids silently replacing an earlier audit checkpoint.
     with destination.open("x", encoding="utf-8") as stream:
-        stream.write(json.dumps(document, sort_keys=True, indent=2) + "\\n")
+        stream.write(json.dumps(document, sort_keys=True, indent=2) + chr(10))
     return {"output": str(destination), **payload, "signature": signature}
 
 
