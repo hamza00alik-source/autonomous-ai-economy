@@ -1,17 +1,15 @@
-"""Bounded subprocess execution for trusted built-in deterministic agents.
+"""Fail-closed Linux bubblewrap runner for trusted built-in deterministic agents.
 
-This adds process separation, a wall-clock timeout, a minimal environment and
-POSIX resource limits where available. It is NOT a security sandbox: the child
-runs as the same OS user and filesystem permissions, and network isolation is
-not enforced. Never use this module to run third-party or user-supplied code.
+Untrusted third-party code is NOT supported. The child is restricted by a
+separate mount/PID/network namespace and a read-only runtime filesystem. Hosts
+without bubblewrap fail closed rather than silently running without isolation.
 """
 from __future__ import annotations
 
 import json
-import os
+import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 MAX_OBJECTIVE = 4096
@@ -19,20 +17,42 @@ MAX_RESULT = 2048
 TIMEOUT_SECONDS = 5
 _ALLOWED = {"opportunity-researcher", "verification-auditor"}
 _CHILD = Path(__file__).with_name("_builtin_agent_child.py")
+_RUNTIME_PATHS = ("/usr", "/bin", "/lib", "/lib64", "/etc")
 
 
-def _limits() -> None:
-    """Apply conservative POSIX limits in the child before its interpreter runs."""
-    try:
-        import resource
-        resource.setrlimit(resource.RLIMIT_CPU, (2, 2))
-        resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
-        resource.setrlimit(resource.RLIMIT_NOFILE, (16, 16))
-        if hasattr(resource, "RLIMIT_NPROC"):
-            resource.setrlimit(resource.RLIMIT_NPROC, (1, 1))
-    except (ImportError, OSError, ValueError):
-        # Windows and restricted hosts may not expose POSIX rlimits.
-        pass
+class SandboxUnavailable(RuntimeError):
+    """Raised when the host cannot provide the required OS isolation."""
+
+
+def _sandbox_command(bwrap: str, payload: bytes) -> list[str]:
+    del payload  # Request is supplied on stdin, never through command arguments.
+    command = [
+        bwrap,
+        "--die-with-parent",
+        "--new-session",
+        "--unshare-all",
+        "--clearenv",
+    ]
+    for host_path in _RUNTIME_PATHS:
+        if Path(host_path).exists():
+            command.extend(["--ro-bind", host_path, host_path])
+    command.extend([
+        "--proc", "/proc",
+        "--dev", "/dev",
+        "--tmpfs", "/tmp",
+        "--dir", "/runner",
+        "--ro-bind", str(_CHILD), "/runner/child.py",
+        "--dir", "/work",
+        "--chdir", "/work",
+        "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin",
+        "--setenv", "HOME", "/nonexistent",
+        "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
+        sys.executable,
+        "-I",
+        "-S",
+        "/runner/child.py",
+    ])
+    return command
 
 
 def execute_builtin(agent_id: str, objective: str) -> str:
@@ -47,33 +67,35 @@ def execute_builtin(agent_id: str, objective: str) -> str:
     if len(payload) > 8192:
         raise ValueError("execution request is too large")
 
-    with tempfile.TemporaryDirectory(prefix="aae-worker-") as workdir:
-        try:
-            completed = subprocess.run(
-                [sys.executable, "-I", "-S", str(_CHILD)],
-                input=payload,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=workdir,
-                env={},
-                timeout=TIMEOUT_SECONDS,
-                check=False,
-                close_fds=True,
-                start_new_session=(os.name == "posix"),
-                preexec_fn=_limits if os.name == "posix" else None,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise TimeoutError("built-in agent exceeded its execution time limit") from exc
+    bwrap = shutil.which("bwrap")
+    if not bwrap:
+        raise SandboxUnavailable(
+            "bubblewrap is required; refusing to execute without OS isolation"
+        )
+    command = _sandbox_command(bwrap, payload)
+    try:
+        completed = subprocess.run(
+            command,
+            input=payload,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=TIMEOUT_SECONDS,
+            check=False,
+            close_fds=True,
+            env={},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("sandboxed built-in agent exceeded its execution time limit") from exc
     if completed.returncode != 0:
         message = completed.stderr[:1024].decode("utf-8", errors="replace")
-        raise RuntimeError(f"built-in agent process failed: {message}")
+        raise RuntimeError(f"sandboxed built-in agent failed: {message}")
     if len(completed.stdout) > 8192:
-        raise ValueError("built-in agent response exceeded the output limit")
+        raise ValueError("sandboxed built-in agent response exceeded the output limit")
     try:
         response = json.loads(completed.stdout.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("built-in agent returned an invalid response") from exc
+        raise ValueError("sandboxed built-in agent returned an invalid response") from exc
     result = response.get("result") if isinstance(response, dict) else None
     if not isinstance(result, str) or len(result) > MAX_RESULT:
-        raise ValueError("built-in agent returned an invalid or oversized result")
+        raise ValueError("sandboxed built-in agent returned an invalid or oversized result")
     return result
