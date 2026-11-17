@@ -107,7 +107,7 @@ class TaskAgreementTests(unittest.TestCase):
             receipts.submit(
                 task_id=offer["task_id"], provider_id=self.provider["participant_id"],
                 buyer_id=self.buyer["participant_id"], summary="Delivered",
-                evidence_refs=["artifact:delivery"], signature="provider-signature",
+                evidence_refs=["artifact:sha256:1111111111111111111111111111111111111111111111111111111111111111"], signature="provider-signature",
             )
         self.store.respond(
             offer["task_id"], provider_id=self.provider["participant_id"],
@@ -116,7 +116,7 @@ class TaskAgreementTests(unittest.TestCase):
         receipt = receipts.submit(
             task_id=offer["task_id"], provider_id=self.provider["participant_id"],
             buyer_id=self.buyer["participant_id"], summary="Delivered",
-            evidence_refs=["artifact:delivery"], signature="provider-signature",
+            evidence_refs=["artifact:sha256:1111111111111111111111111111111111111111111111111111111111111111"], signature="provider-signature",
         )
         self.assertEqual(receipt["status"], "submitted")
 
