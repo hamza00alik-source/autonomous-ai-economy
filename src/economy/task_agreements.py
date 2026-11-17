@@ -159,7 +159,8 @@ class TaskAgreementStore:
                            "task_id": task_id, "buyer_id": buyer_id})
 
     def respond(self, task_id: str, *, provider_id: str, decision: str,
-                signature: str) -> dict[str, Any]:
+                signature: str,
+                before_accept: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
         if decision not in {"accept", "decline"}:
             raise ValueError("decision must be accept or decline")
         with self._connect() as db:
@@ -172,6 +173,10 @@ class TaskAgreementStore:
             payload = self.response_payload(task_id, provider_id, decision, digest)
             if not self.verifier(key, payload, signature):
                 raise ValueError("provider response signature is invalid")
+            # Run policy only after cryptographic verification and while the offer
+            # is still locked, so unauthenticated attempts cannot consume budget.
+            if decision == "accept" and before_accept is not None:
+                before_accept(dict(row))
             status = "accepted" if decision == "accept" else "declined"
             now = datetime.now(timezone.utc).isoformat()
             updated = db.execute(
