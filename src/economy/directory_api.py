@@ -12,6 +12,7 @@ from .identity import ParticipantRateLimitExceeded, ParticipantRegistry
 from .request_auth import RequestAuthenticator
 from .task_store import TaskStore
 from .task_agreements import TaskAgreementStore
+from .autonomy import AutonomyGate, AutonomyProfile
 
 
 class DirectoryApplication:
@@ -21,12 +22,16 @@ class DirectoryApplication:
                  registry: ParticipantRegistry | None = None,
                  authenticator: RequestAuthenticator | None = None,
                  task_store: TaskStore | None = None,
-                 agreements: TaskAgreementStore | None = None) -> None:
+                 agreements: TaskAgreementStore | None = None,
+                 autonomy_gate: AutonomyGate | None = None,
+                 autonomy_profiles: dict[str, AutonomyProfile] | None = None) -> None:
         self.catalog = catalog
         self.registry = registry
         self.authenticator = authenticator
         self.task_store = task_store
         self.agreements = agreements
+        self.autonomy_gate = autonomy_gate
+        self.autonomy_profiles = dict(autonomy_profiles or {})
 
     @staticmethod
     def _response(start_response, status: str, payload: dict, headers=None):
@@ -654,8 +659,28 @@ class DirectoryApplication:
         if limited is not None:
             return limited
         try:
+            provider_id = principal["participant_id"]
+            if body["decision"] == "accept" and provider_id in self.autonomy_profiles:
+                if self.autonomy_gate is None:
+                    return self._response(start_response, "503 Service Unavailable",
+                                          {"error": "autonomy_budget_unavailable"})
+                pending = self.agreements.get(task_id)
+                if pending["provider_id"] != provider_id or pending["status"] != "offered":
+                    raise ValueError("offer is not available to this provider")
+                profile = self.autonomy_profiles[provider_id]
+                budget = self.autonomy_gate.authorize(
+                    profile, "accept_order",
+                    amount_minor=pending["price_minor"],
+                    currency=pending["currency"],
+                    idempotency_key=task_id,
+                )
+                if budget["decision"] != "allow":
+                    return self._response(start_response, "409 Conflict", {
+                        "error": "autonomous_order_limit_rejected",
+                        "reason": budget["reason"],
+                    })
             offer = self.agreements.respond(
-                task_id, provider_id=principal["participant_id"],
+                task_id, provider_id=provider_id,
                 decision=body["decision"], signature=body["response_signature"],
             )
         except ValueError:
