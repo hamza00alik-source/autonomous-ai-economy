@@ -136,6 +136,63 @@ class DirectoryApiTests(unittest.TestCase):
         self.assertNotIn("metadata", body["participant"])
         self.assertNotIn("operator_id", body["participant"])
 
+    def test_authenticated_key_history_returns_fingerprints_only(self):
+        class FakeRegistry:
+            def key_history(self, participant_id):
+                self.seen = participant_id
+                return [{
+                    "old_public_key": "old-public-key",
+                    "new_public_key": "new-public-key",
+                    "rotated_at": "2026-11-17T00:00:00+00:00",
+                    "participant_id": "private",
+                }]
+        class FakeAuthenticator:
+            def authenticate(self, participant_id, method, path, body,
+                             timestamp, nonce, signature):
+                self.asserted = (participant_id, method, path, body)
+                if (participant_id, method, path, body) != (
+                    "human_1", "GET", "/v1/participants/me/keys", b"",
+                ):
+                    raise ValueError("invalid")
+                return {"participant_id": participant_id}
+        registry = FakeRegistry()
+        app = DirectoryApplication(self.catalog, registry=registry,
+                                   authenticator=FakeAuthenticator())
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        body = json.loads(b"".join(app({
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/v1/participants/me/keys",
+            "QUERY_STRING": "", "CONTENT_LENGTH": "0",
+            "HTTP_X_AAE_PARTICIPANT": "human_1",
+            "HTTP_X_AAE_TIMESTAMP": "1800000000",
+            "HTTP_X_AAE_NONCE": "abcdefghijklmnop",
+            "HTTP_X_AAE_SIGNATURE": "signed",
+        }, start_response)))
+        self.assertEqual(captured["status"], "200 OK")
+        self.assertEqual(registry.seen, "human_1")
+        self.assertEqual(body["participant_id"], "human_1")
+        self.assertEqual(body["count"], 1)
+        self.assertEqual(body["items"][0]["old_key_id"],
+                         __import__("hashlib").sha256(b"old-public-key").hexdigest()[:24])
+        self.assertEqual(body["items"][0]["new_key_id"],
+                         __import__("hashlib").sha256(b"new-public-key").hexdigest()[:24])
+        self.assertNotIn("old_public_key", json.dumps(body))
+        self.assertNotIn("new_public_key", json.dumps(body))
+        self.assertNotIn("private", json.dumps(body))
+
+    def test_authenticated_key_history_rejects_query_parameters(self):
+        app = DirectoryApplication(self.catalog)
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        body = json.loads(b"".join(app({
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/v1/participants/me/keys",
+            "QUERY_STRING": "all=true",
+        }, start_response)))
+        self.assertEqual(captured["status"], "400 Bad Request")
+        self.assertEqual(body, {"error": "query_parameters_not_supported"})
+
     def test_authenticated_profile_rejects_missing_signature_headers(self):
         class FakeRegistry:
             def get(self, _participant_id):
