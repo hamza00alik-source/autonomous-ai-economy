@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac, createHash } from "node:crypto";
-import worker, { validFacts, validateDraft, estimateNeurons, constantTimeEqual, DAILY_NEURON_BUDGET,
+import worker, { validFacts, validateDraft, estimateNeurons, extractModelText, constantTimeEqual, DAILY_NEURON_BUDGET,
   verifyNowPaymentsSignature, paymentStatusFromWebhook } from "../src/index.js";
 
 const facts = {
@@ -22,6 +22,15 @@ const draft = {
   ai_disclosure: "AI-assisted procedural mesh generation.",
   claims_to_verify: ["Inspect import scale and materials in Godot."]
 };
+
+test("Workers AI output adapter extracts documented and OpenAI-compatible text shapes", () => {
+  assert.equal(extractModelText({ response: "{\\"ok\\":true}" }), "{\\"ok\\":true}");
+  assert.equal(extractModelText({ choices: [{ message: { content: "{\\"ok\\":true}" } }] }), "{\\"ok\\":true}");
+  assert.equal(extractModelText({ choices: [{ text: "plain text" }] }), "plain text");
+  assert.equal(extractModelText({ output_text: "output text" }), "output text");
+  assert.equal(extractModelText({ response: [{ type: "text", text: "part one" }, { type: "text", text: "part two" }] }), "part onepart two");
+  assert.equal(extractModelText({ reasoning: "internal reasoning only" }), null);
+});
 
 test("facts validator accepts the real product fact sheet", () => {
   assert.equal(validFacts(facts), null);
