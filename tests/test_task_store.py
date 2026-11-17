@@ -69,6 +69,15 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual(final["attempts"], 2)
 
  
+    def test_expired_lease_cannot_finish_before_recovery(self):
+        task = self.store.enqueue("Expired lease", "Reject late completion", "opportunity-researcher")
+        claim = self.store.claim()
+        with sqlite3.connect(self.store.path) as db:
+            db.execute("UPDATE tasks SET lease_until='2000-01-01T00:00:00+00:00' WHERE task_id=?",
+                       (task["task_id"],))
+        with self.assertRaisesRegex(ValueError, "expired"):
+            self.store.finish(task["task_id"], "late result", claim["lease_token"])
+
     def test_stale_worker_cannot_finish_or_fail_after_lease_recovery(self):
         task = self.store.enqueue("Lease race", "Reject stale worker", "opportunity-researcher")
         old = self.store.claim()
