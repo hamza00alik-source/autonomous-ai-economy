@@ -19,7 +19,9 @@ class TaskStoreTests(unittest.TestCase):
     def test_persists_across_instances_and_worker_completes(self):
         task = self.store.enqueue("Research", "Find evidence requirements", "opportunity-researcher")
         reopened = TaskStore(Path(self.tmp.name) / "queue.sqlite3")
-        with patch("economy.worker.execute_builtin", return_value="sandboxed deterministic result"):
+        with patch("economy.worker.ensure_sandbox_available"), patch(
+            "economy.worker.execute_builtin", return_value="sandboxed deterministic result"
+        ):
             result = run_once(reopened)
         self.assertEqual(result["task_id"], task["task_id"])
         self.assertEqual(result["status"], "completed")
