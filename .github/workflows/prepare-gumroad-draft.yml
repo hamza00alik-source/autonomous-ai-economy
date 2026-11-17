@@ -30,11 +30,11 @@ jobs:
         run: python -m pip install -e .
       - name: Build original 3D product bundle
         run: economy-game-assets build --output dist/moba-objective-props.zip
-      - name: Generate AI listing copy
+      - name: Request AI listing copy from private scheduled worker
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: economy-ai draft-copy --facts-file products/moba-objective-props/product-facts.json --output dist/listing-draft.json
+          AAE_WORKER_URL: ${{ secrets.AAE_WORKER_URL }}
+          AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
+        run: economy-cloudflare-copy --facts-file products/moba-objective-props/product-facts.json --output dist/listing-draft.json --timeout-seconds 1200 --poll-interval 15
       - name: Download and verify official Gumroad CLI
         run: |
           set -euo pipefail
