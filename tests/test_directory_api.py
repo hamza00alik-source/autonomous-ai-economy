@@ -58,6 +58,32 @@ class DirectoryApiTests(unittest.TestCase):
         self.assertEqual(self.catalog.calls, [("research", "research", 10)])
         self.assertEqual(response["headers"]["Cache-Control"], "no-store")
 
+    def test_mobile_directory_page_escapes_listing_content(self):
+        class UnsafeCatalog:
+            def discover(self, **_kwargs):
+                return [{
+                    "listing_id": "x", "provider_id": "p",
+                    "slug": "x", "title": "<script>alert(1)</script>",
+                    "description": "<img src=x onerror=alert(1)>",
+                    "category": "test", "delivery_format": "download",
+                    "terms": "terms", "price_minor": None, "currency": None,
+                }]
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+            captured["headers"] = dict(headers)
+        output = DirectoryApplication(UnsafeCatalog())(
+            {"REQUEST_METHOD": "GET", "PATH_INFO": "/", "QUERY_STRING": "q=demo"},
+            start_response,
+        )
+        page = b"".join(output).decode("utf-8")
+        self.assertEqual(captured["status"], "200 OK")
+        self.assertIn("name=\"viewport\"", page)
+        self.assertIn("&lt;script&gt;", page)
+        self.assertNotIn("<script>alert(1)</script>", page)
+        self.assertNotIn("<img src=x", page)
+        self.assertIn("Content-Security-Policy", captured["headers"])
+
     def test_rejects_write_methods_and_unknown_routes(self):
         response, body = self.request("/v1/directory/services", method="POST")
         self.assertEqual(response["status"], "405 Method Not Allowed")
