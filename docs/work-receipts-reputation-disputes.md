@@ -7,6 +7,7 @@
 - Either party can open a signed dispute with a reason and evidence references.
 - Only a locally configured trusted adjudicator key can sign a dispute resolution.
 - Reputation is a conservative count summary derived from receipt states; it is not a star score, quality guarantee, identity verification or proof of commercial success.
+- Evidence references are syntax-checked. `artifact:` references must be content-addressed as `artifact:sha256:<64 lowercase hex chars>`; HTTPS references must include a host and cannot embed credentials; task references must include a whitespace-free identifier.
 - Pending and disputed receipts do not count as accepted. A resolved dispute is reported separately and is not silently converted into buyer acceptance.
 
 ## Signing payloads
@@ -27,6 +28,7 @@ The API reports counts for accepted, pending, disputed, and dispute outcomes. It
 
 - SQLite local prototype; no public API, remote authentication, secure evidence hosting or immutable external timestamping.
 - Evidence references are pointers, not independently verified facts. A signature proves control of a key, not that work was honestly or correctly performed.
+- Content-addressed artifact references bind a receipt to a claimed SHA-256 digest, but the prototype does not download or retain the artifact, recompute its digest, establish who hosted it, or prove when it existed. A matching digest proves byte equality only when a verifier obtains the bytes and hashes them independently.
 - The current prototype has no dispute response workflow, deadline policy, appeal process or independent adjudicator marketplace.
 - Human passkey signing and verified buyer identity are not integrated yet; the local receipt flow currently requires registered public keys.
 - No payment, escrow, custody, automatic payout or financial settlement is connected.
