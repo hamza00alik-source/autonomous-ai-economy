@@ -1,4 +1,5 @@
 import base64
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,60 @@ class IdentityTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_migrates_legacy_abuse_review_unique_constraint(self):
+        person = self.registry.create_human("migration-owner", "Migration Owner")
+        participant_id = person["participant_id"]
+        db_path = Path(self.tmp.name) / "participants.sqlite3"
+        with sqlite3.connect(db_path) as db:
+            db.execute("DROP TABLE participant_abuse_review_cases")
+            db.execute("""
+                CREATE TABLE participant_abuse_review_cases (
+                    case_id TEXT PRIMARY KEY,
+                    participant_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    signal_count INTEGER NOT NULL,
+                    first_seen_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('open','reviewed')),
+                    decision TEXT,
+                    reviewer TEXT,
+                    review_note TEXT,
+                    reviewed_at TEXT,
+                    UNIQUE(participant_id, operation, status),
+                    FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
+                )
+            """)
+            db.execute("""
+                INSERT INTO participant_abuse_review_cases VALUES
+                ('legacy-case', ?, 'migration-test', 2, '2026-01-01T00:00:00+00:00',
+                 '2026-01-01T00:00:00+00:00', 'reviewed', 'monitor',
+                 'legacy-owner', 'preserve this history', '2026-01-01T01:00:00+00:00')
+            """, (participant_id,))
+
+        migrated = ParticipantRegistry(db_path)
+        preserved = migrated.list_abuse_review_cases(status="reviewed")
+        self.assertEqual(len(preserved), 1)
+        self.assertEqual(preserved[0]["case_id"], "legacy-case")
+        self.assertEqual(preserved[0]["review_note"], "preserve this history")
+
+        from economy.identity import ParticipantRateLimitExceeded
+        migrated.consume_operation_quota(participant_id, "migration-test", limit=1)
+        reviewed_ids = ["legacy-case"]
+        for index in range(2):
+            with self.assertRaises(ParticipantRateLimitExceeded):
+                migrated.consume_operation_quota(
+                    participant_id, "migration-test", limit=1
+                )
+            case = migrated.list_abuse_review_cases(status="open")[0]
+            migrated.review_abuse_case(
+                case["case_id"], decision="monitor", reviewer="migration-owner",
+                note=f"migrated case {index}",
+            )
+            reviewed_ids.append(case["case_id"])
+        all_reviewed = migrated.list_abuse_review_cases(status="reviewed")
+        self.assertEqual({item["case_id"] for item in all_reviewed}, set(reviewed_ids))
+        self.assertEqual(len(all_reviewed), 3)
 
     def test_human_account_is_not_claimed_as_kyc_verified(self):
         person = self.registry.create_human("alice", "Alice")
