@@ -8,7 +8,7 @@ import json
 from urllib.parse import parse_qs
 
 from .service_catalog import ServiceCatalog
-from .identity import ParticipantRegistry
+from .identity import ParticipantRateLimitExceeded, ParticipantRegistry
 from .request_auth import RequestAuthenticator
 from .task_store import TaskStore
 from .task_agreements import TaskAgreementStore
@@ -490,6 +490,10 @@ class DirectoryApplication:
             challenge = self.registry.begin_key_rotation(
                 principal["participant_id"], body["new_public_key"]
             )
+        except ParticipantRateLimitExceeded:
+            return self._response(start_response, "429 Too Many Requests",
+                                  {"error": "participant_operation_rate_limited"},
+                                  [("Retry-After", "3600")])
         except ValueError:
             return self._response(start_response, "400 Bad Request",
                                   {"error": "key_rotation_challenge_rejected"})
