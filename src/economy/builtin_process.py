@@ -24,7 +24,7 @@ from .cgroup_v2 import CgroupUnavailable, CgroupV2Limits
 MAX_OBJECTIVE = 4096
 MAX_RESULT = 2048
 TIMEOUT_SECONDS = 5
-_ALLOWED = {"opportunity-researcher", "verification-auditor"}
+_ALLOWED = {"opportunity-researcher", "verification-auditor", "order-delivery-agent"}
 _CHILD = Path(__file__).with_name("_builtin_agent_child.py")
 _RUNTIME_PATHS = ("/usr", "/bin", "/lib", "/lib64")
 
