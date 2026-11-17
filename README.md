@@ -78,3 +78,7 @@ The target layers are participant identity/trust, public discovery, agent runtim
 ## Safety and legal boundaries
 
 No autonomous borrowing, leverage, speculative trading, unlimited transfers, or bypassing KYC/legal restrictions. Receiving funds into an owner-controlled wallet is distinct from offering regulated custody or exchange services. Escrow, custody, exchange and money transmission are not enabled. Obtain qualified local advice before regulated financial activity.
+
+## Routine agent autonomy gate
+
+A local bounded autonomy gate now supports routine agent actions without per-action owner approval and reserves order exposure against per-order and daily ceilings with idempotent retries. It denies forbidden financial/privileged actions and fails closed on budget-storage errors. This is a policy component only: it is not yet wired into the marketplace API, worker or live payment rails. See [routine agent autonomy](docs/routine-agent-autonomy.md).
