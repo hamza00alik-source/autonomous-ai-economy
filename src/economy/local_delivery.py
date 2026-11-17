@@ -25,7 +25,10 @@ def submit_receipt_locally(
     if not artifact_paths:
         raise ValueError("at least one local deliverable is required")
     manifests = [create_manifest(path) for path in artifact_paths]
-    evidence_refs = ["artifact:sha256:" + item["sha256"] for item in manifests]
+    digests = [item["sha256"] for item in manifests]
+    if len(set(digests)) != len(digests):
+        raise ValueError("each submitted artifact must have unique content")
+    evidence_refs = ["artifact:sha256:" + item for item in digests]
     store = WorkRecordStore(database_path, verifier=verifier)
     signing_bytes = store.submission_signing_bytes(
         task_id=task_id, provider_id=provider_id, buyer_id=buyer_id,
