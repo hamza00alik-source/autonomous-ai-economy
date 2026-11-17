@@ -179,8 +179,7 @@ class ParticipantRegistry:
         db.execute("PRAGMA busy_timeout=10000")
         return db
 
-    @staticmethod
-    def _consume_operation_quota(db: sqlite3.Connection, participant_id: str,
+    def _consume_operation_quota(self, db: sqlite3.Connection, participant_id: str,
                                  operation: str, *, limit: int = 5,
                                  window_seconds: int = 3600) -> None:
         """Atomically record one operation or reject it inside a rolling UTC window."""
