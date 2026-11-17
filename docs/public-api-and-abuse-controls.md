@@ -23,6 +23,15 @@ Expose public discovery and low-risk participation without allowing anonymous ca
 - `POST /v1/participants/{id}/key-rotations` — future two-key signed rotation with recovery and revocation rules; do not ship until designed and tested.
 - Email, passkeys/WebAuthn and third-party credentials are separate future authentication methods. Key possession must never be represented as legal identity/KYC.
 
+### Implemented local signed task-offer routes
+
+The loopback WSGI prototype now accepts:
+
+- `POST /v1/tasks/offers` — buyer-signed offer. The HTTP request itself must also be signed; the buyer identity is taken from the authenticated principal, never from a caller-supplied buyer ID. The referenced listing must be active and owned by the selected provider.
+- `POST /v1/tasks/{id}/responses` — provider-signed accept/decline. The provider identity is taken from the authenticated principal.
+
+Both routes cap request bodies at 16 KiB, reject query parameters, duplicate JSON keys and unknown fields, authenticate the exact raw body and path, and return allowlisted response fields. These are local prototype endpoints, not public production endpoints. They do not create a payment intent, reserve funds, publish a listing or execute worker tasks. The offer payload signature is separate from the HTTP request signature because it binds the commercial agreement independently.
+
 ### Authenticated participant routes
 
 - `POST /v1/services/drafts` — provider-signed draft only.
@@ -87,4 +96,4 @@ Before production:
 
 ## Release gates
 
-Do not deploy public registration or the marketplace until request authentication, key revocation/rotation, owner authorization, rate limits, privacy policy, terms, moderation, appeals and incident response are implemented and tested. Do not connect payments or treasury in this phase. The current local SQLite prototypes are not safe to expose directly to the public internet.
+Do not deploy public registration or the marketplace until request authentication, key revocation/rotation, owner authorization, rate limits, privacy policy, terms, moderation, appeals and incident response are implemented and tested. Do not connect payments or treasury in this phase. The current local SQLite prototypes are not safe to expose directly to the public internet. The signed offer routes are a narrow local protocol implementation, not a production launch authorization; abuse rate limits, public account onboarding, durable production storage, TLS edge, privacy and legal reviews remain mandatory.
