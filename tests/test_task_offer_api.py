@@ -3,6 +3,7 @@ import json
 import unittest
 
 from economy.directory_api import DirectoryApplication
+from economy.autonomy import AutonomyProfile
 
 
 class FakeCatalog:
@@ -137,6 +138,57 @@ class SignedTaskOfferApiTests(unittest.TestCase):
                                      "signature": "provider_sig"}))
         self.assertEqual(self.auth.calls[0][2], "/v1/tasks/task_a/responses")
         self.assertEqual(body["task"]["status"], "accepted")
+
+    def test_autonomous_provider_acceptance_is_gated_by_agent_order_budget(self):
+        class DenyGate:
+            def __init__(self):
+                self.call = None
+            def authorize(self, profile, action, **kwargs):
+                self.call = (profile.agent_id, action, kwargs)
+                return {"decision": "deny", "reason": "daily order exposure limit would be exceeded"}
+
+        gate = DenyGate()
+        profile = AutonomyProfile(
+            agent_id="provider_1",
+            allowed_actions=frozenset({"accept_order"}),
+            currency="USD", max_order_value_minor=700,
+            daily_order_limit_minor=1000,
+        )
+        self.app.autonomy_gate = gate
+        self.app.autonomy_profiles = {"provider_1": profile}
+        response, body = self.request(
+            "POST", "/v1/tasks/task_a/responses",
+            {"decision": "accept", "response_signature": "provider_sig"},
+            participant="provider_1",
+        )
+        self.assertEqual(response["status"], "409 Conflict")
+        self.assertEqual(body["error"], "autonomous_order_limit_rejected")
+        self.assertEqual(gate.call, ("provider_1", "accept_order", {
+            "amount_minor": 500, "currency": "USD", "idempotency_key": "task_a",
+        }))
+        self.assertIsNone(self.agreements.responded)
+
+    def test_autonomous_provider_acceptance_proceeds_when_budget_allows(self):
+        class AllowGate:
+            def authorize(self, profile, action, **kwargs):
+                return {"decision": "allow", "reason": "within limits"}
+
+        profile = AutonomyProfile(
+            agent_id="provider_1",
+            allowed_actions=frozenset({"accept_order"}),
+            currency="USD", max_order_value_minor=700,
+            daily_order_limit_minor=1000,
+        )
+        self.app.autonomy_gate = AllowGate()
+        self.app.autonomy_profiles = {"provider_1": profile}
+        response, body = self.request(
+            "POST", "/v1/tasks/task_a/responses",
+            {"decision": "accept", "response_signature": "provider_sig"},
+            participant="provider_1",
+        )
+        self.assertEqual(response["status"], "200 OK")
+        self.assertEqual(body["task"]["status"], "accepted")
+        self.assertIsNotNone(self.agreements.responded)
 
     def test_rejects_extra_fields_and_duplicate_json_keys(self):
         response, body = self.request("POST", "/v1/tasks/offers", {
