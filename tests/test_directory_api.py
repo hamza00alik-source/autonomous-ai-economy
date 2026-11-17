@@ -222,7 +222,28 @@ class DirectoryApiTests(unittest.TestCase):
         self.assertNotIn("objective", body["items"][0])
         self.assertNotIn("result", body["items"][0])
         self.assertNotIn("idempotency_key", body["items"][0])
-        self.assertEqual(auth.args[2], "/v1/tasks/mine")
+        self.assertEqual(auth.args[2], "/v1/tasks/mine?status=queued&limit=5")
+
+    def test_authenticated_profile_rejects_unsigned_query_parameters(self):
+        class NeverAuthenticate:
+            def authenticate(self, *_args):
+                raise AssertionError("authentication must not run for unsupported query")
+        app = DirectoryApplication(
+            self.catalog,
+            registry=object(),
+            authenticator=NeverAuthenticate(),
+        )
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        output = app({
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/v1/participants/me",
+            "QUERY_STRING": "admin=true",
+        }, start_response)
+        self.assertEqual(captured["status"], "400 Bad Request")
+        self.assertEqual(json.loads(b"".join(output)), {
+            "error": "query_parameters_not_supported"
+        })
 
     def test_tasks_endpoint_rejects_invalid_filters_and_missing_auth(self):
         class FakeRegistry:
