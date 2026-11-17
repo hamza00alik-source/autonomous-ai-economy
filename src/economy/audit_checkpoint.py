@@ -64,12 +64,14 @@ def verify_checkpoint(checkpoint_path: str | Path, public_key_path: str | Path,
     required = {"schema", "created_at", "checked_events", "head_hash", "signature"}
     if set(document) != required or document.get("schema") != SCHEMA:
         raise ValueError("unsupported or malformed audit checkpoint")
-    if (not isinstance(document["checked_events"], int) or document["checked_events"] < 0
+    if (isinstance(document["checked_events"], bool) or not isinstance(document["checked_events"], int) or document["checked_events"] < 0
             or not isinstance(document["head_hash"], str)
             or len(document["head_hash"]) != 64
             or any(ch not in "0123456789abcdef" for ch in document["head_hash"])):
         raise ValueError("invalid checkpoint event count or head hash")
-    datetime.fromisoformat(document["created_at"])
+    timestamp = datetime.fromisoformat(document["created_at"])
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValueError("checkpoint timestamp must include a timezone")
     try:
         signature = base64.b64decode(document["signature"], validate=True)
     except Exception as exc:
