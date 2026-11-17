@@ -49,6 +49,8 @@ jobs:
         run: python -m pytest -q
       - name: Verify AI runtime status is offline and secret-safe
         run: economy-ai --data-dir /tmp/aae-ai-runtime-ci status
+      - name: Verify AI product-copy task can be queued without credentials
+        run: economy-ai --data-dir /tmp/aae-ai-queue-ci queue-copy --facts-file products/moba-objective-props/product-facts.json
       - name: Check standalone product JavaScript
         run: python tools/check_product_js.py
       - name: Build first digital product bundle
