@@ -12,7 +12,7 @@ The product brand is not yet selected. The repository slug may remain autonomous
 
 ## Current status
 
-**Early prototype, not a live economy.** Controller, agent registry, task workflow, simulated ledger, evidence-first opportunity validation, specialist agents, signed local owner approval, persistent SQLite queue, public research discovery adapters, source review, prioritization, Shared Brain and collective learning are committed. It does not yet provide public participant registration, production authentication, human legal-identity verification, a public marketplace, live customer acquisition, live payments, real treasury, or always-on hosted execution.
+**Early prototype, not a live economy.** Controller, agent registry, task workflow, simulated ledger, evidence-first opportunity validation, specialist agents, signed local owner approval, persistent SQLite queue, public research discovery adapters, source review, prioritization, Shared Brain and collective learning are committed. A private Cloudflare Worker is deployed with a five-minute scheduled handler and D1 queue, but its first production AI task failed and the corrected model-response adapter has not yet passed a live inference test. There is no verified customer acquisition, sale, or revenue. Public participant registration, production participant authentication, human legal-identity verification, a public marketplace, and a production treasury remain unavailable.
 
 ## Principles
 
@@ -86,11 +86,11 @@ This requires configured Cloudflare Workers AI credentials. The supervisor runs 
 
 ## Private Cloudflare worker pilot
 
-A deployable Cloudflare Worker now provides a separate five-minute scheduled AI product-copy lane using Workers AI and D1. It is private behind an owner bearer token, has a 6,500-estimated-neuron daily cap, and can queue and draft product listings. It cannot publish, upload products, contact customers, or move money. The worker is source/configuration only and has **not** been deployed to a Cloudflare account. See `docs/cloudflare-private-worker.md` for the free-plan limits, setup and deployment steps.
+A Cloudflare Worker is deployed and configured with a five-minute scheduled AI product-copy lane using Workers AI and D1. It is private behind an owner bearer token and has a 6,500-estimated-neuron daily cap. The latest source includes a more tolerant model-response parser, but a live inference test is still pending because the previous production task failed. It cannot publish listings, contact customers, or move money. Public checkout and outbound payouts remain disabled. See `docs/cloudflare-private-worker.md` for the deployment and operating details.
 
 ## Crypto-first payment rail and marketplace fallback
 
-The first payment design prioritizes automated crypto receipt. The private Cloudflare Worker now contains source for a gated NOWPayments invoice/IPN adapter, a fixed-price customer storefront, buyer-token order status, and payment-gated ZIP delivery through Workers Static Assets. A matching full payment callback unlocks a seven-day download window; partial, duplicate, mismatched and refunded payments are handled separately. This is code-only and not deployed: provider eligibility, local legal review, Cloudflare resources/secrets and explicit feature flags remain prerequisites. A self-hosted BTCPay Server is documented as a future non-custodial Bitcoin alternative. See `docs/crypto-first-payment-rail.md`.
+The first payment design prioritizes automated crypto receipt. The deployed private Cloudflare Worker contains a gated NOWPayments invoice/IPN adapter, a fixed-price customer storefront, buyer-token order status, and payment-gated ZIP delivery through Workers Static Assets. These customer-facing features remain disabled: the storefront is not published, public checkout is off, and provider credentials and owner enablement are still prerequisites. A matching full payment callback is designed to unlock a seven-day download window; partial, duplicate, mismatched and refunded payments are handled separately. Provider eligibility and local legal review remain outstanding. A self-hosted BTCPay Server is documented as a future non-custodial Bitcoin alternative. See `docs/crypto-first-payment-rail.md`.
 
 Gumroad remains an optional fiat marketplace fallback, not the chosen payment dependency. Its Pakistan payout path is local bank in PKR and requires identity/address verification; Payoneer is not accepted. The existing draft/publish workflows remain separate and have not been run.
 
