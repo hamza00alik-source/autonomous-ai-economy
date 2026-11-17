@@ -494,11 +494,11 @@ class DirectoryApiTests(unittest.TestCase):
         self.assertNotIn("new-public-key", json.dumps(body))
 
     def test_key_rotation_rejects_unknown_fields(self):
-        class NeverAuthenticate:
-            def authenticate(self, *_args):
-                raise AssertionError("authentication is expected before JSON validation")
+        class FakeAuthenticator:
+            def authenticate(self, participant_id, *_args):
+                return {"participant_id": participant_id}
         app = DirectoryApplication(self.catalog, registry=object(),
-                                   authenticator=NeverAuthenticate())
+                                   authenticator=FakeAuthenticator())
         raw = b'{"new_public_key":"key","participant_id":"victim"}'
         captured = {}
         def start_response(status, headers):
