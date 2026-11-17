@@ -171,6 +171,7 @@ class ParticipantRegistry:
                 );
                 CREATE INDEX IF NOT EXISTS idx_claims_participant ON identity_claims(participant_id);
             """)
+        self._migrate_abuse_review_case_schema()
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
@@ -178,6 +179,67 @@ class ParticipantRegistry:
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA busy_timeout=10000")
         return db
+
+    def _migrate_abuse_review_case_schema(self) -> None:
+        """Remove an obsolete table-level uniqueness constraint from early databases.
+
+        Older development builds allowed only one reviewed case per participant and
+        operation. The current invariant is exactly one open case, enforced by a
+        partial unique index, while preserving an unlimited reviewed history.
+        """
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                ("participant_abuse_review_cases",),
+            ).fetchone()
+            if row is None or not row["sql"]:
+                raise RuntimeError("participant abuse review table is missing")
+            normalized = "".join(row["sql"].upper().split())
+            obsolete = "UNIQUE(PARTICIPANT_ID,OPERATION,STATUS)" in normalized
+            if not obsolete:
+                return
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute("""
+                    CREATE TABLE participant_abuse_review_cases_new (
+                        case_id TEXT PRIMARY KEY,
+                        participant_id TEXT NOT NULL,
+                        operation TEXT NOT NULL,
+                        signal_count INTEGER NOT NULL,
+                        first_seen_at TEXT NOT NULL,
+                        last_seen_at TEXT NOT NULL,
+                        status TEXT NOT NULL CHECK(status IN ('open','reviewed')),
+                        decision TEXT,
+                        reviewer TEXT,
+                        review_note TEXT,
+                        reviewed_at TEXT,
+                        FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
+                    )
+                """)
+                db.execute("""
+                    INSERT INTO participant_abuse_review_cases_new
+                    SELECT case_id,participant_id,operation,signal_count,first_seen_at,
+                           last_seen_at,status,decision,reviewer,review_note,reviewed_at
+                    FROM participant_abuse_review_cases
+                """)
+                db.execute("DROP TABLE participant_abuse_review_cases")
+                db.execute(
+                    "ALTER TABLE participant_abuse_review_cases_new "
+                    "RENAME TO participant_abuse_review_cases"
+                )
+                db.execute("""
+                    CREATE UNIQUE INDEX idx_abuse_review_one_open
+                    ON participant_abuse_review_cases(participant_id, operation)
+                    WHERE status='open'
+                """)
+                db.execute("""
+                    CREATE INDEX idx_abuse_review_status
+                    ON participant_abuse_review_cases(status, last_seen_at)
+                """)
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
 
     def _consume_operation_quota(self, db: sqlite3.Connection, participant_id: str,
                                  operation: str, *, limit: int = 5,
