@@ -89,6 +89,74 @@ class CapabilityStore:
             )
         return grant_id
 
+    @staticmethod
+    def grant_payload(subject_id: str, issuer_id: str, action: str, resource: str, *,
+                      expires_at: str | None = None,
+                      max_amount_minor: int | None = None,
+                      currency: str | None = None) -> bytes:
+        """Canonical bytes an owner signs to authorize one exact capability grant."""
+        payload = {
+            "version": 1, "subject_id": subject_id, "issuer_id": issuer_id,
+            "action": action, "resource": resource, "expires_at": expires_at,
+            "max_amount_minor": max_amount_minor,
+            "currency": currency.upper() if currency else None,
+        }
+        return ("AAE-CAPABILITY-GRANT-V1:" +
+                json.dumps(payload, sort_keys=True, separators=(",", ":"))).encode("utf-8")
+
+    def grant_signed(self, subject_id: str, issuer_id: str, action: str, resource: str,
+                     signature: str, *, expires_at: str | None = None,
+                     max_amount_minor: int | None = None, currency: str | None = None,
+                     verifier=None) -> str:
+        """Create a grant only with a signature from an active, key-bound human/org issuer.
+
+        The signature binds the exact grant fields. Agent identities cannot issue
+        owner grants. This authenticates key possession, not legal identity.
+        """
+        from .identity import verify_ed25519
+        verify = verifier or verify_ed25519
+        if not all(isinstance(v, str) and v.strip()
+                   for v in (subject_id, issuer_id, action, resource, signature)):
+            raise ValueError("grant fields and issuer signature are required")
+        if max_amount_minor is not None and max_amount_minor < 0:
+            raise ValueError("max_amount_minor must be non-negative")
+        if (max_amount_minor is None) != (currency is None):
+            raise ValueError("amount ceiling and currency must be supplied together")
+        if currency and (len(currency) != 3 or not currency.isalpha()):
+            raise ValueError("currency must be a three-letter code")
+        if expires_at:
+            expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
+                raise ValueError("expires_at must be a future timezone-aware timestamp")
+        message = self.grant_payload(
+            subject_id, issuer_id, action, resource, expires_at=expires_at,
+            max_amount_minor=max_amount_minor, currency=currency,
+        )
+        with self._connect() as db:
+            issuer = db.execute(
+                """SELECT participant_type, status, public_key FROM participants
+                   WHERE participant_id=?""", (issuer_id,)
+            ).fetchone()
+            if (issuer is None or issuer["status"] != "active"
+                    or issuer["participant_type"] not in {"human", "organization"}
+                    or not issuer["public_key"]):
+                raise ValueError("issuer must be an active key-bound human or organization")
+            if not verify(issuer["public_key"], message, signature):
+                raise ValueError("issuer signature is invalid")
+            subject = db.execute(
+                "SELECT status FROM participants WHERE participant_id=?", (subject_id,)
+            ).fetchone()
+            if subject is None or subject["status"] != "active":
+                raise ValueError("subject must be an active registered participant")
+            grant_id = "grant_" + uuid.uuid4().hex
+            db.execute(
+                """INSERT INTO capability_grants VALUES(?,?,?,?,?,?,?,?,'active',?,?,?)""",
+                (grant_id, subject_id, issuer_id, action, resource, expires_at,
+                 max_amount_minor, currency.upper() if currency else None, _now(),
+                 None, "{}"),
+            )
+            return grant_id
+
     def revoke(self, grant_id: str, issuer_id: str) -> None:
         with self._connect() as db:
             cur = db.execute(
