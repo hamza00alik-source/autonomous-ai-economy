@@ -106,6 +106,8 @@ class DirectoryApplication:
             return self._response(start_response, "200 OK", {"status": "ok"})
         if path == "/v1/local/owner/overview":
             return self._owner_overview(environ, start_response)
+        if path == "/owner":
+            return self._owner_dashboard(environ, start_response)
         if path == "/v1/tasks/mine":
             return self._my_tasks(environ, start_response)
         if path == "/v1/participants/me":
@@ -205,6 +207,45 @@ class DirectoryApplication:
         return self._response(start_response, "200 OK", {
             "items": public_items, "count": len(public_items),
         })
+
+    def _owner_dashboard(self, environ, start_response):
+        """Loopback-only, aggregate-only HTML owner snapshot; no controls or writes."""
+        try:
+            remote = ipaddress.ip_address(environ.get("REMOTE_ADDR", ""))
+        except ValueError:
+            remote = None
+        if remote is None or not remote.is_loopback:
+            return self._html_response(start_response, "<h1>Local access only</h1>", "403 Forbidden")
+        if self.registry is None or self.task_store is None:
+            return self._html_response(start_response, "<h1>Owner overview unavailable</h1>", "503 Service Unavailable")
+        try:
+            summary = {
+                "participants": self.registry.summary_counts(),
+                "tasks": self.task_store.summary_counts(),
+                "services": self.catalog.summary_counts(),
+                "financial_activity": {
+                    "payments_enabled": False,
+                    "wallets_enabled": False,
+                    "transfers_enabled": False,
+                },
+            }
+            safe_json = html.escape(json.dumps(summary, indent=2, ensure_ascii=False))
+            page = (
+                '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<title>Local owner overview</title><style>'
+                ':root{color-scheme:light dark;font-family:system-ui,sans-serif}'
+                'body{max-width:760px;margin:0 auto;padding:24px;line-height:1.5}'
+                'pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:18px;border:1px solid #8888;border-radius:12px}'
+                '.note{opacity:.75}</style></head><body><header><p class="note">LOCAL • READ ONLY</p>'
+                '<h1>Economy overview</h1><p class="note">Aggregate operational counts only. '
+                'No participant records, task contents, payments, wallets or transfers are exposed.</p></header>'
+                '<pre>' + safe_json + '</pre><p class="note">Prototype snapshot; not a production administration console.</p>'
+                '</body></html>'
+            )
+            return self._html_response(start_response, page)
+        except Exception:
+            return self._html_response(start_response, "<h1>Owner overview temporarily unavailable</h1>", "503 Service Unavailable")
 
     def _owner_overview(self, environ, start_response):
         """Loopback-only operational summary; never returns participant or task records."""
