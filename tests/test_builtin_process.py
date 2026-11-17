@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from economy.builtin_process import SandboxUnavailable, execute_builtin, _apply_process_limits
+from economy.seccomp_filter import SeccompUnavailable, build_filter, create_filter_fd
 
 
 EXPECTED_SANDBOX = {
@@ -15,6 +16,8 @@ EXPECTED_SANDBOX = {
     "address_space_bytes": [512 * 1024 * 1024, 512 * 1024 * 1024],
     "file_size_bytes": [1024 * 1024, 1024 * 1024],
     "open_files": [32, 32],
+    "seccomp_mode": 2,
+    "blocked_socket_errno": 1,
 }
 
 
@@ -55,6 +58,8 @@ class BuiltinProcessTests(unittest.TestCase):
         self.assertIn("ALL", command)
         self.assertIn("--clearenv", command)
         self.assertIn("--ro-bind", command)
+        self.assertIn("--seccomp", command)
+        self.assertEqual(len(run.call_args.kwargs["pass_fds"]), 1)
         self.assertEqual(run.call_args.kwargs["timeout"], 5)
         self.assertEqual(run.call_args.kwargs["env"], {})
         self.assertIsNotNone(run.call_args.kwargs["preexec_fn"])
@@ -72,6 +77,27 @@ class BuiltinProcessTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(SandboxUnavailable, "did not match policy"):
             execute_builtin("verification-auditor", "Check source evidence")
+
+    def test_seccomp_filter_is_compiled_classic_bpf(self):
+        program = build_filter()
+        self.assertGreater(len(program), 8 * 10)
+        self.assertEqual(len(program) % 8, 0)
+
+    def test_seccomp_filter_fd_contains_program(self):
+        fd = create_filter_fd()
+        try:
+            import os
+            data = os.read(fd, 4096)
+            self.assertGreater(len(data), 0)
+            self.assertEqual(len(data) % 8, 0)
+        finally:
+            import os
+            os.close(fd)
+
+    @patch("economy.seccomp_filter.platform.machine", return_value="unknown-cpu")
+    def test_unknown_architecture_fails_closed(self, _machine):
+        with self.assertRaisesRegex(SeccompUnavailable, "no seccomp policy"):
+            build_filter()
 
     @patch("economy.builtin_process.shutil.which", return_value=None)
     def test_fails_closed_when_bubblewrap_is_missing(self, _which):
