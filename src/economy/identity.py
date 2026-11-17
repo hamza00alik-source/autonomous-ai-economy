@@ -197,6 +197,17 @@ class ParticipantRegistry:
             db.rollback()
             raise
 
+    def consume_operation_quota(self, participant_id: str, operation: str, *,
+                               limit: int, window_seconds: int = 3600) -> None:
+        """Consume a participant-scoped durable quota or raise rate-limit exception."""
+        if not operation or len(operation) > 80 or limit < 1 or window_seconds < 1:
+            raise ValueError("invalid operation quota")
+        with self._connect() as db:
+            self._consume_operation_quota(
+                db, participant_id, operation, limit=limit,
+                window_seconds=window_seconds,
+            )
+
     @staticmethod
     def _participant(row: sqlite3.Row | None) -> dict[str, Any] | None:
         if row is None:
