@@ -18,6 +18,8 @@ except ImportError:
     resource = None
 from pathlib import Path
 
+from .seccomp_filter import SeccompUnavailable, create_filter_fd
+
 MAX_OBJECTIVE = 4096
 MAX_RESULT = 2048
 TIMEOUT_SECONDS = 5
@@ -106,7 +108,12 @@ def execute_builtin(agent_id: str, objective: str) -> str:
         raise ValueError("execution request is too large")
 
     bwrap = ensure_sandbox_available()
+    try:
+        seccomp_fd = create_filter_fd()
+    except SeccompUnavailable as exc:
+        raise SandboxUnavailable(str(exc)) from exc
     command = _sandbox_command(bwrap, payload)
+    command[command.index('--clearenv'):command.index('--clearenv') + 1] += ['--seccomp', str(seccomp_fd)]
     try:
         completed = subprocess.run(
             command,
@@ -118,9 +125,12 @@ def execute_builtin(agent_id: str, objective: str) -> str:
             close_fds=True,
             env={},
             preexec_fn=_apply_process_limits if resource is not None else None,
+            pass_fds=(seccomp_fd,),
         )
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError("sandboxed built-in agent exceeded its execution time limit") from exc
+    finally:
+        os.close(seccomp_fd)
     if completed.returncode != 0:
         message = completed.stderr[:1024].decode("utf-8", errors="replace")
         raise RuntimeError(f"sandboxed built-in agent failed: {message}")
@@ -140,6 +150,8 @@ def execute_builtin(agent_id: str, objective: str) -> str:
         "address_space_bytes": [512 * 1024 * 1024, 512 * 1024 * 1024],
         "file_size_bytes": [1024 * 1024, 1024 * 1024],
         "open_files": [32, 32],
+        "seccomp_mode": 2,
+        "blocked_socket_errno": 1,
     }
     if facts != expected:
         raise SandboxUnavailable("sandbox identity or kernel-enforced resource limits did not match policy")
