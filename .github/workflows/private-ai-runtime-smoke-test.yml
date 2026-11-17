@@ -27,14 +27,11 @@ jobs:
         env:
           WORKER_URL: https://autonomous-ai-economy-private-worker.hamza-00ali-k-f66.workers.dev
           AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
+          TEST_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           test -n "$AAE_QUEUE_TOKEN" || { echo "AAE_QUEUE_TOKEN secret is missing"; exit 1; }
-          response="$(curl --fail --silent --show-error \
-            -X POST "$WORKER_URL/v1/tasks/product-copy" \
-            -H "Authorization: Bearer $AAE_QUEUE_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data-binary @- <<'JSON'
+          payload="$(jq --arg run_id "$TEST_RUN_ID" '.market_evidence += " Smoke test run: " + $run_id' <<'JSON'
           {
             "product_name": "MOBA Objective Props Pack",
             "buyer_segment": "Indie game developers using Godot",
@@ -65,6 +62,11 @@ jobs:
           }
           JSON
           )"
+          response="$(curl --fail --silent --show-error \
+            -X POST "$WORKER_URL/v1/tasks/product-copy" \
+            -H "Authorization: Bearer $AAE_QUEUE_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary "$payload")"
           task_id="$(printf '%s' "$response" | jq -er '.task_id')"
           echo "task_id=$task_id" >> "$GITHUB_OUTPUT"
           echo "Queued private task: $task_id"
