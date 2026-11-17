@@ -21,7 +21,10 @@ class TaskStoreTests(unittest.TestCase):
         result = run_once(reopened)
         self.assertEqual(result["task_id"], task["task_id"])
         self.assertEqual(result["status"], "completed")
+        self.assertIsNone(result["lease_token"])
         self.assertEqual(reopened.get(task["task_id"])["status"], "completed")
+        with self.assertRaisesRegex(ValueError, "lease"):
+            reopened.finish(task["task_id"], "attempted replay", "replayed-token")
         self.assertEqual([e["event_type"] for e in reopened.events(task["task_id"])],
                          ["queued", "started", "completed"])
 
