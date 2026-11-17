@@ -25,6 +25,7 @@ from .shared_brain import SharedBrain
 from .collective_learning import CollectiveLearningEngine
 from .identity import ParticipantRegistry
 from .permissions import CapabilityStore
+from .artifact_evidence import create_manifest, verify_local_artifact
 
 
 def demo(data_dir: Path) -> None:
@@ -70,6 +71,13 @@ def main() -> None:
 
     verify_audit = sub.add_parser("verify-audit", help="verify the local task event hash chain")
     verify_audit.add_argument("--data-dir", type=Path, default=Path("./data"))
+
+    artifact_manifest = sub.add_parser("artifact-manifest", help="hash a local deliverable and print a manifest; does not prove provenance")
+    artifact_manifest.add_argument("artifact", type=Path)
+    artifact_manifest.add_argument("--media-type", default="application/octet-stream")
+    artifact_verify = sub.add_parser("artifact-verify", help="verify local artifact bytes against a manifest JSON file")
+    artifact_verify.add_argument("artifact", type=Path)
+    artifact_verify.add_argument("manifest", type=Path)
 
     export_audit_checkpoint = sub.add_parser("export-audit-checkpoint", help="sign the current audit-chain head with an operator-supplied Ed25519 key")
     export_audit_checkpoint.add_argument("--private-key", type=Path, required=True, help="operator-held PEM private key; never commit this file")
@@ -264,6 +272,14 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "demo":
         demo(args.data_dir)
+    elif args.command == "artifact-manifest":
+        print(json.dumps(create_manifest(args.artifact, args.media_type), indent=2))
+    elif args.command == "artifact-verify":
+        manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+        result = verify_local_artifact(args.artifact, manifest)
+        print(json.dumps(result, indent=2))
+        if not result["valid"]:
+            raise SystemExit(1)
     elif args.command == "enqueue":
         result = TaskStore(args.data_dir / "economy.sqlite3").enqueue(
             args.title, args.objective, args.agent, args.idempotency_key, args.max_attempts
