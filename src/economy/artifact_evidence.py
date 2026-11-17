@@ -34,6 +34,24 @@ def validate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     return dict(manifest)
 
 
+def create_manifest(path: str | Path, media_type: str = "application/octet-stream") -> dict[str, Any]:
+    """Create a manifest for a local regular file; this is a claim, not provenance."""
+    artifact = Path(path)
+    if artifact.is_symlink() or not artifact.is_file():
+        raise ValueError("artifact must be a regular, non-symlink local file")
+    size = artifact.stat().st_size
+    if size > MAX_ARTIFACT_BYTES:
+        raise ValueError("artifact exceeds the maximum manifest size")
+    digest = hashlib.sha256()
+    with artifact.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return validate_manifest({
+        "schema": MANIFEST_SCHEMA, "sha256": digest.hexdigest(),
+        "size_bytes": size, "media_type": media_type,
+    })
+
+
 def verify_local_artifact(path: str | Path, manifest: dict[str, Any]) -> dict[str, Any]:
     """Hash a local regular file and compare it with a validated manifest.
 
