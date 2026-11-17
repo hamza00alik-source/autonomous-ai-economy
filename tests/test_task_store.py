@@ -35,6 +35,7 @@ class TaskStoreTests(unittest.TestCase):
         task = self.store.enqueue("A", "B", "opportunity-researcher")
         claimed = self.store.claim()
         self.assertEqual(claimed["task_id"], task["task_id"])
+        self.assertTrue(claimed["lease_token"])
         self.assertIsNone(self.store.claim())
 
     def test_worker_leaves_tasks_for_unregistered_agents_queued(self):
@@ -60,14 +61,28 @@ class TaskStoreTests(unittest.TestCase):
     def test_bounded_retry_then_terminal_failure(self):
         task = self.store.enqueue("A", "B", "missing-agent", max_attempts=2)
         first = self.store.claim()
-        again = self.store.fail(first["task_id"], "missing agent")
+        again = self.store.fail(first["task_id"], "missing agent", first["lease_token"])
         self.assertEqual(again["status"], "queued")
         second = self.store.claim()
-        final = self.store.fail(second["task_id"], "missing agent")
+        final = self.store.fail(second["task_id"], "missing agent", second["lease_token"])
         self.assertEqual(final["status"], "failed")
         self.assertEqual(final["attempts"], 2)
 
  
+    def test_stale_worker_cannot_finish_or_fail_after_lease_recovery(self):
+        task = self.store.enqueue("Lease race", "Reject stale worker", "opportunity-researcher")
+        old = self.store.claim()
+        with sqlite3.connect(self.store.path) as db:
+            db.execute("UPDATE tasks SET lease_until='2000-01-01T00:00:00+00:00' WHERE task_id=?",
+                       (task["task_id"],))
+        current = self.store.claim()
+        with self.assertRaisesRegex(ValueError, "lease"):
+            self.store.finish(task["task_id"], "stale result", old["lease_token"])
+        with self.assertRaisesRegex(ValueError, "lease"):
+            self.store.fail(task["task_id"], "stale error", old["lease_token"])
+        completed = self.store.finish(task["task_id"], "current result", current["lease_token"])
+        self.assertEqual(completed["status"], "completed")
+
     def test_expired_worker_lease_is_recovered(self):
         task = self.store.enqueue("Crash test", "Recover an interrupted task", "opportunity-researcher")
         claimed = self.store.claim()
@@ -76,6 +91,7 @@ class TaskStoreTests(unittest.TestCase):
                        (task["task_id"],))
         recovered = self.store.claim()
         self.assertEqual(recovered["task_id"], task["task_id"])
+        self.assertNotEqual(recovered["lease_token"], claimed["lease_token"])
         self.assertEqual(recovered["status"], "running")
         self.assertEqual(recovered["attempts"], 2)
         kinds = [e["event_type"] for e in self.store.events(task["task_id"])]
