@@ -4,7 +4,7 @@ Last reviewed: 2026-11-17
 
 ## Shipped local prototype foundations
 
-- Deterministic specialist agents, task controller, simulated append-only ledger and persistent SQLite task queue/one-shot worker.
+- Deterministic specialist agents, task controller, simulated append-only ledger and persistent SQLite task queue/one-shot worker. Worker claims are restricted to exact registered agent IDs; unknown-agent tasks remain queued and are not consumed.
 - Evidence-first opportunity validation, public research discovery leads, source retrieval/review, opportunity prioritization and unit-economics scenarios.
 - Shared Brain and evidence-linked collective-learning proposals with owner review.
 - Human, agent and organization participant records; Ed25519 agent enrollment, human/organization signing-key proof of possession, dual-proof key rotation and retired-key history.
