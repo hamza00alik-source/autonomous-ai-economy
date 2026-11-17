@@ -175,6 +175,10 @@ def main() -> None:
     task_withdraw.add_argument("--private-key", type=Path, required=True)
     task_withdraw.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+    dispatch_orders = sub.add_parser("dispatch-accepted-orders", help="idempotently queue accepted buyer orders for local agent execution")
+    dispatch_orders.add_argument("--limit", type=int, default=100)
+    dispatch_orders.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     task_agreement = sub.add_parser("task-agreement", help="show one local task agreement")
     task_agreement.add_argument("task_id")
     task_agreement.add_argument("--data-dir", type=Path, default=Path("./data"))
@@ -443,6 +447,14 @@ def main() -> None:
         store.withdraw(args.task_id, buyer_id=args.buyer_id,
                        signature=_pem_signer(args.private_key)(payload))
         print(json.dumps({"task_id": args.task_id, "status": "withdrawn"}, indent=2))
+    elif args.command == "dispatch-accepted-orders":
+        from .order_dispatch import dispatch_accepted_orders
+        result = dispatch_accepted_orders(
+            TaskAgreementStore(args.data_dir / "participants.sqlite3"),
+            TaskStore(args.data_dir / "economy.sqlite3"),
+            limit=args.limit,
+        )
+        print(json.dumps(result, indent=2))
     elif args.command == "task-agreement":
         print(json.dumps(TaskAgreementStore(args.data_dir / "participants.sqlite3").get(args.task_id), indent=2))
     elif args.command == "receipt-submit-local":
