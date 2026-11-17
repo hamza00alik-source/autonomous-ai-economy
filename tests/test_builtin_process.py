@@ -2,6 +2,7 @@ import json
 import os
 import resource
 import shutil
+import subprocess
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -120,6 +121,35 @@ class BuiltinProcessTests(unittest.TestCase):
     def test_rejects_oversized_objective_before_spawn(self):
         with self.assertRaisesRegex(ValueError, "4096"):
             execute_builtin("verification-auditor", "x" * 4097)
+
+
+    @patch("economy.builtin_process.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="bwrap", timeout=5))
+    @patch("economy.builtin_process.shutil.which", return_value="/usr/bin/bwrap")
+    def test_timeout_is_reported_as_bounded_sandbox_failure(self, _which, _run):
+        with self.assertRaisesRegex(TimeoutError, "exceeded its execution time limit"):
+            execute_builtin("verification-auditor", "Check source evidence")
+
+    @patch("economy.builtin_process.subprocess.run")
+    @patch("economy.builtin_process.shutil.which", return_value="/usr/bin/bwrap")
+    def test_rejects_oversized_child_stdout_before_json_parsing(self, _which, run):
+        run.return_value = SimpleNamespace(
+            returncode=0,
+            stdout=b"x" * 8193,
+            stderr=b"",
+        )
+        with self.assertRaisesRegex(ValueError, "response exceeded the output limit"):
+            execute_builtin("verification-auditor", "Check source evidence")
+
+    @patch("economy.builtin_process.subprocess.run")
+    @patch("economy.builtin_process.shutil.which", return_value="/usr/bin/bwrap")
+    def test_rejects_child_response_without_kernel_sandbox_facts(self, _which, run):
+        run.return_value = SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"result": "unverified"}).encode(),
+            stderr=b"",
+        )
+        with self.assertRaisesRegex(SandboxUnavailable, "did not match policy"):
+            execute_builtin("verification-auditor", "Check source evidence")
 
 
 if __name__ == "__main__":
