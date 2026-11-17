@@ -286,6 +286,14 @@ class ServiceCatalog:
         with self._connect() as db:
             return [dict(row) for row in db.execute(sql, params).fetchall()]
 
+    def summary_counts(self) -> dict[str, int]:
+        """Return service listing totals grouped by publication status."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT status, COUNT(*) AS total FROM service_listings GROUP BY status"
+            ).fetchall()
+        return {row["status"]: row["total"] for row in rows}
+
     def events(self, listing_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             return [dict(row) for row in db.execute(
