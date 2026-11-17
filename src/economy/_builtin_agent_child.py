@@ -15,6 +15,7 @@ MAX_OBJECTIVE = 4096
 AGENTS = {
     "opportunity-researcher": "opportunity research",
     "verification-auditor": "verification",
+    "order-delivery-agent": "customer order drafting",
 }
 
 
@@ -55,10 +56,41 @@ def main():
         raise ValueError("agent is not in the built-in execution allowlist")
     if not isinstance(objective, str) or not objective.strip() or len(objective) > MAX_OBJECTIVE:
         raise ValueError("objective must be non-empty text of at most 4096 characters")
-    clean = " ".join(objective.split())
-    role = AGENTS[agent_id]
-    result = (f"[{role}] Accepted objective for structured analysis: "
-              f"{clean[:500]}. This is a deterministic prototype result, not external research.")
+    if agent_id == "order-delivery-agent":
+        order = json.loads(objective)
+        required = {"schema", "task_id", "title", "scope", "acceptance_criteria",
+                    "due_at", "price_minor", "currency", "buyer_id", "provider_id"}
+        if not isinstance(order, dict) or set(order) != required:
+            raise ValueError("invalid accepted-order payload")
+        if order["schema"] != "aae.accepted-order/v1":
+            raise ValueError("unsupported accepted-order schema")
+        for field in ("task_id", "title", "scope", "acceptance_criteria", "buyer_id", "provider_id"):
+            if not isinstance(order[field], str) or not order[field].strip() or len(order[field]) > 2000:
+                raise ValueError("invalid order field: " + field)
+        result = (
+            "# Customer order execution draft\\n\\n"
+            "**Status:** DRAFT — not delivered or buyer-approved\\n\\n"
+            f"**Order:** {order['title']}\\n"
+            f"**Task ID:** {order['task_id']}\\n\\n"
+            "## Agreed scope\\n" + order["scope"] + "\\n\\n"
+            "## Buyer acceptance criteria\\n" + order["acceptance_criteria"] + "\\n\\n"
+            "## Execution checklist\\n"
+            "- [ ] Produce the requested deliverable against the agreed scope.\\n"
+            "- [ ] Check every buyer acceptance criterion.\\n"
+            "- [ ] Attach the final artifact and its SHA-256 manifest.\\n"
+            "- [ ] Submit a provider-signed work receipt.\\n"
+            "- [ ] Obtain buyer-signed acceptance.\\n\\n"
+            "## Payment status\\nNot verified. No payment was collected or recorded.\\n\\n"
+            "## Execution boundary\\n"
+            "This worker has prepared an order-specific execution brief only. "
+            "It has not performed domain work, contacted the buyer, delivered files, "
+            "or represented payment as received."
+        )
+    else:
+        clean = " ".join(objective.split())
+        role = AGENTS[agent_id]
+        result = (f"[{role}] Accepted objective for structured analysis: "
+                  f"{clean[:500]}. This is a deterministic prototype result, not external research.")
     sys.stdout.write(json.dumps(
         {"result": result, "sandbox": sandbox_facts()},
         separators=(",", ":"),
