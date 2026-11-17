@@ -128,15 +128,14 @@ def execute_builtin(agent_id: str, objective: str) -> str:
             cgroup = CgroupV2Limits.create(cgroup_root)
         except CgroupUnavailable as exc:
             raise SandboxUnavailable(str(exc)) from exc
+    seccomp_fd = None
     try:
-        seccomp_fd = create_filter_fd()
-    except SeccompUnavailable as exc:
-        if cgroup is not None:
-            cgroup.cleanup()
-        raise SandboxUnavailable(str(exc)) from exc
-    command = _sandbox_command(bwrap, payload)
-    command[command.index('--clearenv'):command.index('--clearenv') + 1] += ['--seccomp', str(seccomp_fd)]
-    try:
+        try:
+            seccomp_fd = create_filter_fd()
+        except SeccompUnavailable as exc:
+            raise SandboxUnavailable(str(exc)) from exc
+        command = _sandbox_command(bwrap, payload)
+        command[command.index("--clearenv"):command.index("--clearenv") + 1] += ["--seccomp", str(seccomp_fd)]
         completed = subprocess.run(
             command,
             input=payload,
@@ -152,7 +151,8 @@ def execute_builtin(agent_id: str, objective: str) -> str:
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError("sandboxed built-in agent exceeded its execution time limit") from exc
     finally:
-        os.close(seccomp_fd)
+        if seccomp_fd is not None:
+            os.close(seccomp_fd)
         if cgroup is not None:
             cgroup.cleanup()
     if completed.returncode != 0:
