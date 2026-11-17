@@ -118,6 +118,14 @@ class DirectoryApplication:
             return self._owner_overview(environ, start_response)
         if path == "/owner":
             return self._owner_dashboard(environ, start_response)
+        if path == "/v1/tasks/offers/inbox":
+            return self._provider_offer_inbox(environ, start_response)
+        if method == "GET" and path.startswith("/v1/tasks/") and path not in {
+            "/v1/tasks/mine", "/v1/tasks/offers/inbox"
+        }:
+            task_id = path[len("/v1/tasks/"):]
+            if task_id and "/" not in task_id:
+                return self._task_agreement_detail(environ, start_response, task_id)
         if path == "/v1/tasks/mine":
             return self._my_tasks(environ, start_response)
         if path == "/v1/participants/me":
@@ -219,6 +227,98 @@ class DirectoryApplication:
         } for item in listings]
         return self._response(start_response, "200 OK", {
             "items": public_items, "count": len(public_items),
+        })
+
+    def _authenticated_get_principal(self, environ, start_response, path):
+        if self.authenticator is None:
+            return None, self._response(start_response, "503 Service Unavailable",
+                                        {"error": "authenticated_api_unavailable"})
+        try:
+            if environ.get("CONTENT_LENGTH") not in (None, "", "0"):
+                raise ValueError("GET request body is not supported")
+            timestamp = int(environ.get("HTTP_X_AAE_TIMESTAMP", ""))
+            principal = self.authenticator.authenticate(
+                environ.get("HTTP_X_AAE_PARTICIPANT", ""), "GET", path, b"",
+                timestamp, environ.get("HTTP_X_AAE_NONCE", ""),
+                environ.get("HTTP_X_AAE_SIGNATURE", ""),
+            )
+            return principal, None
+        except (ValueError, TypeError):
+            return None, self._response(start_response, "401 Unauthorized",
+                                        {"error": "authentication_failed"},
+                                        [("WWW-Authenticate", "AAE-Signature")])
+        except Exception:
+            return None, self._response(start_response, "503 Service Unavailable",
+                                        {"error": "authentication_temporarily_unavailable"})
+
+    def _provider_offer_inbox(self, environ, start_response):
+        if self.agreements is None:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "task_offers_unavailable"})
+        params = parse_qs(environ.get("QUERY_STRING", ""), keep_blank_values=True)
+        if any(len(values) != 1 for values in params.values()) or set(params) - {"status", "limit"}:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_query_parameters"})
+        status = params.get("status", ["offered"])[0]
+        if status not in {"offered", "accepted", "declined", "withdrawn"}:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_offer_status"})
+        try:
+            limit = int(params.get("limit", ["50"])[0])
+        except ValueError:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "limit_must_be_integer"})
+        if not 1 <= limit <= 50:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "limit_out_of_range"})
+        raw_query = environ.get("QUERY_STRING", "")
+        target = "/v1/tasks/offers/inbox" + (("?" + raw_query) if raw_query else "")
+        principal, error = self._authenticated_get_principal(environ, start_response, target)
+        if error is not None:
+            return error
+        try:
+            offers = self.agreements.offers_for_provider(
+                principal["participant_id"], status=status, limit=limit
+            )
+        except Exception:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "offers_temporarily_unavailable"})
+        items = [{
+            key: offer[key] for key in (
+                "task_id", "listing_id", "buyer_id", "provider_id", "title",
+                "scope", "acceptance_criteria", "due_at", "price_minor",
+                "currency", "status", "created_at",
+            )
+        } for offer in offers]
+        return self._response(start_response, "200 OK", {"items": items, "count": len(items)})
+
+    def _task_agreement_detail(self, environ, start_response, task_id):
+        if self.agreements is None:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "task_offers_unavailable"})
+        if environ.get("QUERY_STRING", ""):
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "query_parameters_not_supported"})
+        principal, error = self._authenticated_get_principal(
+            environ, start_response, f"/v1/tasks/{task_id}"
+        )
+        if error is not None:
+            return error
+        try:
+            offer = self.agreements.get(task_id)
+        except KeyError:
+            return self._response(start_response, "404 Not Found", {"error": "not_found"})
+        except Exception:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "offer_temporarily_unavailable"})
+        if principal["participant_id"] not in {offer["buyer_id"], offer["provider_id"]}:
+            return self._response(start_response, "404 Not Found", {"error": "not_found"})
+        return self._response(start_response, "200 OK", {
+            "task": {key: offer[key] for key in (
+                "task_id", "listing_id", "buyer_id", "provider_id", "title",
+                "scope", "acceptance_criteria", "due_at", "price_minor",
+                "currency", "status", "created_at", "updated_at",
+            )}
         })
 
     def _signed_json_body(self, environ, start_response, path):
