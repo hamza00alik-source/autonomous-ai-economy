@@ -37,6 +37,26 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual(claimed["task_id"], task["task_id"])
         self.assertIsNone(self.store.claim())
 
+    def test_worker_leaves_tasks_for_unregistered_agents_queued(self):
+        from economy.agents import AgentRegistry, RuleBasedAgent
+        self.store.enqueue("Unknown", "Do not consume", "not-registered")
+        registry = AgentRegistry()
+        registry.register(RuleBasedAgent("known-agent", "safe test"))
+        self.assertIsNone(run_once(self.store, registry))
+        task = self.store.list_tasks()[0]
+        self.assertEqual(task["status"], "queued")
+        self.assertEqual(task["attempts"], 0)
+
+    def test_worker_claims_only_matching_registered_agent(self):
+        from economy.agents import AgentRegistry, RuleBasedAgent
+        unknown = self.store.enqueue("Unknown", "Leave queued", "not-registered")
+        known = self.store.enqueue("Known", "Execute safely", "known-agent")
+        registry = AgentRegistry()
+        registry.register(RuleBasedAgent("known-agent", "safe test"))
+        result = run_once(self.store, registry)
+        self.assertEqual(result["task_id"], known["task_id"])
+        self.assertEqual(self.store.get(unknown["task_id"])["status"], "queued")
+
     def test_bounded_retry_then_terminal_failure(self):
         task = self.store.enqueue("A", "B", "missing-agent", max_attempts=2)
         first = self.store.claim()
