@@ -75,7 +75,7 @@ Practical choice: keep direct crypto checkout as the primary rail; investigate T
 
 ## Implemented private Worker API and customer delivery
 
-The source now includes a small, fixed-price customer storefront for the first asset pack. It is **not deployed and remains disabled** until the owner configures the payment provider, completes the eligibility/legal checks, and explicitly enables the feature flags.
+The source now includes a small, fixed-price customer storefront for the first asset pack. The public product page and checkout are both hidden unless the owner configures the payment provider, completes the eligibility/legal checks, and explicitly enables both feature flags. A Worker deployment with flags false does not publish the product page.
 
 - `GET /` — serves the customer product page from Workers Static Assets.
 - `POST /v1/store/checkout` — public, same-origin, rate-limited checkout for the single fixed product at **US$5.00**. Customers cannot submit a custom price or product ID. It creates a random order ID and 256-bit buyer access token; only the token's SHA-256 hash is stored.
