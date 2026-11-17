@@ -1,8 +1,11 @@
+import json
 import threading
+from pathlib import Path
 
 import pytest
 
 from economy.supervisor import supervise
+from economy.task_store import TaskStore
 
 
 class Store:
@@ -94,3 +97,39 @@ def test_supervisor_dispatches_accepted_orders_before_worker_cycle():
                       max_cycles=1, worker=worker)
     assert stats == {"cycles": 1, "completed": 1, "idle": 0, "errors": 0}
     assert observed == [["accepted-order:buyer-order-1"]]
+
+def test_supervisor_exports_completed_order_worker_output(tmp_path):
+    queue = TaskStore(tmp_path / "economy.sqlite3")
+    order = {
+        "task_id": "buyer-order-export", "title": "Example deliverable",
+        "scope": "Prepare a structured execution brief",
+        "acceptance_criteria": "Include the agreed scope",
+        "due_at": None, "price_minor": 1000, "currency": "USD",
+        "buyer_id": "buyer-1", "provider_id": "agent-1",
+    }
+
+    class Agreements:
+        def accepted_orders(self, *, limit):
+            return [{
+                **order, "listing_id": "listing-1", "status": "accepted",
+                "created_at": "2026-01-01T00:00:00+00:00",
+            }][:limit]
+
+    def worker(store):
+        task = store.claim(allowed_agent_ids=["order-delivery-agent"])
+        assert task is not None
+        draft = (
+            "# Customer order execution draft\\n\\n"
+            "**Status:** DRAFT — not delivered or buyer-approved\\n\\n"
+            f"**Order:** {order['title']}\\n"
+            f"**Task ID:** {order['task_id']}\\n\\n"
+            "## Payment status\\nNot verified. No payment was collected or recorded.\\n"
+        )
+        return store.finish(task["task_id"], draft, task["lease_token"])
+
+    stats = supervise(queue, agreements=Agreements(), poll_seconds=0.1,
+                      max_cycles=1, worker=worker)
+    assert stats["completed"] == 1
+    files = list((tmp_path / "deliverables").glob("*.md"))
+    assert len(files) == 1
+    assert order["task_id"] in files[0].read_text()
