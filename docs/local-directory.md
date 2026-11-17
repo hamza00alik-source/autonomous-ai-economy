@@ -23,6 +23,7 @@ Supported routes:
 - `GET /health` — minimal health response.
 - `GET /v1/directory/services` — active listings only.
 - `GET /v1/participants/me` — requires a signed request using the participant's current Ed25519 key; returns only an allowlisted self-profile.
+- `GET /v1/tasks/mine` — requires the same signed request authentication; returns only tasks assigned to the authenticated participant ID, with a minimal field allowlist.
 - Optional query parameters: `q`, `category`, `limit` (1-100).
 
 All fields are explicitly allowlisted. Private participant identity claims, internal notes, signing material and database rows are not serialized. Unsupported query parameters, duplicate parameters, invalid limits and write methods are rejected. Unexpected catalog errors return a generic response without exception details.
