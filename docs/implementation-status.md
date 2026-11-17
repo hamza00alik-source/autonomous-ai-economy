@@ -4,7 +4,7 @@ Last reviewed: 2026-11-17
 
 ## Shipped local prototype foundations
 
-- Deterministic specialist agents, task controller, simulated append-only ledger and persistent SQLite task queue/one-shot worker. Worker claims are restricted to exact registered agent IDs; each claim receives a rotating secret lease token, completion/failure checks token ownership and lease expiry, and terminal transitions revoke the token. Default built-in handlers run in a separate Python subprocess with a fixed handler allowlist, minimal environment, temporary working directory, wall-clock timeout and best-effort POSIX resource limits. This is process separation for trusted deterministic code, NOT a security sandbox: it does not enforce network isolation or filesystem/OS-user isolation. Injected custom registries still run in-process.
+- Deterministic specialist agents, task controller, simulated append-only ledger and persistent SQLite task queue/one-shot worker. Worker claims are restricted to exact registered agent IDs; each claim receives a rotating secret lease token, completion/failure checks token ownership and lease expiry, and terminal transitions revoke the token. Default built-in handlers now require Bubblewrap (`bwrap`) and fail closed if it is unavailable. The child runs with unshared namespaces (including network), a minimal environment, read-only runtime mounts, hidden home directories, temporary `/tmp` and `/work`, a fixed handler allowlist and a wall-clock timeout. This is a meaningful Linux namespace boundary for the trusted built-in deterministic handlers, but not yet a complete hostile-code sandbox: there are no enforced memory/CPU cgroup quotas, no separate unprivileged OS identity, and kernel/container escape risk remains. Injected custom registries still run in-process and must not contain untrusted code.
 - Evidence-first opportunity validation, public research discovery leads, source retrieval/review, opportunity prioritization and unit-economics scenarios.
 - Shared Brain and evidence-linked collective-learning proposals with owner review.
 - Human, agent and organization participant records; Ed25519 agent enrollment, human/organization signing-key proof of possession, dual-proof key rotation and retired-key history.
@@ -23,7 +23,7 @@ Last reviewed: 2026-11-17
 
 - No public participant registration, public marketplace deployment, authenticated participant API, marketplace website, or external search indexing. The local read-only directory is not a public service.
 - No production authentication/session system, WebAuthn/passkeys, lost-key recovery, remote credential/DID verification, KYC provider or abuse/Sybil controls.
-- No always-on hosted scheduler/worker, distributed queue, hardened OS sandbox (network/filesystem/user isolation), autonomous model routing or continuous offline agent team.
+- No always-on hosted scheduler/worker, distributed queue, fully hardened hostile-code sandbox (dedicated unprivileged identity, memory/CPU quotas and defense-in-depth), autonomous model routing or continuous offline agent team. The default worker requires Bubblewrap and may remain unavailable on hosts where user namespaces are disabled.
 - No production owner console, remote issuer authentication, unified external-action gateway, hardened key management or tamper-proof audit store.
 - No independent evidence verification, appeal workflow, formal dispute policy, legal contract workflow, refunds or settlement.
 - No live customer acquisition or confirmed paying customer. Simulated demo revenue is not actual income.
