@@ -432,5 +432,86 @@ class DirectoryApiTests(unittest.TestCase):
             self.assertEqual(captured["status"], "403 Forbidden")
             self.assertIn("Local access only", page)
 
+    def test_authenticated_key_rotation_challenge_is_scoped_to_principal(self):
+        class FakeRegistry:
+            def begin_key_rotation(self, participant_id, new_public_key):
+                self.args = (participant_id, new_public_key)
+                return {"challenge_id": "challenge-1", "challenge": "sign-this",
+                        "expires_at": "later", "signature_encoding": "base64url"}
+        class FakeAuthenticator:
+            def authenticate(self, participant_id, method, path, body, timestamp, nonce, signature):
+                self.args = (participant_id, method, path, body)
+                return {"participant_id": participant_id}
+        registry, auth = FakeRegistry(), FakeAuthenticator()
+        app = DirectoryApplication(self.catalog, registry=registry, authenticator=auth)
+        raw = json.dumps({"new_public_key": "encoded-key"}).encode()
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        environ = {"REQUEST_METHOD": "POST",
+                   "PATH_INFO": "/v1/participants/me/key-rotation-challenges",
+                   "QUERY_STRING": "", "CONTENT_LENGTH": str(len(raw)),
+                   "wsgi.input": __import__("io").BytesIO(raw),
+                   "HTTP_X_AAE_PARTICIPANT": "human_1", "HTTP_X_AAE_TIMESTAMP": "1800000000",
+                   "HTTP_X_AAE_NONCE": "abcdefghijklmnop", "HTTP_X_AAE_SIGNATURE": "signed"}
+        body = json.loads(b"".join(app(environ, start_response)))
+        self.assertEqual(captured["status"], "201 Created")
+        self.assertEqual(registry.args, ("human_1", "encoded-key"))
+        self.assertEqual(body["required_signatures"], "current_and_new_key")
+        self.assertIn("sign-this", json.dumps(body))
+        self.assertEqual(auth.args[2], "/v1/participants/me/key-rotation-challenges")
+
+    def test_authenticated_key_rotation_completion_uses_authenticated_participant(self):
+        class FakeRegistry:
+            def get(self, participant_id):
+                return {"participant_id": participant_id, "status": "active"}
+            def complete_key_rotation(self, challenge_id, old_signature, new_signature,
+                                      *, expected_participant_id):
+                self.args = (challenge_id, old_signature, new_signature, expected_participant_id)
+                return {"participant_id": expected_participant_id,
+                        "public_key": "new-public-key"}
+        class FakeAuthenticator:
+            def authenticate(self, participant_id, method, path, body, timestamp, nonce, signature):
+                return {"participant_id": participant_id}
+        registry = FakeRegistry()
+        app = DirectoryApplication(self.catalog, registry=registry,
+                                   authenticator=FakeAuthenticator())
+        raw = json.dumps({"challenge_id": "c1", "old_signature": "old-proof",
+                          "new_signature": "new-proof"}).encode()
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        environ = {"REQUEST_METHOD": "POST",
+                   "PATH_INFO": "/v1/participants/me/key-rotations",
+                   "QUERY_STRING": "", "CONTENT_LENGTH": str(len(raw)),
+                   "wsgi.input": __import__("io").BytesIO(raw),
+                   "HTTP_X_AAE_PARTICIPANT": "human_7", "HTTP_X_AAE_TIMESTAMP": "1800000000",
+                   "HTTP_X_AAE_NONCE": "abcdefghijklmnop", "HTTP_X_AAE_SIGNATURE": "signed"}
+        body = json.loads(b"".join(app(environ, start_response)))
+        self.assertEqual(captured["status"], "200 OK")
+        self.assertEqual(registry.args, ("c1", "old-proof", "new-proof", "human_7"))
+        self.assertTrue(body["key_bound"])
+        self.assertNotIn("new-public-key", json.dumps(body))
+
+    def test_key_rotation_rejects_unknown_fields(self):
+        class NeverAuthenticate:
+            def authenticate(self, *_args):
+                raise AssertionError("authentication is expected before JSON validation")
+        app = DirectoryApplication(self.catalog, registry=object(),
+                                   authenticator=NeverAuthenticate())
+        raw = b'{"new_public_key":"key","participant_id":"victim"}'
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        environ = {"REQUEST_METHOD": "POST",
+                   "PATH_INFO": "/v1/participants/me/key-rotation-challenges",
+                   "QUERY_STRING": "", "CONTENT_LENGTH": str(len(raw)),
+                   "wsgi.input": __import__("io").BytesIO(raw),
+                   "HTTP_X_AAE_PARTICIPANT": "human_1", "HTTP_X_AAE_TIMESTAMP": "1800000000",
+                   "HTTP_X_AAE_NONCE": "abcdefghijklmnop", "HTTP_X_AAE_SIGNATURE": "signed"}
+        body = json.loads(b"".join(app(environ, start_response)))
+        self.assertEqual(captured["status"], "400 Bad Request")
+        self.assertEqual(body, {"error": "invalid_key_rotation_fields"})
+
 if __name__ == "__main__":
     unittest.main()
