@@ -125,6 +125,21 @@ class IdentityTests(unittest.TestCase):
         )
         self.assertEqual(rotated["public_key"], new_key)
 
+    def test_key_challenge_quota_is_persistent_and_scoped_by_operation(self):
+        person = self.registry.create_human("quota-user", "Quota User")
+        participant_id = person["participant_id"]
+        keys = [
+            base64.urlsafe_b64encode(bytes([i]) * 32).decode().rstrip("=")
+            for i in range(1, 8)
+        ]
+        for key in keys[:5]:
+            self.registry.begin_key_binding(participant_id, key)
+        from economy.identity import ParticipantRateLimitExceeded
+        with self.assertRaises(ParticipantRateLimitExceeded):
+            self.registry.begin_key_binding(participant_id, keys[5])
+        other = self.registry.create_human("quota-other", "Quota Other")
+        self.registry.begin_key_binding(other["participant_id"], keys[5])
+
     def test_emergency_account_lock_suspends_and_invalidates_pending_challenges(self):
         person = self.registry.create_human("lock-me", "Lock Me")
         key = base64.urlsafe_b64encode(b"l" * 32).decode().rstrip("=")
