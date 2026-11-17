@@ -4,7 +4,9 @@ Last reviewed: 2026-11-17
 
 ## Shipped local prototype foundations
 
-- Deterministic specialist agents, task controller, simulated append-only ledger and persistent SQLite task queue/one-shot worker. Worker claims are restricted to exact registered agent IDs; each claim receives a rotating secret lease token, completion/failure checks token ownership and lease expiry, and terminal transitions revoke the token. Default built-in handlers now require Bubblewrap (`bwrap`) and fail closed if it is unavailable. The child runs with unshared namespaces (including network), all Linux capabilities dropped, UID/GID 65534 inside the namespace, a minimal environment, read-only runtime mounts, hidden home directories, temporary `/tmp` and `/work`, a fixed handler allowlist, a wall-clock timeout and inherited POSIX CPU-time, address-space, file-size and file-descriptor limits. The worker checks for Bubblewrap before claiming a task, so missing isolation leaves queued work untouched. This is a meaningful Linux namespace boundary for the trusted built-in deterministic handlers, but not yet a complete hostile-code sandbox: there are no cgroup-level memory/CPU quotas, no seccomp syscall profile, and kernel/container escape risk remains. The unprivileged namespace identity and inherited rlimits are defense-in-depth, not a certification for hostile code. Injected custom registries still run in-process and must not contain untrusted code.
+- Deterministic specialist agents, task controller, simulated append-only ledger and persistent SQLite task queue/one-shot worker. Worker claims are restricted to exact registered agent IDs; each claim receives a rotating secret lease token, completion/failure checks token ownership and lease expiry, and terminal transitions revoke the token.
+- Default built-in handlers require Bubblewrap (`bwrap`) and fail closed if it is unavailable. The child runs with unshared namespaces (including network), all Linux capabilities dropped, UID/GID 65534 inside the namespace, a minimal environment, read-only runtime mounts, hidden home directories, temporary `/tmp` and `/work`, a fixed handler allowlist, a wall-clock timeout, and inherited POSIX CPU-time, address-space, file-size and file-descriptor limits. The worker checks for Bubblewrap before claiming a task, so missing isolation leaves queued work untouched.
+- This is a meaningful Linux namespace boundary for the trusted built-in deterministic handlers, not a complete hostile-code sandbox. There are no cgroup-level memory/CPU quotas or seccomp syscall profile, and kernel/container escape risk remains. The unprivileged namespace identity and inherited rlimits are defense-in-depth, not certification for hostile code. Injected custom registries still run in-process and must not contain untrusted code.
 - Evidence-first opportunity validation, public research discovery leads, source retrieval/review, opportunity prioritization and unit-economics scenarios.
 - Shared Brain and evidence-linked collective-learning proposals with owner review.
 - Human, agent and organization participant records; Ed25519 agent enrollment, human/organization signing-key proof of possession, dual-proof key rotation and retired-key history.
@@ -23,7 +25,7 @@ Last reviewed: 2026-11-17
 
 - No public participant registration, public marketplace deployment, authenticated participant API, marketplace website, or external search indexing. The local read-only directory is not a public service.
 - No production authentication/session system, WebAuthn/passkeys, lost-key recovery, remote credential/DID verification, KYC provider or abuse/Sybil controls.
-- No always-on hosted scheduler/worker, distributed queue, fully hardened hostile-code sandbox (dedicated unprivileged identity, memory/CPU quotas and defense-in-depth), autonomous model routing or continuous offline agent team. The default worker requires Bubblewrap and may remain unavailable on hosts where user namespaces are disabled.
+- No always-on hosted scheduler/worker, distributed queue, cgroup-enforced resource quotas, seccomp syscall profile, hostile-code sandbox, autonomous model routing or continuous offline agent team. The default worker requires Bubblewrap and may remain unavailable on hosts where user namespaces are disabled.
 - No production owner console, remote issuer authentication, unified external-action gateway, hardened key management or tamper-proof audit store.
 - No independent evidence verification, appeal workflow, formal dispute policy, legal contract workflow, refunds or settlement.
 - No live customer acquisition or confirmed paying customer. Simulated demo revenue is not actual income.
@@ -41,12 +43,13 @@ Last reviewed: 2026-11-17
 
 ## Next engineering sequence
 
-1. Finish regression/security review of the local marketplace lifecycle and authorization boundaries, including explicit participant-to-task assignment.
-2. Finish lost-key recovery policy and strengthen audit integrity.
-3. Design production authentication, public API, rate limits, abuse handling and privacy boundaries before exposing registration or discovery.
-4. Build a browser/mobile-friendly owner and participant console for the sandbox marketplace.
-5. Add independent work verification, dispute responses, appeals and task amendment workflows.
-6. Add durable scheduled workers and isolated execution only after sandbox and cost controls.
-7. Validate one real, legally permitted paying-customer workflow before considering live payment integrations or scaling.
+1. Complete regression/security review of the local marketplace lifecycle and authorization boundaries, including explicit participant-to-task assignment.
+2. Define and test lost-key recovery policy; strengthen audit integrity.
+3. Add cgroup-enforced resource ceilings and a carefully tested seccomp profile before considering hostile-code execution.
+4. Design production authentication, public API, rate limits, abuse handling and privacy boundaries before exposing registration or discovery.
+5. Build a browser/mobile-friendly owner and participant console for the sandbox marketplace.
+6. Add independent work verification, dispute responses, appeals and task amendment workflows.
+7. Add durable scheduled workers only after sandbox and cost controls are independently reviewed.
+8. Validate one real, legally permitted paying-customer workflow before considering live payment integrations or scaling.
 
 This status distinguishes local prototype code from the future open economy. A committed module is not the same as a deployed, secure or revenue-producing service.
