@@ -84,6 +84,10 @@ economy-supervisor --data-dir ./data
 
 This requires configured Cloudflare Workers AI credentials. The supervisor runs the AI lane separately from the no-network sandbox; the agent cannot publish or contact customers. See `docs/ai-product-copy-agent.md` and `docs/ai-model-runtime.md`.
 
+## Private Cloudflare worker pilot
+
+A deployable Cloudflare Worker now provides a separate five-minute scheduled AI product-copy lane using Workers AI and D1. It is private behind an owner bearer token, has a 6,500-estimated-neuron daily cap, and can queue and draft product listings. It cannot publish, upload products, contact customers, or move money. The worker is source/configuration only and has **not** been deployed to a Cloudflare account. See `docs/cloudflare-private-worker.md` for the free-plan limits, setup and deployment steps.
+
 ## First agent-earned revenue
 
 The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval once properly configured. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
