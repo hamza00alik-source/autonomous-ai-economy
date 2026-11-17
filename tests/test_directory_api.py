@@ -266,7 +266,7 @@ class DirectoryApiTests(unittest.TestCase):
             captured["status"] = status
         body = json.loads(b"".join(app({
             "REQUEST_METHOD": "GET", "PATH_INFO": "/v1/local/owner/overview",
-            "QUERY_STRING": "",
+            "QUERY_STRING": "", "REMOTE_ADDR": "127.0.0.1",
         }, start_response)))
         self.assertEqual(captured["status"], "200 OK")
         self.assertEqual(body["participants"]["human"]["active"], 2)
@@ -276,6 +276,25 @@ class DirectoryApiTests(unittest.TestCase):
         serialized = json.dumps(body)
         self.assertNotIn("participant_id", serialized)
         self.assertNotIn("private", serialized)
+
+    def test_local_owner_overview_denies_non_loopback_clients(self):
+        class FakeRegistry:
+            def summary_counts(self):
+                raise AssertionError("must not query owner data for remote clients")
+        class FakeTasks:
+            def summary_counts(self):
+                raise AssertionError("must not query owner data for remote clients")
+        app = DirectoryApplication(self.catalog, registry=FakeRegistry(),
+                                   task_store=FakeTasks())
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        body = json.loads(b"".join(app({
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/v1/local/owner/overview",
+            "QUERY_STRING": "", "REMOTE_ADDR": "203.0.113.10",
+        }, start_response)))
+        self.assertEqual(captured["status"], "403 Forbidden")
+        self.assertEqual(body, {"error": "local_access_only"})
 
 if __name__ == "__main__":
     unittest.main()
