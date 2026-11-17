@@ -106,6 +106,8 @@ class DirectoryApplication:
             return self._begin_participant_key_rotation(environ, start_response)
         if method == "POST" and path == "/v1/participants/me/key-rotations":
             return self._complete_participant_key_rotation(environ, start_response)
+        if method == "POST" and path == "/v1/participants/me/security-lock":
+            return self._lock_participant_account(environ, start_response)
         if method == "POST" and path == "/v1/tasks/offers":
             return self._create_task_offer(environ, start_response)
         if method == "POST" and path.startswith("/v1/tasks/") and path.endswith("/responses"):
@@ -133,6 +135,32 @@ class DirectoryApplication:
                 return self._task_agreement_detail(environ, start_response, task_id)
         if path == "/v1/tasks/mine":
             return self._my_tasks(environ, start_response)
+        if path == "/v1/participants/me/security-events":
+            if environ.get("QUERY_STRING", ""):
+                return self._response(start_response, "400 Bad Request",
+                                      {"error": "query_parameters_not_supported"})
+            if self.registry is None:
+                return self._response(start_response, "503 Service Unavailable",
+                                      {"error": "participant_security_events_unavailable"})
+            principal, error = self._authenticated_get_principal(
+                environ, start_response, path
+            )
+            if error is not None:
+                return error
+            try:
+                events = self.registry.security_events(principal["participant_id"])
+                items = [{
+                    "event_id": item["event_id"],
+                    "event_type": item["event_type"],
+                    "occurred_at": item["occurred_at"],
+                } for item in events]
+            except Exception:
+                return self._response(start_response, "503 Service Unavailable",
+                                      {"error": "participant_security_events_temporarily_unavailable"})
+            return self._response(start_response, "200 OK", {
+                "participant_id": principal["participant_id"],
+                "items": items, "count": len(items),
+            })
         if path == "/v1/participants/me/keys":
             if environ.get("QUERY_STRING", ""):
                 return self._response(start_response, "400 Bad Request",
@@ -414,6 +442,35 @@ class DirectoryApplication:
         except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
             return None, None, self._response(start_response, "400 Bad Request",
                                                {"error": "invalid_json_body"})
+
+    def _lock_participant_account(self, environ, start_response):
+        if self.registry is None:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "participant_security_lock_unavailable"})
+        path = "/v1/participants/me/security-lock"
+        principal, body, error = self._signed_json_body(environ, start_response, path)
+        if error is not None:
+            return error
+        if body != {"confirm": "LOCK_ACCOUNT"}:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "explicit_lock_confirmation_required"})
+        try:
+            locked = self.registry.emergency_lock_account(principal["participant_id"])
+        except KeyError:
+            return self._response(start_response, "404 Not Found",
+                                  {"error": "participant_not_found"})
+        except ValueError:
+            return self._response(start_response, "409 Conflict",
+                                  {"error": "participant_not_active"})
+        except Exception:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "participant_security_lock_temporarily_unavailable"})
+        return self._response(start_response, "202 Accepted", {
+            "participant_id": locked["participant_id"],
+            "status": locked["status"],
+            "locked_at": locked["locked_at"],
+            "notice": "Account access is suspended. There is no self-service unlock."
+        })
 
     def _begin_participant_key_rotation(self, environ, start_response):
         if self.registry is None:
