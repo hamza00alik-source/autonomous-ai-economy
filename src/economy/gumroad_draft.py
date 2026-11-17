@@ -96,6 +96,7 @@ def prepare_gumroad_draft(
         "--currency", "usd",
         "--description", description,
         "--custom-summary", listing["short_description"],
+        "--category", "3d",
         "--draft",
         "--file", str(bundle_path),
         "--file-name", bundle_path.name,
