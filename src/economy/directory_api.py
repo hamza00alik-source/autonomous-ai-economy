@@ -111,6 +111,9 @@ class DirectoryApplication:
         if path == "/v1/tasks/mine":
             return self._my_tasks(environ, start_response)
         if path == "/v1/participants/me":
+            if environ.get("QUERY_STRING", ""):
+                return self._response(start_response, "400 Bad Request",
+                                      {"error": "query_parameters_not_supported"})
             if self.registry is None or self.authenticator is None:
                 return self._response(start_response, "503 Service Unavailable",
                                       {"error": "authenticated_profile_unavailable"})
@@ -310,8 +313,14 @@ class DirectoryApplication:
             timestamp = int(environ.get("HTTP_X_AAE_TIMESTAMP", ""))
             nonce = environ.get("HTTP_X_AAE_NONCE", "")
             signature = environ.get("HTTP_X_AAE_SIGNATURE", "")
+            # Bind the exact raw query string into the signature. Otherwise a
+            # valid signature for one filter/limit could be replayed with another.
+            request_target = "/v1/tasks/mine"
+            raw_query = environ.get("QUERY_STRING", "")
+            if raw_query:
+                request_target += "?" + raw_query
             principal = self.authenticator.authenticate(
-                participant_id, "GET", "/v1/tasks/mine", body, timestamp, nonce, signature
+                participant_id, "GET", request_target, body, timestamp, nonce, signature
             )
             participant = self.registry.get(principal["participant_id"])
             if participant is None:
