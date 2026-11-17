@@ -140,6 +140,30 @@ class IdentityTests(unittest.TestCase):
         other = self.registry.create_human("quota-other", "Quota Other")
         self.registry.begin_key_binding(other["participant_id"], keys[5])
 
+    def test_quota_signals_create_owner_review_case_without_auto_suspension(self):
+        person = self.registry.create_human("review-quota", "Review Quota")
+        participant_id = person["participant_id"]
+        from economy.identity import ParticipantRateLimitExceeded
+        for i in range(6):
+            key = base64.urlsafe_b64encode(bytes([i + 30]) * 32).decode().rstrip("=")
+            try:
+                self.registry.begin_key_binding(participant_id, key)
+            except ParticipantRateLimitExceeded:
+                pass
+        cases = self.registry.list_abuse_review_cases()
+        self.assertEqual(len(cases), 1)
+        self.assertEqual(cases[0]["participant_id"], participant_id)
+        self.assertEqual(cases[0]["operation"], "key_binding_challenge")
+        self.assertEqual(cases[0]["signal_count"], 1)
+        self.assertEqual(self.registry.get(participant_id)["status"], "active")
+        reviewed = self.registry.review_abuse_case(
+            cases[0]["case_id"], decision="monitor", reviewer="local-owner",
+            note="Review signals; no automatic enforcement.",
+        )
+        self.assertEqual(reviewed["status"], "reviewed")
+        self.assertEqual(reviewed["decision"], "monitor")
+        self.assertEqual(self.registry.list_abuse_review_cases(), [])
+
     def test_emergency_account_lock_suspends_and_invalidates_pending_challenges(self):
         person = self.registry.create_human("lock-me", "Lock Me")
         key = base64.urlsafe_b64encode(b"l" * 32).decode().rstrip("=")
