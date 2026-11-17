@@ -43,7 +43,7 @@ def test_game_asset_pack_contains_real_glb_geometry(tmp_path):
             data = archive.read(item["path"])
             assert len(data) == item["size_bytes"]
             assert hashlib.sha256(data).hexdigest() == item["sha256"]
-        assert "MOBAObjectiveProps.tscn" in names
+        assert "godot/MOBAObjectiveProps.tscn" in names
         scene = archive.read("godot/MOBAObjectiveProps.tscn").decode("utf-8")
         assert "ExtResource" in scene
         assert "PackedScene" in scene
