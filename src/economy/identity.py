@@ -255,7 +255,6 @@ class ParticipantRegistry:
         challenge = "AAE-AGENT-ENROLL-V1:" + secrets.token_urlsafe(32)
         expires = _iso(_now() + timedelta(seconds=self.challenge_ttl_seconds))
         with self._connect() as db:
-            self._consume_operation_quota(db, participant_id, "key_binding_challenge")
             if self._key_used_in_history(db, public_key):
                 raise ValueError("public key has already appeared in participant key history")
             if operator_id:
@@ -318,6 +317,7 @@ class ParticipantRegistry:
         challenge = "AAE-PARTICIPANT-KEY-BIND-V1:" + secrets.token_urlsafe(32)
         expires = _iso(_now() + timedelta(seconds=self.challenge_ttl_seconds))
         with self._connect() as db:
+            self._consume_operation_quota(db, participant_id, "key_binding_challenge")
             if self._key_used_in_history(db, public_key):
                 raise ValueError("public key has already appeared in participant key history")
             row = db.execute(
