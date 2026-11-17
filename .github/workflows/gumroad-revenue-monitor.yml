@@ -1,0 +1,60 @@
+name: Gumroad revenue and payout monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gumroad-revenue-monitor
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install report tool
+        run: python -m pip install -e .
+      - name: Download and verify official Gumroad CLI
+        run: |
+          set -euo pipefail
+          version="v0.20261106.1"
+          base="https://github.com/antiwork/gumroad-cli/releases/download/$version"
+          curl -fsSL "$base/checksums.txt" -o checksums.txt
+          curl -fsSL "$base/gumroad-cli_linux_amd64.tar.gz" -o gumroad-cli_linux_amd64.tar.gz
+          grep 'gumroad-cli_linux_amd64.tar.gz$' checksums.txt | sha256sum --check -
+          mkdir -p gumroad-cli-extracted
+          tar -xzf gumroad-cli_linux_amd64.tar.gz -C gumroad-cli-extracted
+          binary="$(find gumroad-cli-extracted -type f -name gumroad -perm -u+x -print -quit)"
+          test -n "$binary"
+          sudo install -m 0755 "$binary" /usr/local/bin/gumroad
+      - name: Fetch aggregate sales and payout records
+        env:
+          GUMROAD_ACCESS_TOKEN: ${{ secrets.GUMROAD_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GUMROAD_ACCESS_TOKEN"
+          gumroad sales summary --json --no-input --quiet > sales-summary.json
+          gumroad payouts list --all --json --no-input --quiet > payouts.json
+      - name: Build privacy-minimal reconciliation report
+        run: python tools/build_gumroad_revenue_report.py --sales sales-summary.json --payouts payouts.json --output revenue-report.json
+      - name: Upload aggregate report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gumroad-revenue-report
+          path: revenue-report.json
+          if-no-files-found: error
+          retention-days: 90
