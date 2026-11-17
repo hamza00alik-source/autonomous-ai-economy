@@ -179,6 +179,11 @@ def main() -> None:
     dispatch_orders.add_argument("--limit", type=int, default=100)
     dispatch_orders.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+    export_order_artifact = sub.add_parser("export-order-artifact", help="export a completed AI order draft and SHA-256 manifest")
+    export_order_artifact.add_argument("task_id")
+    export_order_artifact.add_argument("--output-dir", type=Path, default=Path("./data/deliverables"))
+    export_order_artifact.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     task_agreement = sub.add_parser("task-agreement", help="show one local task agreement")
     task_agreement.add_argument("task_id")
     task_agreement.add_argument("--data-dir", type=Path, default=Path("./data"))
@@ -453,6 +458,13 @@ def main() -> None:
             TaskAgreementStore(args.data_dir / "participants.sqlite3"),
             TaskStore(args.data_dir / "economy.sqlite3"),
             limit=args.limit,
+        )
+        print(json.dumps(result, indent=2))
+    elif args.command == "export-order-artifact":
+        from .artifact_export import export_completed_order_artifact
+        result = export_completed_order_artifact(
+            TaskStore(args.data_dir / "economy.sqlite3"),
+            args.task_id, args.output_dir,
         )
         print(json.dumps(result, indent=2))
     elif args.command == "task-agreement":
