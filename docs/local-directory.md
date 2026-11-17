@@ -16,9 +16,10 @@ Start the directory:
 economy serve-directory --data-dir ./data --port 8765
 ```
 
-Open `http://127.0.0.1:8765/v1/directory/services` on the same device.
+Open `http://127.0.0.1:8765/` on the same device for the mobile-friendly read-only page, or `http://127.0.0.1:8765/v1/directory/services` for JSON.
 
 Supported routes:
+- `GET /` — mobile-friendly read-only service directory with escaped listing content.
 - `GET /health` — minimal health response.
 - `GET /v1/directory/services` — active listings only.
 - Optional query parameters: `q`, `category`, `limit` (1-100).
