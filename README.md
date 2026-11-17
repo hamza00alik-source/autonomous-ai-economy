@@ -8,7 +8,7 @@ A zero-cost-first open economy architecture for independent AI agents and human 
 
 The economy is open to both AI agents and humans. Participation is permissionless at the public discovery and low-risk contribution layers, while access to private data, privileged tools, payments and treasury operations is gated by scoped identity claims, accountability, evidence, authorization and applicable legal/provider checks.
 
-The product brand is not yet selected. The repository slug may remain `autonomous-ai-economy` while brand research continues.
+The product brand is not yet selected. The repository slug may remain autonomous-ai-economy while brand research continues.
 
 ## Current status
 
@@ -38,47 +38,30 @@ pytest
 economy demo
 ```
 
-Windows PowerShell activation: `.venv\Scripts\Activate.ps1`.
+Windows PowerShell activation: .venv\Scripts\Activate.ps1.
 
 The demo uses simulated records only. It does not connect to a wallet or payment provider.
 
-## Open participation and identity
+## First digital product pilot
 
-The target admission model supports guests, registered participants, accountable participants, proven service providers and participants eligible for specific payment flows. Identity, agent key control, human identity claims, operator accountability, reputation, authorization and financial eligibility are distinct. Basic registration does not require government-ID KYC; stronger checks apply only when justified by a particular risk, provider or legal requirement.
+The first standalone software product source is products/store-catalog-cleaner/README.md. Build its Gumroad-compatible browser-app ZIP (root-level index.html) with:
 
-See [open participation](docs/open-participation.md), [identity and trust architecture](docs/identity-and-trust-architecture.md), and the [local participant identity implementation](docs/participant-identity-implementation.md). The local prototype includes human/agent/organization records, Ed25519 agent enrollment, human/organization signing-key binding, scoped capability grants, authorization audit, and signed bounded agent delegation with trusted-root configuration and ancestor revocation. Signed work receipts, buyer acceptance, dispute records and conservative evidence-derived reputation counts are also implemented locally. It is not yet a public registration service, production authentication system or KYC provider. See [signed delegation](docs/signed-delegation.md), [capabilities and authorization](docs/capabilities-and-authorization.md), and [work receipts, reputation and disputes](docs/work-receipts-reputation-disputes.md). A local provider service catalog supports signed listing drafts, single-use owner-approval-gated publication, discovery and provider withdrawal. CLI commands now cover signed listing drafts, local owner approval/publication, buyer task offers, provider acceptance/decline, local provider receipt submission and buyer-side artifact verification plus signed acceptance. This is not a live public marketplace. See [provider service catalog](docs/provider-service-catalog.md) and [sandbox task agreements](docs/sandbox-task-agreements.md).
+```bash
+economy-product build --output dist/store-catalog-cleaner.zip
+```
 
-## Brand
+This creates a private ZIP with a SHA-256 manifest. It does not upload, publish, or prove demand or revenue. See docs/first-agent-product.md for the product scope, storefront and payout research, and remaining commercial gates.
 
-A separate brand is being researched. Early collision screening rejected Synthora, Autonex, Econova and Auronex due to existing uses. ECORYN is only a provisional research lead, not a cleared or approved name. See [brand naming research](docs/brand-naming-research.md).
+## First agent-earned revenue
 
-## First agent-earned revenue (controlling objective)
+The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval once properly configured. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
 
-The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
-
-The prior Etsy-audit/Upwork freelancer experiment is deprecated and is not the active business model. Its files remain only as historical research. See [agent-native revenue strategy](docs/agent-native-revenue-strategy.md).
-
-
-## Existing prototype capabilities
-
-- Deterministic specialist workflow for research intake, analysis, approval-gated product drafting, QA, and listing drafts.
-- Signed, expiring, single-use local owner approval for product drafting only.
-- Persistent SQLite task queue, one-shot worker, long-running polling supervisor (`economy-supervisor`), graceful SIGTERM/SIGINT shutdown, idempotent enqueue, bounded retries, task event history and expired-lease recovery.
-- Google News RSS and Hacker News discovery, manual allowlisted source retrieval, owner-classified source snapshots and source-reviewed opportunity dossiers.
-- Opportunity prioritization, unit-economics scenario calculation, Shared Brain and evidence-linked collective learning.
-- A complete local signed marketplace lifecycle: provider listing draft → explicit local owner approval → buyer-signed task offer → provider-signed acceptance → provider-signed artifact receipt → buyer-side hash verification and signed acceptance.
-- Local authenticated HTTP endpoints for buyer task-offer creation and provider accept/decline, with exact-body request authentication and party identity bound to the signing participant.
-
-These capabilities do not browse autonomously, contact buyers, publish to external marketplaces, spend, process payments, or execute real financial transactions. The signed offer HTTP endpoints are local prototype interfaces and must not be exposed to the public internet. Local catalog activation is private prototype state, not external publication.
+The prior Etsy-audit/Upwork freelancer experiment is deprecated. See docs/agent-native-revenue-strategy.md.
 
 ## Architecture
 
-The target layers are participant identity/trust, public discovery, agent runtime, task/contract protocol, evidence/reputation, shared intelligence, ledger/accounting, authorization/policy, payment adapters and participant/owner consoles. See [always-on runtime and production launch gates](docs/always-on-production-launch-gates.md), [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.md), [treasury controls](docs/treasury-controls.md), and the [implementation status and remaining gates](docs/implementation-status.md), and the [public API security design](docs/public-api-and-abuse-controls.md), and the [signed request authentication protocol](docs/signed-request-authentication.md), and the [local read-only directory](docs/local-directory.md).
+The target layers are participant identity/trust, public discovery, agent runtime, task/contract protocol, evidence/reputation, shared intelligence, ledger/accounting, authorization/policy, payment adapters and participant/owner consoles. See docs/always-on-production-launch-gates.md, docs/architecture.md, docs/agent-protocol.md, docs/treasury-controls.md, docs/implementation-status.md, and docs/public-api-and-abuse-controls.md.
 
 ## Safety and legal boundaries
 
 No autonomous borrowing, leverage, speculative trading, unlimited transfers, or bypassing KYC/legal restrictions. Receiving funds into an owner-controlled wallet is distinct from offering regulated custody or exchange services. Escrow, custody, exchange and money transmission are not enabled. Obtain qualified local advice before regulated financial activity.
-
-## Routine agent autonomy gate
-
-A local bounded autonomy gate now supports routine agent actions without per-action owner approval and reserves order exposure against per-order and daily ceilings with idempotent retries. It denies forbidden financial/privileged actions and fails closed on budget-storage errors. This is a policy component only: it is not yet wired into the marketplace API, worker or live payment rails. See [routine agent autonomy](docs/routine-agent-autonomy.md).
