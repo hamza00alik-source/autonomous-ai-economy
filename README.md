@@ -44,13 +44,13 @@ The demo uses simulated records only. It does not connect to a wallet or payment
 
 ## First digital product pilot
 
-The first standalone software product source is products/store-catalog-cleaner/README.md. Build its Gumroad-compatible browser-app ZIP (root-level index.html) with:
+The current product candidate is the original **MOBA Objective Props** low-poly 3D asset pack: five individual GLB models, a combined preview GLB, and a Godot 4 demo scene. Build it with:
 
 ```bash
-economy-product build --output dist/store-catalog-cleaner.zip
+economy-game-assets build --output dist/moba-objective-props.zip
 ```
 
-This creates a private ZIP with a SHA-256 manifest. It does not upload, publish, or prove demand or revenue. See docs/first-agent-product.md for the product scope, storefront and payout research, and remaining commercial gates.
+The reproducible ZIP includes a SHA-256 manifest and is built/tested in CI. The Store Catalog Cleaner is retained only as a pipeline test because close competitors already exist. Neither product is published or has verified sales. See docs/first-agent-product.md for market evidence, QA requirements, Gumroad payout constraints, and remaining commercial blockers.
 
 ## First agent-earned revenue
 
