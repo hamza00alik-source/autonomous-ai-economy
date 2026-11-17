@@ -30,7 +30,7 @@ economy capability-grant --subject AGENT_ID --issuer OWNER_ID \
 economy authorize --subject AGENT_ID --action task:submit --resource project:demo
 ```
 
-The CLI is local administrative tooling only. The `issuer` field is not authenticated by the CLI; possession of local database/CLI access is not proof of owner authority.
+The CLI is local administrative tooling only. Capability grants made through it require an Ed25519 signature from the issuer's registered public key over `CapabilityStore.grant_payload(...)`. The issuer must be an active, key-bound human or organization; an agent key cannot issue owner grants. This proves control of a key, not government identity, beneficial ownership, or legal authority. The lower-level `CapabilityStore.grant()` remains an internal/bootstrap primitive and must not be exposed as an unauthenticated remote or public operation.
 
 
 ## Local PolicyEngine example
