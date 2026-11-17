@@ -24,8 +24,9 @@ const draft = {
 };
 
 test("Workers AI output adapter extracts documented and OpenAI-compatible text shapes", () => {
-  assert.equal(extractModelText({ response: "{\\"ok\\":true}" }), "{\\"ok\\":true}");
-  assert.equal(extractModelText({ choices: [{ message: { content: "{\\"ok\\":true}" } }] }), "{\\"ok\\":true}");
+  const json = JSON.stringify({ ok: true });
+  assert.equal(extractModelText({ response: json }), json);
+  assert.equal(extractModelText({ choices: [{ message: { content: json } }] }), json);
   assert.equal(extractModelText({ choices: [{ text: "plain text" }] }), "plain text");
   assert.equal(extractModelText({ output_text: "output text" }), "output text");
   assert.equal(extractModelText({ response: [{ type: "text", text: "part one" }, { type: "text", text: "part two" }] }), "part onepart two");
