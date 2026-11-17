@@ -68,6 +68,8 @@ def test_draft_creation_dry_runs_then_creates_unpublished_product(tmp_path):
     assert "--dry-run" in calls[0]
     assert "--draft" in calls[0]
     assert "--draft" in calls[1]
+    assert "--category" in calls[1]
+    assert calls[1][calls[1].index("--category") + 1] == "3d"
     assert "--file" in calls[1]
     assert result["published"] is False
     assert result["product_id"] == "prod-123"
