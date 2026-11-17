@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$GUMROAD_ACCESS_TOKEN"
-          gumroad sales summary --json --no-input --quiet > sales-summary.json
+          gumroad sales summary --group-by product --json --no-input --quiet > sales-summary.json
           gumroad payouts list --all --json --no-input --quiet > payouts.json
       - name: Build privacy-minimal reconciliation report
         run: python tools/build_gumroad_revenue_report.py --sales sales-summary.json --payouts payouts.json --output revenue-report.json
