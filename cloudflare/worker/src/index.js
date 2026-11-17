@@ -212,9 +212,9 @@ async function createNowPaymentsInvoice(request, env, storeOrder = null) {
 
   const now = new Date().toISOString();
   const reservation = await env.DB.prepare(
-    "INSERT OR IGNORE INTO crypto_payment_invoices (order_id,provider,price_amount,price_currency,status,product_id,buyer_token_hash,created_at,updated_at) VALUES (?,'nowpayments',?,'usd','creating',?,?,?,?)"
+    "INSERT OR IGNORE INTO crypto_payment_invoices (order_id,provider,price_amount,price_currency,status,product_id,buyer_token_hash,agent_id,created_at,updated_at) VALUES (?,'nowpayments',?,'usd','creating',?,?,?,?,?)"
   ).bind(body.order_id, amountText, storeOrder?.productId || "manual",
-    storeOrder?.buyerTokenHash || null, now, now).run();
+    storeOrder?.buyerTokenHash || null, storeOrder?.agentId || "unassigned", now, now).run();
   if (reservation.meta?.changes !== 1) {
     const raced = await env.DB.prepare(
       "SELECT order_id,invoice_id,checkout_url,status FROM crypto_payment_invoices WHERE order_id=?"
@@ -297,7 +297,7 @@ async function nowPaymentsIPN(request, env) {
   if (duplicate) return json({ accepted: true, duplicate: true }, 200);
 
   const row = await env.DB.prepare(
-    "SELECT order_id,invoice_id,price_amount,price_currency,status FROM crypto_payment_invoices WHERE order_id=?"
+    "SELECT order_id,invoice_id,price_amount,price_currency,status,product_id,agent_id FROM crypto_payment_invoices WHERE order_id=?"
   ).bind(orderId).first();
   const now = new Date().toISOString();
   let normalized = paymentStatusFromWebhook(payload);
@@ -326,19 +326,40 @@ async function nowPaymentsIPN(request, env) {
     payload.actually_paid === undefined ? null : String(payload.actually_paid),
     payload.pay_currency === undefined ? null : String(payload.pay_currency).toLowerCase(),
     now, orderId).run();
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO crypto_payment_events (event_hash,order_id,invoice_id,payment_id,provider_status,normalized_status,received_at) VALUES (?,?,?,?,?,?,?)"
-  ).bind(eventHash, orderId, invoiceId, paymentId, providerStatus, normalized, now).run();
   const updated = await env.DB.prepare(
     "SELECT status FROM crypto_payment_invoices WHERE order_id=?"
   ).bind(orderId).first();
   const finalStatus = updated?.status || normalized;
+  if (finalStatus === "settled" && row.agent_id && row.agent_id !== "unassigned") {
+    const grossMinor = Math.round(Number(row.price_amount) * 100);
+    if (Number.isSafeInteger(grossMinor) && grossMinor > 0) {
+      await env.DB.prepare(
+        "INSERT OR IGNORE INTO agent_revenue_events (order_id,agent_id,product_id,gross_amount_minor,gross_currency,provider_payment_id,crypto_received_amount,crypto_currency,provider_outcome_amount,provider_outcome_currency,status,net_amount_minor,net_currency,agent_credit_minor,agent_credit_currency,settled_at,reconciled_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,'settled_pending_reconciliation',NULL,NULL,NULL,NULL,?,NULL,?,?)"
+      ).bind(orderId, row.agent_id, row.product_id, grossMinor, "usd", paymentId,
+        payload.actually_paid === undefined ? null : String(payload.actually_paid),
+        payload.pay_currency === undefined ? null : String(payload.pay_currency).toLowerCase(),
+        payload.outcome_amount === undefined ? null : String(payload.outcome_amount),
+        payload.outcome_currency === undefined ? null : String(payload.outcome_currency).toLowerCase(),
+        now, now, now).run();
+    }
+  }
+  if (finalStatus === "refunded" && row.agent_id && row.agent_id !== "unassigned") {
+    await env.DB.prepare(
+      "UPDATE agent_revenue_events SET status=CASE WHEN status='reconciled' THEN 'refund_review' ELSE 'reversed' END,updated_at=? WHERE order_id=?"
+    ).bind(now, orderId).run();
+  }
+  // Record the callback last. If revenue attribution fails, the provider can retry;
+  // all preceding writes are idempotent and will be safely completed on retry.
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO crypto_payment_events (event_hash,order_id,invoice_id,payment_id,provider_status,normalized_status,received_at) VALUES (?,?,?,?,?,?,?)"
+  ).bind(eventHash, orderId, invoiceId, paymentId, providerStatus, normalized, now).run();
   return json({ accepted: true, order_id: orderId, status: finalStatus,
     settled: finalStatus === "settled" }, 200);
 }
 
 
 const STORE_PRODUCT_ID = "moba-objective-props";
+const STORE_AGENT_ID = "game-asset-builder";
 const STORE_PRODUCT_PRICE_USD = "5.00";
 const STORE_DOWNLOAD_PATH = "/downloads/moba-objective-props.zip";
 const STORE_DOWNLOAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -405,6 +426,7 @@ async function createStoreCheckout(request, env) {
   });
   const invoiceResponse = await createNowPaymentsInvoice(internalRequest, env, {
     productId: STORE_PRODUCT_ID,
+    agentId: STORE_AGENT_ID,
     buyerTokenHash,
     successUrl: successUrl.toString(),
     cancelUrl: cancelUrl.toString(),
@@ -466,6 +488,27 @@ async function downloadStoreProduct(request, env, orderId) {
   const length = asset.headers.get("content-length");
   if (length) headers.set("content-length", length);
   return new Response(asset.body, { status: 200, headers });
+}
+
+
+async function agentRevenue(env, agentId) {
+  const summary = await env.DB.prepare(
+    "SELECT COUNT(*) AS sales_count,COALESCE(SUM(gross_amount_minor),0) AS gross_settled_minor,COALESCE(SUM(CASE WHEN status='settled_pending_reconciliation' THEN gross_amount_minor ELSE 0 END),0) AS awaiting_reconciliation_minor,COALESCE(SUM(CASE WHEN status='reconciled' THEN net_amount_minor ELSE 0 END),0) AS reconciled_net_minor,COALESCE(SUM(CASE WHEN status='reconciled' THEN agent_credit_minor ELSE 0 END),0) AS credited_to_agent_minor FROM agent_revenue_events WHERE agent_id=?"
+  ).bind(agentId).first();
+  const rows = await env.DB.prepare(
+    "SELECT order_id,product_id,gross_amount_minor,gross_currency,provider_payment_id,crypto_received_amount,crypto_currency,provider_outcome_amount,provider_outcome_currency,status,net_amount_minor,net_currency,agent_credit_minor,agent_credit_currency,settled_at,reconciled_at FROM agent_revenue_events WHERE agent_id=? ORDER BY settled_at DESC LIMIT 50"
+  ).bind(agentId).all();
+  return json({
+    agent_id: agentId,
+    sales_count: summary?.sales_count || 0,
+    gross_settled_minor: summary?.gross_settled_minor || 0,
+    awaiting_reconciliation_minor: summary?.awaiting_reconciliation_minor || 0,
+    reconciled_net_minor: summary?.reconciled_net_minor || 0,
+    credited_to_agent_minor: summary?.credited_to_agent_minor || 0,
+    currency: "USD",
+    events: rows.results || [],
+    notice: "Gross receipts are attributed to this internal agent ID. Net proceeds and agent credits remain zero until actual wallet receipt, provider fees, refunds and the owner-approved allocation are reconciled. This ID is not a legal identity or proof of cryptographic participant enrollment."
+  });
 }
 
 async function paymentStatus(env, orderId) {
@@ -585,6 +628,8 @@ export default {
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
+    const revenueMatch = url.pathname.match(new RegExp("^/v1/agents/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})/revenue$"));
+    if (revenueMatch && request.method === "GET") return agentRevenue(env, revenueMatch[1]);
     if (url.pathname === "/v1/tasks/product-copy" && request.method === "POST") return enqueueCopy(request, env);
     if (url.pathname === "/v1/payments/nowpayments/invoices" && request.method === "POST") {
       return createNowPaymentsInvoice(request, env);

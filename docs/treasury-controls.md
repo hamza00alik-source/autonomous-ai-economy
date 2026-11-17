@@ -2,7 +2,7 @@
 
 ## Phase 1: simulation only
 
-The current ledger is a prototype. It does not hold funds, connect to a bank, or submit blockchain transactions.
+The current local append-only ledger is a prototype. It does not hold funds, connect to a bank, or submit blockchain transactions. The private Worker now records gross settled product receipts against the internal `game-asset-builder` producer ID, but net proceeds and agent credits remain null until actual wallet receipt, fees, refunds, taxes and owner-approved allocation are reconciled. See [agent revenue accounting](agent-revenue-accounting.md).
 
 ## Ownership
 
