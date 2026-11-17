@@ -41,3 +41,29 @@ economy verify-audit --data-dir ./data
 ```
 
 It prints a JSON verification report and exits non-zero when verification fails.
+
+
+## Owner-signed external audit checkpoints
+
+The optional `identity` extra provides Ed25519 signing and verification for exported audit checkpoints. The operator supplies an existing PEM private key; the application does not generate, store, or upload private keys. The public key must be distributed and trusted independently by the verifier.
+
+Install the extra and export a checkpoint:
+
+```bash
+python -m pip install -e ".[identity]"
+economy export-audit-checkpoint --private-key /secure/path/owner-private.pem --output /separate/backup/audit-checkpoint.json --data-dir ./data
+```
+
+Verify the exported checkpoint using the independently trusted public key:
+
+```bash
+economy verify-audit-checkpoint /separate/backup/audit-checkpoint.json --public-key /trusted/keys/owner-public.pem
+```
+
+Optionally compare it with the current local database:
+
+```bash
+economy verify-audit-checkpoint /separate/backup/audit-checkpoint.json --public-key /trusted/keys/owner-public.pem --compare-local --data-dir ./data
+```
+
+Checkpoint export refuses an invalid local chain and never overwrites an existing output file. The signed payload includes schema version, timestamp, event count, and chain head. A valid signature proves that the corresponding private key signed those fields; it does not prove the signer is a particular legal person, that the system clock was correct, or that the work recorded in the events was truthful. A checkpoint becomes an independent trust anchor only after the operator stores it outside the database/repository and protects the public-key fingerprint through a separate trusted channel. Losing the private key prevents future checkpoints but does not invalidate already signed checkpoints. Do not commit private keys or place them in CI secrets for this local workflow.
