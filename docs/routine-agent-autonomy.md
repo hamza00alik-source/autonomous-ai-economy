@@ -27,3 +27,10 @@ This reservation is an internal exposure counter only. It does not reserve buyer
 ## Acceptance criteria
 
 Tests prove routine allow without per-action approval, per-order and daily exposure ceilings, idempotent retries, changed-term replay rejection, disabled-profile denial and forbidden-action rejection.
+
+
+## Offer-acceptance integration
+
+`DirectoryApplication` now accepts optional `autonomy_gate` and `autonomy_profiles` dependencies. When a provider has a configured profile, accepting a buyer-signed offer first reserves its exact quoted amount against the agent's per-order and daily exposure limits. A denied budget prevents agreement acceptance; declines are not budgeted. Providers without a configured profile retain the legacy signed-response path, so deployments must configure profiles for every autonomous provider. The profile map is currently supplied at application construction and is not yet provisioned from durable owner-signed policy records.
+
+The API integration still records an agreement only. It does not execute the work, publish listings externally, collect buyer funds or prove settlement.
