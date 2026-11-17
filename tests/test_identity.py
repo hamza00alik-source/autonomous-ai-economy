@@ -163,6 +163,18 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(reviewed["status"], "reviewed")
         self.assertEqual(reviewed["decision"], "monitor")
         self.assertEqual(self.registry.list_abuse_review_cases(), [])
+        with self.assertRaises(ParticipantRateLimitExceeded):
+            self.registry.begin_key_binding(
+                participant_id,
+                base64.urlsafe_b64encode(b"z" * 32).decode().rstrip("="),
+            )
+        reopened = self.registry.list_abuse_review_cases()
+        self.assertEqual(len(reopened), 1)
+        self.assertEqual(reopened[0]["signal_count"], 1)
+        with self.assertRaises(ValueError):
+            self.registry.review_abuse_case(
+                reopened[0]["case_id"], decision="suspend", reviewer="local-owner"
+            )
 
     def test_emergency_account_lock_suspends_and_invalidates_pending_challenges(self):
         person = self.registry.create_human("lock-me", "Lock Me")
