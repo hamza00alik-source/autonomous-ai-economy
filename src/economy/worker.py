@@ -24,7 +24,7 @@ def run_once(store: TaskStore, registry: AgentRegistry | None = None) -> dict | 
     # and executes in-process; it is not an isolation boundary.
     if registry is None:
         ensure_sandbox_available()
-        allowed_ids = ["opportunity-researcher", "verification-auditor"]
+        allowed_ids = ["opportunity-researcher", "verification-auditor", "order-delivery-agent"]
     else:
         allowed_ids = [item["agent_id"] for item in registry.list_agents()]
     task = store.claim(allowed_agent_ids=allowed_ids)
