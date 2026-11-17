@@ -1,8 +1,10 @@
+import base64
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
+from economy.identity import ParticipantRegistry
 from economy.task_store import TaskStore
 from economy.worker import run_once
 
@@ -58,6 +60,36 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual(recovered["attempts"], 2)
         kinds = [e["event_type"] for e in self.store.events(task["task_id"])]
         self.assertIn("lease_expired_retry", kinds)
+
+    def test_verified_agent_participant_receives_scoped_task(self):
+        registry = ParticipantRegistry(Path(self.tmp.name) / "participants.sqlite3")
+        public_key = base64.urlsafe_b64encode(b"a" * 32).decode().rstrip("=")
+        challenge = registry.begin_agent_enrollment("worker-a", "Worker A", public_key)
+        agent = registry.complete_agent_enrollment(
+            challenge["challenge_id"], "valid", verifier=lambda *_: True
+        )
+        task = self.store.enqueue_for_participant(
+            "Analyze opportunity", "Collect independent evidence",
+            agent["participant_id"], registry, idempotency_key="agent-task-1",
+        )
+        self.assertEqual(task["assigned_agent"], agent["participant_id"])
+        self.assertEqual(
+            [item["task_id"] for item in self.store.list_for_agent(agent["participant_id"])],
+            [task["task_id"]],
+        )
+        self.assertEqual(self.store.list_for_agent("worker-a"), [])
+
+    def test_participant_assignment_rejects_humans_and_unknown_ids(self):
+        registry = ParticipantRegistry(Path(self.tmp.name) / "participants.sqlite3")
+        human = registry.create_human("human-a", "Human A")
+        with self.assertRaisesRegex(ValueError, "only be assigned to agent"):
+            self.store.enqueue_for_participant(
+                "Task", "Objective", human["participant_id"], registry
+            )
+        with self.assertRaisesRegex(ValueError, "does not exist"):
+            self.store.enqueue_for_participant(
+                "Task", "Objective", "agent_unknown", registry
+            )
 
     def test_invalid_attempt_limit_rejected(self):
         with self.assertRaises(ValueError):
