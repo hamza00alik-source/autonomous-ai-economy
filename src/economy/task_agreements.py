@@ -225,6 +225,20 @@ class TaskAgreementStore:
                 (provider_id, status, limit),
             ).fetchall()]
 
+    def accepted_orders(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Return accepted order briefs for the local dispatcher; omit signatures."""
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        with self._connect() as db:
+            rows = db.execute(
+                """SELECT task_id,listing_id,buyer_id,provider_id,title,scope,
+                          acceptance_criteria,due_at,price_minor,currency,status,created_at
+                   FROM task_agreements WHERE status='accepted'
+                   ORDER BY created_at,task_id LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def events(self, task_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             return [dict(row) for row in db.execute(
