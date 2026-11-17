@@ -79,6 +79,36 @@ class WorkRecordStore:
         return row["public_key"]
 
     @staticmethod
+    def _validate_evidence_refs(evidence_refs: list[str]) -> list[str]:
+        """Validate stable evidence pointers; artifact pointers must be content-addressed.
+
+        This validates reference syntax only. It does not fetch, retain, or attest to
+        the bytes behind a reference.
+        """
+        import re
+        if not isinstance(evidence_refs, list) or not evidence_refs:
+            raise ValueError("at least one evidence reference is required")
+        if any(not isinstance(ref, str) or not ref or len(ref) > 2048
+               or ref.strip() != ref for ref in evidence_refs):
+            raise ValueError("evidence references must be non-empty, trimmed strings up to 2048 chars")
+        refs = sorted(set(evidence_refs))
+        for ref in refs:
+            if ref.startswith("artifact:"):
+                if not re.fullmatch(r"artifact:sha256:[0-9a-f]{64}", ref):
+                    raise ValueError("artifact references must use artifact:sha256:<64 lowercase hex chars>")
+            elif ref.startswith("https://"):
+                from urllib.parse import urlsplit
+                parsed = urlsplit(ref)
+                if not parsed.hostname or parsed.username or parsed.password:
+                    raise ValueError("https evidence references must include a host and no embedded credentials")
+            elif ref.startswith("task:"):
+                if len(ref) <= len("task:") or any(ch.isspace() for ch in ref):
+                    raise ValueError("task evidence references must include a whitespace-free task identifier")
+            else:
+                raise ValueError("evidence references must use https, task:, or content-addressed artifact:sha256:")
+        return refs
+
+    @staticmethod
     def submission_payload(*, task_id: str, provider_id: str, buyer_id: str,
                            summary: str, evidence_refs: list[str]) -> dict[str, Any]:
         return {"version": "1", "event": "work_submitted", "task_id": task_id,
@@ -121,9 +151,7 @@ class WorkRecordStore:
             raise ValueError("task, parties, summary and signature are required")
         if provider_id == buyer_id:
             raise ValueError("provider and buyer must be different participants")
-        refs = sorted(set(evidence_refs))
-        if not refs or any(not ref.startswith(("https://", "task:", "artifact:")) for ref in refs):
-            raise ValueError("at least one evidence reference is required (https, task:, or artifact:)")
+        refs = self._validate_evidence_refs(evidence_refs)
         payload = self.submission_payload(task_id=task_id, provider_id=provider_id,
                                            buyer_id=buyer_id, summary=summary,
                                            evidence_refs=refs)
@@ -185,9 +213,7 @@ class WorkRecordStore:
                 raise ValueError("receipt cannot be disputed in its current state")
             key = self._participant_key(db, actor_id)
             dispute_id = "dispute_" + uuid.uuid4().hex
-            refs = sorted(set(evidence_refs))
-            if any(not ref.startswith(("https://", "task:", "artifact:")) for ref in refs):
-                raise ValueError("dispute evidence references must use https, task:, or artifact:")
+            refs = self._validate_evidence_refs(evidence_refs)
             payload = self.dispute_payload(receipt_id, dispute_id, actor_id, reason, refs)
             if not self.verifier(key, payload, signature):
                 raise ValueError("dispute signature is invalid")
