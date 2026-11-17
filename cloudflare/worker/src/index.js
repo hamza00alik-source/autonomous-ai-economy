@@ -185,11 +185,12 @@ async function createNowPaymentsInvoice(request, env) {
       !/^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$/.test(body.order_id)) {
     return json({ error: "invalid invoice fields" }, 400);
   }
-  const amountText = String(body.price_amount ?? "");
-  if (!/^(?:0|[1-9]\d{0,3})(?:\.\d{1,2})?$/.test(amountText) ||
-      !Number.isFinite(Number(amountText)) || Number(amountText) <= 0) {
+  const rawAmount = String(body.price_amount ?? "");
+  if (!/^(?:0|[1-9]\d{0,3})(?:\.\d{1,2})?$/.test(rawAmount) ||
+      !Number.isFinite(Number(rawAmount)) || Number(rawAmount) <= 0) {
     return json({ error: "price_amount must be a positive USD amount with at most two decimals" }, 400);
   }
+  const amountText = Number(rawAmount).toFixed(2);
   const description = body.order_description === undefined
     ? "Autonomous AI Economy digital order" : body.order_description;
   if (typeof description !== "string" || !description.trim() || description.length > 200) {
@@ -210,9 +211,20 @@ async function createNowPaymentsInvoice(request, env) {
   }
 
   const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO crypto_payment_invoices (order_id,provider,price_amount,price_currency,status,created_at,updated_at) VALUES (?,'nowpayments',?,'usd','creating',?,?)"
+  const reservation = await env.DB.prepare(
+    "INSERT OR IGNORE INTO crypto_payment_invoices (order_id,provider,price_amount,price_currency,status,created_at,updated_at) VALUES (?,'nowpayments',?,'usd','creating',?,?)"
   ).bind(body.order_id, amountText, now, now).run();
+  if (reservation.meta?.changes !== 1) {
+    const raced = await env.DB.prepare(
+      "SELECT order_id,invoice_id,checkout_url,status FROM crypto_payment_invoices WHERE order_id=?"
+    ).bind(body.order_id).first();
+    if (raced?.invoice_id && raced?.checkout_url) {
+      return json({ order_id: raced.order_id, invoice_id: raced.invoice_id,
+        checkout_url: raced.checkout_url, status: raced.status, reused: true }, 200);
+    }
+    return json({ error: "invoice creation is already in progress or needs reconciliation",
+      order_id: body.order_id, status: raced?.status || "unknown" }, 409);
+  }
 
   const callback = new URL("/v1/payments/nowpayments/ipn", new URL(request.url).origin).toString();
   try {
@@ -238,7 +250,9 @@ async function createNowPaymentsInvoice(request, env) {
     const checkoutUrl = typeof data?.invoice_url === "string" ? data.invoice_url : "";
     let parsedCheckout;
     try { parsedCheckout = new URL(checkoutUrl); } catch { parsedCheckout = null; }
-    if (!invoiceId || !parsedCheckout || parsedCheckout.protocol !== "https:") {
+    const checkoutHost = parsedCheckout?.hostname?.toLowerCase() || "";
+    if (!invoiceId || !parsedCheckout || parsedCheckout.protocol !== "https:" ||
+        !(checkoutHost === "nowpayments.io" || checkoutHost.endsWith(".nowpayments.io"))) {
       await env.DB.prepare("UPDATE crypto_payment_invoices SET status='create_uncertain',updated_at=? WHERE order_id=?")
         .bind(new Date().toISOString(), body.order_id).run();
       return json({ error: "provider response was ambiguous; reconcile before retrying" }, 502);
