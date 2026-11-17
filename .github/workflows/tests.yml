@@ -51,7 +51,16 @@ jobs:
         run: python tools/check_product_js.py
       - name: Build first digital product bundle
         run: economy-product build --output dist/store-catalog-cleaner.zip
-      - name: Build original MOBA game asset pack\n        run: economy-game-assets build --output dist/moba-objective-props.zip\n      - name: Upload MOBA game asset pack for review\n        uses: actions/upload-artifact@v4\n        with:\n          name: moba-objective-props\n          path: dist/moba-objective-props.zip\n          if-no-files-found: error\n          retention-days: 14\n      - name: Upload product bundle for review
+      - name: Build original MOBA game asset pack
+        run: economy-game-assets build --output dist/moba-objective-props.zip
+      - name: Upload MOBA game asset pack for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: moba-objective-props
+          path: dist/moba-objective-props.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload product bundle for review
         uses: actions/upload-artifact@v4
         with:
           name: store-catalog-cleaner
