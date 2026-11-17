@@ -72,6 +72,7 @@ jobs:
           sed -i 's/REPLACE_WITH_D1_DATABASE_ID/00000000-0000-0000-0000-000000000000/' cloudflare/worker/wrangler.toml
           (cd cloudflare/worker && npx wrangler deploy --dry-run --outdir /tmp/aae-worker-dry-run)
           test -s /tmp/aae-worker-dry-run/index.js
+          (cd cloudflare/worker && npx wrangler d1 migrations apply aae-private-ai-economy --local --persist-to /tmp/aae-d1-migration-test)
       - name: Verify official Gumroad CLI draft and upload dry-run
         run: |
           set -euo pipefail
