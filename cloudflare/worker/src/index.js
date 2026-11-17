@@ -123,6 +123,223 @@ async function taskStatus(request, env, taskId) {
   return json({ task_id: row.task_id, task_type: row.task_type, status: row.status, result, error: row.error, created_at: row.created_at, updated_at: row.updated_at });
 }
 
+
+function sortObjectDeep(value) {
+  if (Array.isArray(value)) return value.map(sortObjectDeep);
+  if (value && typeof value === "object") {
+    return Object.keys(value).sort().reduce((result, key) => {
+      result[key] = sortObjectDeep(value[key]);
+      return result;
+    }, {});
+  }
+  return value;
+}
+
+async function verifyNowPaymentsSignature(payload, signature, secret) {
+  if (!secret || typeof signature !== "string" || !/^[0-9a-f]{128}$/i.test(signature)) return false;
+  const canonical = JSON.stringify(sortObjectDeep(payload));
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-512" }, false, ["sign"]
+  );
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(canonical));
+  const expected = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  return constantTimeEqual(expected, signature.toLowerCase());
+}
+
+function paymentStatusFromWebhook(payload) {
+  const status = String(payload?.payment_status || "").toLowerCase();
+  if (status === "finished") {
+    const expected = Number(payload.pay_amount);
+    const received = Number(payload.actually_paid);
+    const tolerance = Math.max(1e-12, Math.abs(expected) * 1e-10);
+    return Number.isFinite(expected) && expected > 0 &&
+      Number.isFinite(received) && received + tolerance >= expected
+      ? "settled" : "underpaid";
+  }
+  const mapping = {
+    waiting: "pending",
+    confirming: "processing",
+    confirmed: "processing",
+    sending: "processing",
+    partially_paid: "underpaid",
+    failed: "failed",
+    expired: "expired",
+    refunded: "refunded",
+  };
+  return mapping[status] || "review";
+}
+
+async function createNowPaymentsInvoice(request, env) {
+  if (!env.NOWPAYMENTS_API_KEY || !env.NOWPAYMENTS_IPN_SECRET) {
+    return json({ error: "crypto checkout is not configured" }, 503);
+  }
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).length > 4000) return json({ error: "request body too large" }, 413);
+  let body;
+  try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+  const allowed = ["order_id", "price_amount", "order_description"];
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      Object.keys(body).some(key => !allowed.includes(key)) ||
+      typeof body.order_id !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$/.test(body.order_id)) {
+    return json({ error: "invalid invoice fields" }, 400);
+  }
+  const rawAmount = String(body.price_amount ?? "");
+  if (!/^(?:0|[1-9]\d{0,3})(?:\.\d{1,2})?$/.test(rawAmount) ||
+      !Number.isFinite(Number(rawAmount)) || Number(rawAmount) <= 0) {
+    return json({ error: "price_amount must be a positive USD amount with at most two decimals" }, 400);
+  }
+  const amountText = Number(rawAmount).toFixed(2);
+  const description = body.order_description === undefined
+    ? "Autonomous AI Economy digital order" : body.order_description;
+  if (typeof description !== "string" || !description.trim() || description.length > 200) {
+    return json({ error: "invalid order_description" }, 400);
+  }
+
+  const existing = await env.DB.prepare(
+    "SELECT order_id,invoice_id,checkout_url,price_amount,status FROM crypto_payment_invoices WHERE order_id=?"
+  ).bind(body.order_id).first();
+  if (existing) {
+    if (existing.price_amount !== amountText) return json({ error: "order ID already exists with different terms" }, 409);
+    if (existing.invoice_id && existing.checkout_url) {
+      return json({ order_id: existing.order_id, invoice_id: existing.invoice_id,
+        checkout_url: existing.checkout_url, status: existing.status, reused: true }, 200);
+    }
+    return json({ error: "invoice creation needs reconciliation; automatic retry is disabled",
+      order_id: existing.order_id, status: existing.status }, 409);
+  }
+
+  const now = new Date().toISOString();
+  const reservation = await env.DB.prepare(
+    "INSERT OR IGNORE INTO crypto_payment_invoices (order_id,provider,price_amount,price_currency,status,created_at,updated_at) VALUES (?,'nowpayments',?,'usd','creating',?,?)"
+  ).bind(body.order_id, amountText, now, now).run();
+  if (reservation.meta?.changes !== 1) {
+    const raced = await env.DB.prepare(
+      "SELECT order_id,invoice_id,checkout_url,status FROM crypto_payment_invoices WHERE order_id=?"
+    ).bind(body.order_id).first();
+    if (raced?.invoice_id && raced?.checkout_url) {
+      return json({ order_id: raced.order_id, invoice_id: raced.invoice_id,
+        checkout_url: raced.checkout_url, status: raced.status, reused: true }, 200);
+    }
+    return json({ error: "invoice creation is already in progress or needs reconciliation",
+      order_id: body.order_id, status: raced?.status || "unknown" }, 409);
+  }
+
+  const callback = new URL("/v1/payments/nowpayments/ipn", new URL(request.url).origin).toString();
+  try {
+    const response = await fetch("https://api.nowpayments.io/v1/invoice", {
+      method: "POST",
+      headers: { "x-api-key": env.NOWPAYMENTS_API_KEY, "content-type": "application/json" },
+      body: JSON.stringify({
+        price_amount: Number(amountText),
+        price_currency: "usd",
+        order_id: body.order_id,
+        order_description: description.trim(),
+        ipn_callback_url: callback,
+      }),
+    });
+    let data = null;
+    try { data = await response.json(); } catch { data = null; }
+    if (!response.ok) {
+      await env.DB.prepare("UPDATE crypto_payment_invoices SET status='create_failed',updated_at=? WHERE order_id=?")
+        .bind(new Date().toISOString(), body.order_id).run();
+      return json({ error: "payment provider rejected invoice creation", status: response.status }, 502);
+    }
+    const invoiceId = data?.id === undefined || data?.id === null ? "" : String(data.id);
+    const checkoutUrl = typeof data?.invoice_url === "string" ? data.invoice_url : "";
+    let parsedCheckout;
+    try { parsedCheckout = new URL(checkoutUrl); } catch { parsedCheckout = null; }
+    const checkoutHost = parsedCheckout?.hostname?.toLowerCase() || "";
+    if (!invoiceId || !parsedCheckout || parsedCheckout.protocol !== "https:" ||
+        !(checkoutHost === "nowpayments.io" || checkoutHost.endsWith(".nowpayments.io"))) {
+      await env.DB.prepare("UPDATE crypto_payment_invoices SET status='create_uncertain',updated_at=? WHERE order_id=?")
+        .bind(new Date().toISOString(), body.order_id).run();
+      return json({ error: "provider response was ambiguous; reconcile before retrying" }, 502);
+    }
+    await env.DB.prepare(
+      "UPDATE crypto_payment_invoices SET invoice_id=?,checkout_url=?,status='pending',updated_at=? WHERE order_id=? AND status='creating'"
+    ).bind(invoiceId, checkoutUrl, new Date().toISOString(), body.order_id).run();
+    return json({ order_id: body.order_id, invoice_id: invoiceId,
+      checkout_url: checkoutUrl, status: "pending", reused: false }, 201);
+  } catch {
+    await env.DB.prepare("UPDATE crypto_payment_invoices SET status='create_uncertain',updated_at=? WHERE order_id=?")
+      .bind(new Date().toISOString(), body.order_id).run();
+    return json({ error: "invoice creation outcome is uncertain; reconcile before retrying" }, 502);
+  }
+}
+
+async function nowPaymentsIPN(request, env) {
+  if (!env.NOWPAYMENTS_IPN_SECRET) return json({ error: "payment notifications are not configured" }, 503);
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).length > 16000) return json({ error: "notification too large" }, 413);
+  let payload;
+  try { payload = JSON.parse(raw); } catch { return json({ error: "invalid notification JSON" }, 400); }
+  const signature = request.headers.get("x-nowpayments-sig") || "";
+  if (!await verifyNowPaymentsSignature(payload, signature, env.NOWPAYMENTS_IPN_SECRET)) {
+    return json({ error: "invalid payment notification signature" }, 401);
+  }
+  const orderId = typeof payload?.order_id === "string" ? payload.order_id : "";
+  const invoiceId = payload?.invoice_id === undefined || payload.invoice_id === null ? "" : String(payload.invoice_id);
+  const paymentId = payload?.payment_id === undefined || payload.payment_id === null ? "" : String(payload.payment_id);
+  const providerStatus = typeof payload?.payment_status === "string" ? payload.payment_status.toLowerCase() : "";
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$/.test(orderId) || !invoiceId || !paymentId || !providerStatus) {
+    return json({ error: "required payment identifiers are missing" }, 400);
+  }
+
+  const canonical = JSON.stringify(sortObjectDeep(payload));
+  const eventHash = await sha256(canonical);
+  const duplicate = await env.DB.prepare("SELECT event_hash FROM crypto_payment_events WHERE event_hash=?")
+    .bind(eventHash).first();
+  if (duplicate) return json({ accepted: true, duplicate: true }, 200);
+
+  const row = await env.DB.prepare(
+    "SELECT order_id,invoice_id,price_amount,price_currency,status FROM crypto_payment_invoices WHERE order_id=?"
+  ).bind(orderId).first();
+  const now = new Date().toISOString();
+  let normalized = paymentStatusFromWebhook(payload);
+  const matches = !!row && String(row.invoice_id) === invoiceId &&
+    String(payload.price_currency || "").toLowerCase() === row.price_currency &&
+    Number.isFinite(Number(payload.price_amount)) &&
+    Math.abs(Number(payload.price_amount) - Number(row.price_amount)) <= 0.00000001;
+  if (!row) normalized = "unmatched";
+  else if (!matches) normalized = "mismatch";
+
+  if (!row || !matches) {
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO crypto_payment_events (event_hash,order_id,invoice_id,payment_id,provider_status,normalized_status,received_at) VALUES (?,?,?,?,?,?,?)"
+    ).bind(eventHash, orderId, invoiceId, paymentId, providerStatus, normalized, now).run();
+    return json({ accepted: true, quarantined: true, reason: normalized }, 202);
+  }
+
+  // Apply the state transition before recording the event. If the write fails,
+  // the provider retry can safely try again. The SQL CASE protects settled/refunded
+  // states from late, out-of-order callbacks.
+  await env.DB.prepare(
+    "UPDATE crypto_payment_invoices SET status=CASE WHEN status='refunded' THEN 'refunded' WHEN status='settled' AND ?!='refunded' THEN 'settled' ELSE ? END,last_payment_id=?,actually_paid=?,pay_currency=?,updated_at=? WHERE order_id=?"
+  ).bind(normalized, normalized, paymentId,
+    payload.actually_paid === undefined ? null : String(payload.actually_paid),
+    payload.pay_currency === undefined ? null : String(payload.pay_currency).toLowerCase(),
+    now, orderId).run();
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO crypto_payment_events (event_hash,order_id,invoice_id,payment_id,provider_status,normalized_status,received_at) VALUES (?,?,?,?,?,?,?)"
+  ).bind(eventHash, orderId, invoiceId, paymentId, providerStatus, normalized, now).run();
+  const updated = await env.DB.prepare(
+    "SELECT status FROM crypto_payment_invoices WHERE order_id=?"
+  ).bind(orderId).first();
+  const finalStatus = updated?.status || normalized;
+  return json({ accepted: true, order_id: orderId, status: finalStatus,
+    settled: finalStatus === "settled" }, 200);
+}
+
+async function paymentStatus(env, orderId) {
+  const row = await env.DB.prepare(
+    "SELECT order_id,provider,invoice_id,checkout_url,price_amount,price_currency,status,last_payment_id,actually_paid,pay_currency,created_at,updated_at FROM crypto_payment_invoices WHERE order_id=?"
+  ).bind(orderId).first();
+  if (!row) return json({ error: "payment order not found" }, 404);
+  return json(row);
+}
+
 async function status(env) {
   const day = new Date().toISOString().slice(0, 10);
   const budget = await env.DB.prepare("SELECT reserved_neurons FROM ai_daily_budget WHERE utc_day=?").bind(day).first();
@@ -134,8 +351,10 @@ async function status(env) {
     daily_safety_budget_neurons: DAILY_NEURON_BUDGET,
     tasks: counts.results || [],
     payment_actions_enabled: false,
+    crypto_checkout_configured: Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET),
+    outbound_payouts_enabled: false,
     public_registration_enabled: false,
-    note: "Private product-copy worker only; no product publishing, customer contact, or money movement.",
+    note: "Private product-copy and gated crypto-invoice worker; no public store, automatic delivery, or outbound transfers.",
   });
 }
 
@@ -187,7 +406,8 @@ async function processOne(env) {
 
 export {
   MODEL_ID, DAILY_NEURON_BUDGET, validFacts, validateDraft, estimateNeurons,
-  constantTimeEqual, processOne,
+  constantTimeEqual, processOne, sortObjectDeep, verifyNowPaymentsSignature,
+  paymentStatusFromWebhook,
 };
 
 export default {
@@ -196,9 +416,17 @@ export default {
     if (url.pathname === "/health" && request.method === "GET") {
       return json({ service: "autonomous-ai-economy", status: "ready", public_registration: false });
     }
+    if (url.pathname === "/v1/payments/nowpayments/ipn" && request.method === "POST") {
+      return nowPaymentsIPN(request, env);
+    }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
     if (url.pathname === "/v1/tasks/product-copy" && request.method === "POST") return enqueueCopy(request, env);
+    if (url.pathname === "/v1/payments/nowpayments/invoices" && request.method === "POST") {
+      return createNowPaymentsInvoice(request, env);
+    }
+    const paymentMatch = url.pathname.match(new RegExp("^/v1/payments/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})$"));
+    if (paymentMatch && request.method === "GET") return paymentStatus(env, paymentMatch[1]);
     const match = url.pathname.match(/^\/v1\/tasks\/product-copy\/([0-9a-f-]{36})$/i);
     if (match && request.method === "GET") return taskStatus(request, env, match[1]);
     return json({ error: "not found" }, 404);

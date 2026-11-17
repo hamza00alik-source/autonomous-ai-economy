@@ -13,6 +13,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      NOWPAYMENTS_API_KEY: ${{ secrets.NOWPAYMENTS_API_KEY }}
+      NOWPAYMENTS_IPN_SECRET: ${{ secrets.NOWPAYMENTS_IPN_SECRET }}
+      AAE_CRYPTO_ENABLEMENT_APPROVED: ${{ vars.AAE_CRYPTO_ENABLEMENT_APPROVED }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -27,12 +31,20 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_D1_DATABASE_ID: ${{ vars.CLOUDFLARE_D1_DATABASE_ID }}
           AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
+          NOWPAYMENTS_API_KEY: ${{ secrets.NOWPAYMENTS_API_KEY }}
+          NOWPAYMENTS_IPN_SECRET: ${{ secrets.NOWPAYMENTS_IPN_SECRET }}
+          AAE_CRYPTO_ENABLEMENT_APPROVED: ${{ vars.AAE_CRYPTO_ENABLEMENT_APPROVED }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_D1_DATABASE_ID"
           test -n "$AAE_QUEUE_TOKEN"
+          if [ -n "$NOWPAYMENTS_API_KEY" ] || [ -n "$NOWPAYMENTS_IPN_SECRET" ]; then
+            test -n "$NOWPAYMENTS_API_KEY"
+            test -n "$NOWPAYMENTS_IPN_SECRET"
+            test "$AAE_CRYPTO_ENABLEMENT_APPROVED" = "true"
+          fi
           echo "$CLOUDFLARE_D1_DATABASE_ID" | grep -Eq '^[0-9a-fA-F-]{36}$'
           sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$CLOUDFLARE_D1_DATABASE_ID/" wrangler.toml
       - name: Install Wrangler
@@ -51,6 +63,22 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
         run: printf '%s' "$AAE_QUEUE_TOKEN" | npx wrangler secret put AAE_QUEUE_TOKEN
+      - name: Set optional NOWPayments API key
+        if: ${{ env.NOWPAYMENTS_API_KEY != '' }}
+        working-directory: cloudflare/worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NOWPAYMENTS_API_KEY: ${{ secrets.NOWPAYMENTS_API_KEY }}
+        run: printf '%s' "$NOWPAYMENTS_API_KEY" | npx wrangler secret put NOWPAYMENTS_API_KEY
+      - name: Set optional NOWPayments IPN secret
+        if: ${{ env.NOWPAYMENTS_IPN_SECRET != '' }}
+        working-directory: cloudflare/worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NOWPAYMENTS_IPN_SECRET: ${{ secrets.NOWPAYMENTS_IPN_SECRET }}
+        run: printf '%s' "$NOWPAYMENTS_IPN_SECRET" | npx wrangler secret put NOWPAYMENTS_IPN_SECRET
       - name: Deploy worker
         working-directory: cloudflare/worker
         env:

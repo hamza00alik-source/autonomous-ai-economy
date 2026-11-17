@@ -29,7 +29,7 @@ Last reviewed: 2026-11-17
 - No production owner console, remote issuer authentication, unified external-action gateway, hardened key management or tamper-proof audit store.
 - No independent evidence verification, appeal workflow, formal dispute policy, legal contract workflow, refunds or settlement.
 - No live customer acquisition or confirmed paying customer. Simulated demo revenue is not actual income.
-- No payment provider, bank, wallet, escrow, custody, treasury transfer or blockchain transaction integration.
+- No live payment processing or blockchain transaction has been deployed. A gated NOWPayments invoice/IPN adapter and D1 schema are implemented in source only; it has no provider credentials, public storefront, automatic fulfilment, outbound payout or verified transaction. No bank, wallet, escrow, custody or treasury transfer integration is live.
 
 ## Signed task-offer API
 
