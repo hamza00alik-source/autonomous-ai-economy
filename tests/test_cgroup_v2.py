@@ -19,6 +19,7 @@ class CgroupV2Tests(unittest.TestCase):
         root.mkdir()
         (root / "cgroup.controllers").write_text("cpu memory pids")
         (root / "cgroup.subtree_control").write_text("cpu memory pids")
+        (root / "cgroup.procs").touch()
         mountinfo = base / "mountinfo"
         mountinfo.write_text(f"31 22 0:28 / {base} rw - cgroup2 cgroup rw\n")
         return root, mountinfo
