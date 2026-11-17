@@ -82,13 +82,14 @@ The source now includes a small, fixed-price customer storefront for the first a
 - `POST /v1/payments/nowpayments/ipn` — public provider callback. Verifies `x-nowpayments-sig` with HMAC-SHA-512 over recursively key-sorted JSON before touching payment state.
 - `GET /v1/store/orders/{order_id}` — buyer-token authenticated order status. The browser polls this after the provider redirects back.
 - `GET /v1/store/orders/{order_id}/download` — buyer-token authenticated download. It streams the ZIP from the Worker Static Assets binding only after a matching, full, provider-confirmed payment reaches `settled`. Download access expires after seven days; repeat downloads are allowed during that window.
+- `GET /v1/agents/{agent_id}/revenue` — owner-token authenticated agent revenue report. See [agent revenue attribution](agent-revenue-accounting.md).
 - `GET /v1/payments/{order_id}` and `POST /v1/payments/nowpayments/invoices` — owner-token authenticated operational endpoints.
 
 The deploy workflow rebuilds the ZIP and includes it as a Worker static asset. The Worker runs before static assets and blocks direct requests to `/downloads/*`; the file is served only through the authenticated download route. No separate R2 bucket is needed for this single small product.
 
 Only a valid, matching callback with `payment_status=finished`, the expected invoice/order/price/currency, and the full required crypto amount can become `settled`. Partial payments remain `underpaid`; unknown/mismatched events are quarantined. Duplicate callbacks are idempotent. Lower-status late callbacks cannot downgrade a settled order, and a refund changes the order to `refunded`, disabling downloads.
 
-The buyer access token is returned once at checkout and stored in that browser's local storage. The customer must return in the same browser/device to retrieve the download; a lost token currently has no self-service recovery flow. The Worker stores only minimal payment metadata and event hashes; it does not retain raw webhook bodies, buyer identity, wallet private keys, or seed phrases. It does not issue refunds, exchange assets, or create outbound transfers.
+The buyer access token is returned once at checkout and stored in that browser's local storage. The customer must return in the same browser/device to retrieve the download; a lost token currently has no self-service recovery flow. The Worker stores only minimal payment metadata and event hashes; it does not retain raw webhook bodies, buyer identity, wallet private keys, or seed phrases. A settled sale is attributed to the internal `game-asset-builder` producer ID in an idempotent revenue table. Gross receipts remain pending wallet/fee/refund reconciliation; net proceeds and agent credits are not recorded as earned/disbursed until reconciled. It does not issue refunds, exchange assets, or create outbound transfers.
 
 ## Enablement prerequisites
 
