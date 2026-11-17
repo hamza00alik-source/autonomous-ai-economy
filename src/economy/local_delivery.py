@@ -4,10 +4,45 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Any
 
-from .artifact_evidence import verify_artifact_digests
+from .artifact_evidence import create_manifest, verify_artifact_digests
 from .task_agreements import TaskAgreementStore
 from .work_records import WorkRecordStore
 from .identity import verify_ed25519
+
+
+
+def submit_receipt_locally(
+    database_path: str | Path,
+    task_id: str,
+    provider_id: str,
+    buyer_id: str,
+    summary: str,
+    artifact_paths: list[str | Path],
+    signer: Callable[[bytes], str],
+    verifier: Callable[[str, bytes, str], bool] = verify_ed25519,
+) -> dict[str, Any]:
+    """Create content-addressed evidence and submit a provider-signed work receipt."""
+    if not artifact_paths:
+        raise ValueError("at least one local deliverable is required")
+    manifests = [create_manifest(path) for path in artifact_paths]
+    evidence_refs = ["artifact:sha256:" + item["sha256"] for item in manifests]
+    store = WorkRecordStore(database_path, verifier=verifier)
+    signing_bytes = store.submission_signing_bytes(
+        task_id=task_id, provider_id=provider_id, buyer_id=buyer_id,
+        summary=summary, evidence_refs=evidence_refs,
+    )
+    signature = signer(signing_bytes)
+    if not isinstance(signature, str) or not signature:
+        raise ValueError("signer must return a non-empty encoded signature")
+    receipt = store.submit(
+        task_id=task_id, provider_id=provider_id, buyer_id=buyer_id,
+        summary=summary, evidence_refs=evidence_refs, signature=signature,
+    )
+    return {
+        "receipt": receipt,
+        "artifact_manifests": manifests,
+        "notice": "The provider signed content hashes for local files. This does not prove authorship, delivery, quality, or payment. No payout or transfer was performed.",
+    }
 
 
 def accept_receipt_locally(
