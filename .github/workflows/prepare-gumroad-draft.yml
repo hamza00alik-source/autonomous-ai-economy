@@ -1,0 +1,74 @@
+name: Prepare Gumroad product draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      price_usd:
+        description: "Draft price in USD (not published)"
+        required: true
+        default: "5.00"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gumroad-draft-creation
+  cancel-in-progress: false
+
+jobs:
+  prepare-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install economy package
+        run: python -m pip install -e .
+      - name: Build original 3D product bundle
+        run: economy-game-assets build --output dist/moba-objective-props.zip
+      - name: Generate AI listing copy
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: economy-ai draft-copy --facts-file products/moba-objective-props/product-facts.json --output dist/listing-draft.json
+      - name: Download and verify official Gumroad CLI
+        run: |
+          set -euo pipefail
+          version="v0.20261106.1"
+          base="https://github.com/antiwork/gumroad-cli/releases/download/$version"
+          curl -fsSL "$base/checksums.txt" -o checksums.txt
+          curl -fsSL "$base/gumroad-cli_linux_amd64.tar.gz" -o gumroad-cli.tar.gz
+          grep 'gumroad-cli_linux_amd64.tar.gz$' checksums.txt | sha256sum --check -
+          mkdir -p gumroad-cli-extracted
+          tar -xzf gumroad-cli.tar.gz -C gumroad-cli-extracted
+          binary="$(find gumroad-cli-extracted -type f -name gumroad -perm -u+x -print -quit)"
+          test -n "$binary"
+          sudo install -m 0755 "$binary" /usr/local/bin/gumroad
+          gumroad --help >/dev/null
+      - name: Create unpublished Gumroad draft and upload product ZIP
+        env:
+          GUMROAD_ACCESS_TOKEN: ${{ secrets.GUMROAD_ACCESS_TOKEN }}
+          PRODUCT_PRICE_USD: ${{ inputs.price_usd }}
+        run: |
+          set -euo pipefail
+          test -n "$GUMROAD_ACCESS_TOKEN"
+          economy-gumroad-draft \
+            --bundle dist/moba-objective-props.zip \
+            --listing dist/listing-draft.json \
+            --facts products/moba-objective-props/product-facts.json \
+            --price-usd "$PRODUCT_PRICE_USD" \
+            --output dist/gumroad-draft-result.json
+      - name: Upload draft details for owner review
+        uses: actions/upload-artifact@v4
+        with:
+          name: gumroad-product-draft
+          path: |
+            dist/moba-objective-props.zip
+            dist/listing-draft.json
+            dist/gumroad-draft-result.json
+          if-no-files-found: error
+          retention-days: 14
