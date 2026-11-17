@@ -102,6 +102,10 @@ class DirectoryApplication:
     def __call__(self, environ, start_response):
         method = environ.get("REQUEST_METHOD", "GET").upper()
         path = environ.get("PATH_INFO", "")
+        if method == "POST" and path == "/v1/participants/me/key-rotation-challenges":
+            return self._begin_participant_key_rotation(environ, start_response)
+        if method == "POST" and path == "/v1/participants/me/key-rotations":
+            return self._complete_participant_key_rotation(environ, start_response)
         if method == "POST" and path == "/v1/tasks/offers":
             return self._create_task_offer(environ, start_response)
         if method == "POST" and path.startswith("/v1/tasks/") and path.endswith("/responses"):
@@ -410,6 +414,81 @@ class DirectoryApplication:
         except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
             return None, None, self._response(start_response, "400 Bad Request",
                                                {"error": "invalid_json_body"})
+
+    def _begin_participant_key_rotation(self, environ, start_response):
+        if self.registry is None:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "participant_key_rotation_unavailable"})
+        path = "/v1/participants/me/key-rotation-challenges"
+        principal, body, error = self._signed_json_body(environ, start_response, path)
+        if error is not None:
+            return error
+        if set(body) != {"new_public_key"} or not isinstance(body["new_public_key"], str) or not body["new_public_key"]:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_key_rotation_fields"})
+        if len(body["new_public_key"]) > 128:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_key_rotation_fields"})
+        try:
+            challenge = self.registry.begin_key_rotation(
+                principal["participant_id"], body["new_public_key"]
+            )
+        except ValueError:
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "key_rotation_challenge_rejected"})
+        except Exception:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "key_rotation_temporarily_unavailable"})
+        return self._response(start_response, "201 Created", {
+            "participant_id": principal["participant_id"],
+            "challenge": challenge["challenge"],
+            "challenge_id": challenge["challenge_id"],
+            "expires_at": challenge["expires_at"],
+            "signature_encoding": challenge["signature_encoding"],
+            "required_signatures": "current_and_new_key",
+            "notice": "No key changes until both proofs are verified."
+        })
+
+    def _complete_participant_key_rotation(self, environ, start_response):
+        if self.registry is None:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "participant_key_rotation_unavailable"})
+        path = "/v1/participants/me/key-rotations"
+        principal, body, error = self._signed_json_body(environ, start_response, path)
+        if error is not None:
+            return error
+        required = {"challenge_id", "old_signature", "new_signature"}
+        if set(body) != required or any(
+            not isinstance(body[key], str) or not body[key].strip() or len(body[key]) > 256
+            for key in required
+        ):
+            return self._response(start_response, "400 Bad Request",
+                                  {"error": "invalid_key_rotation_fields"})
+        try:
+            participant = self.registry.get(principal["participant_id"])
+            if participant is None or participant.get("status") != "active":
+                raise ValueError("participant is inactive")
+            rotated = self.registry.complete_key_rotation(
+                body["challenge_id"], body["old_signature"], body["new_signature"]
+            )
+            if rotated.get("participant_id") != principal["participant_id"]:
+                return self._response(start_response, "409 Conflict",
+                                      {"error": "key_rotation_rejected"})
+        except ValueError:
+            return self._response(start_response, "409 Conflict",
+                                  {"error": "key_rotation_rejected"})
+        except Exception:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "key_rotation_temporarily_unavailable"})
+        public_key = rotated.get("public_key")
+        key_id = (hashlib.sha256(public_key.encode("ascii")).hexdigest()[:24]
+                  if isinstance(public_key, str) and public_key.isascii() else None)
+        return self._response(start_response, "200 OK", {
+            "participant_id": principal["participant_id"],
+            "key_bound": bool(public_key),
+            "key_id": key_id,
+            "notice": "Signing key rotated. Sign subsequent requests with the new key."
+        })
 
     def _create_task_offer(self, environ, start_response):
         if self.agreements is None:
