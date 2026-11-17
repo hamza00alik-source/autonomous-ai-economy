@@ -141,9 +141,10 @@ class ParticipantRegistry:
                     reviewer TEXT,
                     review_note TEXT,
                     reviewed_at TEXT,
-                    UNIQUE(participant_id, operation, status),
                     FOREIGN KEY(participant_id) REFERENCES participants(participant_id)
                 );
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_abuse_review_one_open
+                    ON participant_abuse_review_cases(participant_id, operation) WHERE status='open';
                 CREATE INDEX IF NOT EXISTS idx_abuse_review_status
                     ON participant_abuse_review_cases(status, last_seen_at);
                 CREATE TABLE IF NOT EXISTS participant_security_events (
