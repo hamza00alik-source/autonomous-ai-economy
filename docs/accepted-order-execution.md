@@ -36,6 +36,19 @@ Dispatch is idempotent by original order ID. It can be run repeatedly; an
 accepted order is queued once. The worker produces an order-specific execution
 brief containing the scope, acceptance criteria, and completion checklist.
 
+## Continuous local mode
+
+For a continuously running single-host prototype, start the supervisor:
+
+```sh
+python -m economy.supervisor --data-dir ./data --poll-seconds 2
+```
+
+The supervisor now reconciles accepted agreements into the durable worker queue
+on every cycle before executing one queued task. Dispatch remains idempotent
+across restarts. This is only always-on while that host and process remain up;
+it is not hosted infrastructure, multi-host coordination, or a public service.
+
 ## Exact boundary
 
 The current built-in order agent does **not** create the requested domain
