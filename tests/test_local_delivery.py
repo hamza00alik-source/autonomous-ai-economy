@@ -60,6 +60,17 @@ class LocalDeliveryTests(unittest.TestCase):
                  "Exact bytes match", json.dumps(payload), "valid"),
             )
 
+    def test_submission_rejects_duplicate_content_artifacts(self):
+        duplicate = self.root / "same-bytes.bin"
+        duplicate.write_bytes(self.artifact.read_bytes())
+        with self.assertRaisesRegex(ValueError, "unique content"):
+            submit_receipt_locally(
+                self.db_path, "another-task", self.provider["participant_id"],
+                self.buyer["participant_id"], "Duplicate files",
+                [self.artifact, duplicate], signer=lambda payload: "valid",
+                verifier=lambda *_: True,
+            )
+
     def test_buyer_can_verify_and_accept_receipt_end_to_end(self):
         result = accept_receipt_locally(
             self.db_path, self.receipt["receipt_id"], self.buyer["participant_id"],
