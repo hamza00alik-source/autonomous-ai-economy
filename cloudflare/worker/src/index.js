@@ -305,25 +305,31 @@ async function nowPaymentsIPN(request, env) {
   if (!row) normalized = "unmatched";
   else if (!matches) normalized = "mismatch";
 
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO crypto_payment_events (event_hash,order_id,invoice_id,payment_id,provider_status,normalized_status,received_at) VALUES (?,?,?,?,?,?,?)"
-  ).bind(eventHash, orderId, invoiceId, paymentId, providerStatus, normalized, now).run();
-
   if (!row || !matches) {
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO crypto_payment_events (event_hash,order_id,invoice_id,payment_id,provider_status,normalized_status,received_at) VALUES (?,?,?,?,?,?,?)"
+    ).bind(eventHash, orderId, invoiceId, paymentId, providerStatus, normalized, now).run();
     return json({ accepted: true, quarantined: true, reason: normalized }, 202);
   }
 
-  let nextStatus = normalized;
-  if (row.status === "settled" && normalized !== "refunded") nextStatus = "settled";
-  if (row.status === "refunded") nextStatus = "refunded";
+  // Apply the state transition before recording the event. If the write fails,
+  // the provider retry can safely try again. The SQL CASE protects settled/refunded
+  // states from late, out-of-order callbacks.
   await env.DB.prepare(
-    "UPDATE crypto_payment_invoices SET status=?,last_payment_id=?,actually_paid=?,pay_currency=?,updated_at=? WHERE order_id=?"
-  ).bind(nextStatus, paymentId,
+    "UPDATE crypto_payment_invoices SET status=CASE WHEN status='refunded' THEN 'refunded' WHEN status='settled' AND ?!='refunded' THEN 'settled' ELSE ? END,last_payment_id=?,actually_paid=?,pay_currency=?,updated_at=? WHERE order_id=?"
+  ).bind(normalized, normalized, paymentId,
     payload.actually_paid === undefined ? null : String(payload.actually_paid),
     payload.pay_currency === undefined ? null : String(payload.pay_currency).toLowerCase(),
     now, orderId).run();
-  return json({ accepted: true, order_id: orderId, status: nextStatus,
-    settled: nextStatus === "settled" }, 200);
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO crypto_payment_events (event_hash,order_id,invoice_id,payment_id,provider_status,normalized_status,received_at) VALUES (?,?,?,?,?,?,?)"
+  ).bind(eventHash, orderId, invoiceId, paymentId, providerStatus, normalized, now).run();
+  const updated = await env.DB.prepare(
+    "SELECT status FROM crypto_payment_invoices WHERE order_id=?"
+  ).bind(orderId).first();
+  const finalStatus = updated?.status || normalized;
+  return json({ accepted: true, order_id: orderId, status: finalStatus,
+    settled: finalStatus === "settled" }, 200);
 }
 
 async function paymentStatus(env, orderId) {
