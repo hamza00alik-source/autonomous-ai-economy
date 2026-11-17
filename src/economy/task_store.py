@@ -100,6 +100,31 @@ class TaskStore:
             db.commit()
             return self._row(row) or {}
 
+    def enqueue_for_participant(self, title: str, objective: str,
+                                participant_id: str, registry, *,
+                                idempotency_key: str | None = None,
+                                max_attempts: int = 3) -> dict[str, Any]:
+        """Queue work for a currently active, key-bound agent participant.
+
+        The registry is supplied explicitly so task assignment cannot silently
+        infer a participant from a display name, role label, or unverified handle.
+        """
+        if not isinstance(participant_id, str) or not participant_id.strip():
+            raise ValueError("participant_id is required")
+        participant = registry.get(participant_id)
+        if participant is None:
+            raise ValueError("agent participant does not exist")
+        if participant.get("participant_type") != "agent":
+            raise ValueError("tasks can only be assigned to agent participants")
+        if participant.get("status") != "active":
+            raise ValueError("agent participant must be active")
+        if not participant.get("public_key"):
+            raise ValueError("agent participant must have a bound signing key")
+        return self.enqueue(
+            title, objective, participant_id,
+            idempotency_key=idempotency_key, max_attempts=max_attempts,
+        )
+
     def claim(self) -> dict[str, Any] | None:
         """Recover expired worker leases, then atomically claim one queued task."""
         with self._connect() as db:
