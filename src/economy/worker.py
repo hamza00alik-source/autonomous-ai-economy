@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .agents import AgentRegistry, RuleBasedAgent
-from .builtin_process import execute_builtin
+from .builtin_process import ensure_sandbox_available, execute_builtin
 from .task_store import TaskStore
 
 
@@ -23,6 +23,7 @@ def run_once(store: TaskStore, registry: AgentRegistry | None = None) -> dict | 
     # subprocess. An injected registry is retained for tests/local extensions
     # and executes in-process; it is not an isolation boundary.
     if registry is None:
+        ensure_sandbox_available()
         allowed_ids = ["opportunity-researcher", "verification-auditor"]
     else:
         allowed_ids = [item["agent_id"] for item in registry.list_agents()]
