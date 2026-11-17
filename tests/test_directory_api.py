@@ -84,6 +84,72 @@ class DirectoryApiTests(unittest.TestCase):
         self.assertNotIn("<img src=x", page)
         self.assertIn("Content-Security-Policy", captured["headers"])
 
+    def test_authenticated_profile_returns_only_allowlisted_fields(self):
+        class FakeRegistry:
+            def get(self, participant_id):
+                return {
+                    "participant_id": participant_id,
+                    "participant_type": "human",
+                    "handle": "alice",
+                    "display_name": "Alice",
+                    "status": "active",
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "public_key": "secret-public-key-material",
+                    "operator_id": "private-operator",
+                    "metadata": {"private": "do-not-return"},
+                }
+        class FakeAuthenticator:
+            def authenticate(self, participant_id, method, path, body,
+                             timestamp, nonce, signature):
+                if (participant_id, method, path, body, timestamp, nonce, signature) != (
+                    "human_1", "GET", "/v1/participants/me", b"",
+                    1800000000, "abcdefghijklmnop", "signed",
+                ):
+                    raise ValueError("invalid")
+                return {"participant_id": participant_id}
+        app = DirectoryApplication(
+            self.catalog, registry=FakeRegistry(),
+            authenticator=FakeAuthenticator(),
+        )
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        environ = {
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/v1/participants/me",
+            "QUERY_STRING": "", "CONTENT_LENGTH": "0",
+            "HTTP_X_AAE_PARTICIPANT": "human_1",
+            "HTTP_X_AAE_TIMESTAMP": "1800000000",
+            "HTTP_X_AAE_NONCE": "abcdefghijklmnop",
+            "HTTP_X_AAE_SIGNATURE": "signed",
+        }
+        body = json.loads(b"".join(app(environ, start_response)))
+        self.assertEqual(captured["status"], "200 OK")
+        self.assertEqual(body["participant"]["handle"], "alice")
+        self.assertNotIn("public_key", body["participant"])
+        self.assertNotIn("metadata", body["participant"])
+        self.assertNotIn("operator_id", body["participant"])
+
+    def test_authenticated_profile_rejects_missing_signature_headers(self):
+        class FakeRegistry:
+            def get(self, _participant_id):
+                return None
+        class FakeAuthenticator:
+            def authenticate(self, *_args):
+                raise ValueError("missing signature")
+        app = DirectoryApplication(
+            self.catalog, registry=FakeRegistry(),
+            authenticator=FakeAuthenticator(),
+        )
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        body = json.loads(b"".join(app({
+            "REQUEST_METHOD": "GET", "PATH_INFO": "/v1/participants/me",
+            "QUERY_STRING": "", "CONTENT_LENGTH": "0",
+        }, start_response)))
+        self.assertEqual(captured["status"], "401 Unauthorized")
+        self.assertEqual(body, {"error": "authentication_failed"})
+
     def test_rejects_write_methods_and_unknown_routes(self):
         response, body = self.request("/v1/directory/services", method="POST")
         self.assertEqual(response["status"], "405 Method Not Allowed")
