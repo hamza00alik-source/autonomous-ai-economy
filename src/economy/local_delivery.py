@@ -7,6 +7,7 @@ from typing import Callable, Any
 from .artifact_evidence import verify_artifact_digests
 from .task_agreements import TaskAgreementStore
 from .work_records import WorkRecordStore
+from .identity import verify_ed25519
 
 
 def accept_receipt_locally(
@@ -15,6 +16,7 @@ def accept_receipt_locally(
     buyer_id: str,
     artifact_paths: list[str | Path],
     signer: Callable[[bytes], str],
+    verifier: Callable[[str, bytes, str], bool] = verify_ed25519,
 ) -> dict[str, Any]:
     """Verify every receipt artifact locally, sign its exact acceptance payload, and accept.
 
@@ -24,7 +26,7 @@ def accept_receipt_locally(
     # Initialize the agreement schema so a missing/uninitialized store fails through
     # the normal accepted-agreement check rather than an opaque SQLite table error.
     TaskAgreementStore(path)
-    store = WorkRecordStore(path)
+    store = WorkRecordStore(path, verifier=verifier)
     receipt = store.get_receipt(receipt_id)
     if receipt["buyer_id"] != buyer_id or receipt["status"] != "submitted":
         raise ValueError("submitted receipt not found or buyer is not authorized")
