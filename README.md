@@ -75,13 +75,14 @@ economy-ai invoke --prompt-file ./prompt.txt
 Install with `pip install -e ".[dev]"`. The runtime does not call the model automatically, does not start a background service, and is not yet wired into the opportunity or product agents. It is a bounded provider foundation; actual agent workflows and always-on hosting remain separate work. Failed or ambiguous requests retain their budget reservation rather than risking unbounded retries.
 
 
-The first model-assisted specialist, `ai-product-copy-agent`, can draft a validated, unpublished marketplace listing from factual product metadata:
+The first model-assisted specialist, `ai-product-copy-agent`, can draft a validated, unpublished marketplace listing from factual product metadata. Queue it for the supervisor:
 
 ```bash
-economy-ai draft-copy --facts-file products/moba-objective-props/product-facts.json --output data/moba-objective-props-listing-draft.json
+economy-ai queue-copy --facts-file products/moba-objective-props/product-facts.json
+economy-supervisor --data-dir ./data
 ```
 
-This requires configured Cloudflare Workers AI credentials. See `docs/ai-product-copy-agent.md`. The agent cannot publish or contact customers.
+This requires configured Cloudflare Workers AI credentials. The supervisor runs the AI lane separately from the no-network sandbox; the agent cannot publish or contact customers. See `docs/ai-product-copy-agent.md` and `docs/ai-model-runtime.md`.
 
 ## First agent-earned revenue
 
