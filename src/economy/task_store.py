@@ -1,6 +1,7 @@
 """SQLite-backed durable task queue with leases and append-only task events."""
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import sqlite3
@@ -49,6 +50,8 @@ class TaskStore:
                     event_type TEXT NOT NULL,
                     details_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
+                    previous_hash TEXT,
+                    event_hash TEXT,
                     FOREIGN KEY(task_id) REFERENCES tasks(task_id)
                 );
             """)
@@ -57,6 +60,12 @@ class TaskStore:
                 db.execute("ALTER TABLE tasks ADD COLUMN lease_until TEXT")
             if "lease_token" not in columns:
                 db.execute("ALTER TABLE tasks ADD COLUMN lease_token TEXT")
+            event_columns = {row["name"] for row in db.execute("PRAGMA table_info(task_events)")}
+            if "previous_hash" not in event_columns:
+                db.execute("ALTER TABLE task_events ADD COLUMN previous_hash TEXT")
+            if "event_hash" not in event_columns:
+                db.execute("ALTER TABLE task_events ADD COLUMN event_hash TEXT")
+            self._migrate_event_hashes(db)
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
@@ -69,12 +78,79 @@ class TaskStore:
     def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
         return dict(row) if row is not None else None
 
+    @staticmethod
+    def _event_digest(event_id: int, task_id: str, event_type: str,
+                      details_json: str, created_at: str, previous_hash: str) -> str:
+        payload = json.dumps({
+            "event_id": event_id, "task_id": task_id, "event_type": event_type,
+            "details_json": details_json, "created_at": created_at,
+            "previous_hash": previous_hash,
+        }, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    @classmethod
+    def _migrate_event_hashes(cls, db: sqlite3.Connection) -> None:
+        rows = db.execute(
+            "SELECT event_id,previous_hash,event_hash FROM task_events ORDER BY event_id"
+        ).fetchall()
+        if not rows:
+            return
+        missing = [row for row in rows if not row["previous_hash"] or not row["event_hash"]]
+        if not missing:
+            return
+        if len(missing) != len(rows):
+            raise RuntimeError("task event hash chain is partially populated; refusing automatic repair")
+        previous = "0" * 64
+        for row in db.execute("SELECT * FROM task_events ORDER BY event_id").fetchall():
+            digest = cls._event_digest(
+                row["event_id"], row["task_id"], row["event_type"],
+                row["details_json"], row["created_at"], previous,
+            )
+            db.execute(
+                "UPDATE task_events SET previous_hash=?,event_hash=? WHERE event_id=?",
+                (previous, digest, row["event_id"]),
+            )
+            previous = digest
+
     def _event(self, db: sqlite3.Connection, task_id: str, event: str,
                details: dict[str, Any] | None = None) -> None:
-        db.execute(
-            "INSERT INTO task_events(task_id,event_type,details_json,created_at) VALUES(?,?,?,?)",
-            (task_id, event, json.dumps(details or {}, sort_keys=True), _now()),
+        details_json = json.dumps(details or {}, sort_keys=True, separators=(",", ":"))
+        created_at = _now()
+        previous = db.execute(
+            "SELECT event_hash FROM task_events ORDER BY event_id DESC LIMIT 1"
+        ).fetchone()
+        previous_hash = previous["event_hash"] if previous else "0" * 64
+        cursor = db.execute(
+            """INSERT INTO task_events
+               (task_id,event_type,details_json,created_at,previous_hash,event_hash)
+               VALUES(?,?,?,?,?,?)""",
+            (task_id, event, details_json, created_at, previous_hash, "pending"),
         )
+        event_hash = self._event_digest(
+            cursor.lastrowid, task_id, event, details_json, created_at, previous_hash,
+        )
+        db.execute("UPDATE task_events SET event_hash=? WHERE event_id=?",
+                   (event_hash, cursor.lastrowid))
+
+    def verify_event_chain(self) -> dict[str, Any]:
+        """Verify the global task-event hash chain; this is not an external trust anchor."""
+        with self._connect() as db:
+            rows = db.execute("SELECT * FROM task_events ORDER BY event_id").fetchall()
+        previous = "0" * 64
+        for row in rows:
+            if row["previous_hash"] != previous:
+                return {"valid": False, "checked_events": 0,
+                        "failed_event_id": row["event_id"], "reason": "previous_hash_mismatch"}
+            expected = self._event_digest(
+                row["event_id"], row["task_id"], row["event_type"],
+                row["details_json"], row["created_at"], previous,
+            )
+            if row["event_hash"] != expected:
+                return {"valid": False, "checked_events": 0,
+                        "failed_event_id": row["event_id"], "reason": "event_hash_mismatch"}
+            previous = expected
+        return {"valid": True, "checked_events": len(rows),
+                "head_hash": previous, "reason": None}
 
     def enqueue(self, title: str, objective: str, assigned_agent: str,
                 idempotency_key: str | None = None, max_attempts: int = 3) -> dict[str, Any]:
