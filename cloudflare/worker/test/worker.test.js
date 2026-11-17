@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHmac, createHash } from "node:crypto";
 import worker, { validFacts, validateDraft, estimateNeurons, constantTimeEqual, DAILY_NEURON_BUDGET,
   verifyNowPaymentsSignature, paymentStatusFromWebhook } from "../src/index.js";
 
@@ -114,6 +114,7 @@ test("NOWPayments statuses settle only full finished payments", () => {
   assert.equal(paymentStatusFromWebhook({ payment_status: "unknown_future_status" }), "review");
 });
 
+
 class FakeD1Statement {
   constructor(db, sql) { this.db = db; this.sql = sql; this.values = []; }
   bind(...values) { this.values = values; return this; }
@@ -124,12 +125,34 @@ class FakeD1Statement {
     if (this.sql.includes("SELECT order_id,invoice_id,price_amount,price_currency,status FROM crypto_payment_invoices")) {
       return this.db.invoice?.order_id === this.values[0] ? { ...this.db.invoice } : null;
     }
+    if (this.sql.includes("SELECT order_id,product_id,status,download_expires_at,buyer_token_hash FROM crypto_payment_invoices")) {
+      return this.db.invoice?.order_id === this.values[0] ? { ...this.db.invoice } : null;
+    }
     if (this.sql.includes("SELECT status FROM crypto_payment_invoices")) {
       return this.db.invoice?.order_id === this.values[0] ? { status: this.db.invoice.status } : null;
     }
     return null;
   }
   async run() {
+    if (this.sql.startsWith("INSERT OR IGNORE INTO crypto_payment_invoices")) {
+      const [order_id, price_amount, product_id, buyer_token_hash, created_at, updated_at] = this.values;
+      if (!this.db.invoice) {
+        this.db.invoice = {
+          order_id, provider: "nowpayments", price_amount, price_currency: "usd",
+          status: "creating", product_id, buyer_token_hash,
+          created_at, updated_at, download_count: 0
+        };
+        return { meta: { changes: 1 } };
+      }
+      return { meta: { changes: 0 } };
+    }
+    if (this.sql.startsWith("UPDATE crypto_payment_invoices SET invoice_id=")) {
+      const [invoice_id, checkout_url, updated_at, order_id] = this.values;
+      if (this.db.invoice?.order_id === order_id) {
+        Object.assign(this.db.invoice, { invoice_id, checkout_url, status: "pending", updated_at });
+      }
+      return { meta: { changes: 1 } };
+    }
     if (this.sql.startsWith("INSERT OR IGNORE INTO crypto_payment_events")) {
       const [event_hash, order_id, invoice_id, payment_id, provider_status, normalized_status, received_at] = this.values;
       if (!this.db.events.has(event_hash)) {
@@ -138,11 +161,26 @@ class FakeD1Statement {
       return { meta: { changes: 1 } };
     }
     if (this.sql.startsWith("UPDATE crypto_payment_invoices SET status=")) {
-      const [incomingStatus, fallbackStatus, last_payment_id, actually_paid, pay_currency, updated_at, order_id] = this.values;
+      const [incomingStatus, fallbackStatus, expiryStatus, downloadExpiry,
+        last_payment_id, actually_paid, pay_currency, updated_at, order_id] = this.values;
       if (this.db.invoice?.order_id === order_id) {
-        const status = this.db.invoice.status === "refunded" ? "refunded" :
-          this.db.invoice.status === "settled" && incomingStatus !== "refunded" ? "settled" : fallbackStatus;
-        Object.assign(this.db.invoice, { status, last_payment_id, actually_paid, pay_currency, updated_at });
+        const previousStatus = this.db.invoice.status;
+        const status = previousStatus === "refunded" ? "refunded" :
+          previousStatus === "settled" && incomingStatus !== "refunded" ? "settled" : fallbackStatus;
+        const expiry = previousStatus !== "settled" && expiryStatus === "settled"
+          ? downloadExpiry : this.db.invoice.download_expires_at;
+        Object.assign(this.db.invoice, {
+          status, download_expires_at: expiry, last_payment_id,
+          actually_paid, pay_currency, updated_at
+        });
+      }
+      return { meta: { changes: 1 } };
+    }
+    if (this.sql.startsWith("UPDATE crypto_payment_invoices SET download_count=")) {
+      const [updated_at, order_id] = this.values;
+      if (this.db.invoice?.order_id === order_id) {
+        this.db.invoice.download_count += 1;
+        this.db.invoice.updated_at = updated_at;
       }
       return { meta: { changes: 1 } };
     }
@@ -150,52 +188,61 @@ class FakeD1Statement {
   }
 }
 
-test("NOWPayments IPN updates a matching invoice once and marks it settled", async () => {
-  const db = {
-    invoice: {
-      order_id: "order-123", invoice_id: "invoice-456",
-      price_amount: "5.00", price_currency: "usd", status: "pending"
-    },
+function fakePaymentDb(invoice = null) {
+  return {
+    invoice,
     events: new Map(),
     prepare(sql) { return new FakeD1Statement(this, sql); }
   };
+}
+
+function signedIPN(payload, secret) {
+  return createHmac("sha512", secret)
+    .update(JSON.stringify(sortDeep(payload)))
+    .digest("hex");
+}
+
+test("NOWPayments IPN updates a matching invoice once and marks it settled", async () => {
+  const db = fakePaymentDb({
+    order_id: "order-123", invoice_id: "invoice-456",
+    price_amount: "5.00", price_currency: "usd", status: "pending",
+    product_id: "moba-objective-props", buyer_token_hash: "unused"
+  });
   const payload = {
     payment_id: 98765, invoice_id: "invoice-456", payment_status: "finished",
     order_id: "order-123", price_amount: 5, price_currency: "usd",
     pay_amount: 0.25, actually_paid: 0.25, pay_currency: "btc"
   };
   const secret = "test-ipn-secret";
-  const signature = createHmac("sha512", secret)
-    .update(JSON.stringify(sortDeep(payload)))
-    .digest("hex");
-  const makeRequest = () => new Request("https://worker.example/v1/payments/nowpayments/ipn", {
-    method: "POST", headers: { "content-type": "application/json", "x-nowpayments-sig": signature },
-    body: JSON.stringify(payload)
+  const makeRequest = body => new Request("https://worker.example/v1/payments/nowpayments/ipn", {
+    method: "POST", headers: { "content-type": "application/json", "x-nowpayments-sig": signedIPN(body, secret) },
+    body: JSON.stringify(body)
   });
   const env = { NOWPAYMENTS_IPN_SECRET: secret, DB: db };
-  const first = await worker.fetch(makeRequest(), env);
+  const first = await worker.fetch(makeRequest(payload), env);
   assert.equal(first.status, 200);
   assert.equal((await first.json()).status, "settled");
   assert.equal(db.invoice.status, "settled");
+  assert.ok(Date.parse(db.invoice.download_expires_at) > Date.now());
   assert.equal(db.events.size, 1);
 
-  const duplicate = await worker.fetch(makeRequest(), env);
+  const duplicate = await worker.fetch(makeRequest(payload), env);
   assert.equal(duplicate.status, 200);
   assert.equal((await duplicate.json()).duplicate, true);
   assert.equal(db.events.size, 1);
 
   const latePayload = { ...payload, payment_id: 98766, payment_status: "confirming" };
-  const lateSignature = createHmac("sha512", secret)
-    .update(JSON.stringify(sortDeep(latePayload)))
-    .digest("hex");
-  const late = await worker.fetch(new Request("https://worker.example/v1/payments/nowpayments/ipn", {
-    method: "POST", headers: { "content-type": "application/json", "x-nowpayments-sig": lateSignature },
-    body: JSON.stringify(latePayload)
-  }), env);
+  const late = await worker.fetch(makeRequest(latePayload), env);
   assert.equal(late.status, 200);
   assert.equal((await late.json()).status, "settled");
   assert.equal(db.invoice.status, "settled");
   assert.equal(db.events.size, 2);
+
+  const refundPayload = { ...payload, payment_id: 98767, payment_status: "refunded" };
+  const refund = await worker.fetch(makeRequest(refundPayload), env);
+  assert.equal(refund.status, 200);
+  assert.equal((await refund.json()).status, "refunded");
+  assert.equal(db.invoice.status, "refunded");
 });
 
 test("NOWPayments IPN rejects an invalid signature before database access", async () => {
@@ -213,4 +260,146 @@ test("crypto invoice creation stays disabled until provider secrets exist", asyn
     body: JSON.stringify({ order_id: "order-123", price_amount: "5.00" })
   }), { AAE_QUEUE_TOKEN: "owner-secret-token" });
   assert.equal(response.status, 503);
+});
+
+test("public crypto checkout remains disabled until owner gates and provider credentials are present", async () => {
+  const response = await worker.fetch(new Request("https://worker.example/v1/store/checkout", {
+    method: "POST",
+    headers: {
+      origin: "https://worker.example",
+      "content-type": "application/json",
+      "cf-connecting-ip": "203.0.113.10"
+    },
+    body: "{}"
+  }), {});
+  assert.equal(response.status, 503);
+});
+
+test("public checkout fixes the product price and creates an invoice with a private buyer token", async () => {
+  const db = fakePaymentDb();
+  let providerPayload = null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(url, "https://api.nowpayments.io/v1/invoice");
+    providerPayload = JSON.parse(init.body);
+    return new Response(JSON.stringify({
+      id: "invoice-789",
+      invoice_url: "https://nowpayments.io/invoice/checkout-789"
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://worker.example/v1/store/checkout", {
+      method: "POST",
+      headers: {
+        origin: "https://worker.example",
+        "content-type": "application/json",
+        "cf-connecting-ip": "203.0.113.10"
+      },
+      body: "{}"
+    }), {
+      AAE_PUBLIC_CHECKOUT_ENABLED: "true",
+      AAE_CRYPTO_ENABLEMENT_APPROVED: "true",
+      NOWPAYMENTS_API_KEY: "api-test",
+      NOWPAYMENTS_IPN_SECRET: "ipn-test",
+      CHECKOUT_LIMITER: { limit: async () => ({ success: true }) },
+      DB: db
+    });
+    assert.equal(response.status, 201);
+    const data = await response.json();
+    assert.match(data.order_id, /^moba-/);
+    assert.match(data.access_token, /^[a-f0-9]{64}$/);
+    assert.equal(data.checkout_url, "https://nowpayments.io/invoice/checkout-789");
+    assert.equal(data.price_amount, "5.00");
+    assert.equal(db.invoice.product_id, "moba-objective-props");
+    assert.equal(db.invoice.buyer_token_hash, createHash("sha256").update(data.access_token).digest("hex"));
+    assert.equal(db.invoice.status, "pending");
+    assert.equal(providerPayload.price_amount, 5);
+    assert.equal(providerPayload.price_currency, "usd");
+    assert.equal(providerPayload.order_id, data.order_id);
+    assert.equal(providerPayload.success_url, "https://worker.example/?order=" + encodeURIComponent(data.order_id));
+    assert.equal(providerPayload.cancel_url, "https://worker.example/?order=" + encodeURIComponent(data.order_id) + "&cancelled=1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("public checkout rejects cross-origin and client-supplied product prices", async () => {
+  const baseEnv = {
+    AAE_PUBLIC_CHECKOUT_ENABLED: "true",
+    AAE_CRYPTO_ENABLEMENT_APPROVED: "true",
+    NOWPAYMENTS_API_KEY: "api-test",
+    NOWPAYMENTS_IPN_SECRET: "ipn-test",
+    CHECKOUT_LIMITER: { limit: async () => ({ success: true }) },
+    DB: fakePaymentDb()
+  };
+  const crossOrigin = await worker.fetch(new Request("https://worker.example/v1/store/checkout", {
+    method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json", "cf-connecting-ip": "203.0.113.10" }, body: "{}"
+  }), baseEnv);
+  assert.equal(crossOrigin.status, 403);
+  const customPrice = await worker.fetch(new Request("https://worker.example/v1/store/checkout", {
+    method: "POST", headers: { origin: "https://worker.example", "content-type": "application/json", "cf-connecting-ip": "203.0.113.10" },
+    body: JSON.stringify({ price_amount: "0.01", product_id: "free" })
+  }), baseEnv);
+  assert.equal(customPrice.status, 400);
+});
+
+test("buyer status remains locked before settlement and rejects an invalid token", async () => {
+  const token = "a".repeat(64);
+  const db = fakePaymentDb({
+    order_id: "moba-order-123", product_id: "moba-objective-props",
+    status: "pending", download_expires_at: null,
+    buyer_token_hash: createHash("sha256").update(token).digest("hex")
+  });
+  const env = { DB: db, ASSETS: { fetch: async () => new Response("should not fetch") } };
+  const status = await worker.fetch(new Request("https://worker.example/v1/store/orders/moba-order-123", {
+    headers: { authorization: "Bearer " + token }
+  }), env);
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).download_available, false);
+  const wrong = await worker.fetch(new Request("https://worker.example/v1/store/orders/moba-order-123", {
+    headers: { authorization: "Bearer " + "b".repeat(64) }
+  }), env);
+  assert.equal(wrong.status, 404);
+  const locked = await worker.fetch(new Request("https://worker.example/v1/store/orders/moba-order-123/download", {
+    headers: { authorization: "Bearer " + token }
+  }), env);
+  assert.equal(locked.status, 403);
+});
+
+test("only settled buyers can stream the protected product file", async () => {
+  const token = "c".repeat(64);
+  const db = fakePaymentDb({
+    order_id: "moba-order-456", product_id: "moba-objective-props",
+    status: "settled", download_expires_at: new Date(Date.now() + 60_000).toISOString(),
+    buyer_token_hash: createHash("sha256").update(token).digest("hex"),
+    download_count: 0
+  });
+  let requestedAsset = "";
+  const env = {
+    DB: db,
+    ASSETS: {
+      fetch: async request => {
+        requestedAsset = new URL(request.url).pathname;
+        return new Response(new Uint8Array([80, 75, 3, 4]), {
+          status: 200, headers: { "content-length": "4" }
+        });
+      }
+    }
+  };
+  const response = await worker.fetch(new Request("https://worker.example/v1/store/orders/moba-order-456/download", {
+    headers: { authorization: "Bearer " + token }
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/zip");
+  assert.equal(response.headers.get("content-disposition"), 'attachment; filename="moba-objective-props.zip"');
+  assert.equal(requestedAsset, "/downloads/moba-objective-props.zip");
+  assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [80, 75, 3, 4]);
+  assert.equal(db.invoice.download_count, 1);
+});
+
+test("direct public product-file path is blocked even when static assets are configured", async () => {
+  const response = await worker.fetch(new Request("https://worker.example/downloads/moba-objective-props.zip"), {
+    ASSETS: { fetch: async () => new Response("private asset") }
+  });
+  assert.equal(response.status, 404);
 });
