@@ -1,0 +1,25 @@
+{
+  "product_name": "MOBA Objective Props",
+  "buyer_segment": "Indie game developers and hobbyists",
+  "product_summary": "Five original procedural low-poly fantasy props for game prototypes.",
+  "included_files": [
+    "five individual GLB models",
+    "combined preview GLB",
+    "Godot 4 demo scene",
+    "PBR material definitions",
+    "README and draft license"
+  ],
+  "formats": ["GLB", "Godot 4"],
+  "known_limits": [
+    "static props only",
+    "no rigging",
+    "no animation",
+    "no collision shapes",
+    "no LODs",
+    "no texture maps",
+    "inspect scale and materials in the target engine"
+  ],
+  "engine": "Godot 4",
+  "license_summary": "Draft license permits personal and commercial game use but prohibits standalone redistribution; review legal terms before sale.",
+  "ai_disclosure": "AI-assisted procedural mesh generation."
+}
