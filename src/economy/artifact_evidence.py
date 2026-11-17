@@ -79,3 +79,39 @@ def verify_local_artifact(path: str | Path, manifest: dict[str, Any]) -> dict[st
         "size_bytes": size,
         "media_type": expected["media_type"],
     }
+
+
+def verify_artifact_digests(paths: list[str | Path], expected_digests: list[str]) -> list[dict[str, Any]]:
+    """Verify every expected artifact digest against exactly one supplied local file."""
+    if not isinstance(expected_digests, list) or any(
+        not isinstance(item, str) or not re.fullmatch(r"[0-9a-f]{64}", item)
+        for item in expected_digests
+    ):
+        raise ValueError("expected artifact digests must be lowercase SHA-256 values")
+    expected = set(expected_digests)
+    if len(expected) != len(expected_digests):
+        raise ValueError("duplicate expected artifact digests are not allowed")
+    found: dict[str, dict[str, Any]] = {}
+    for raw_path in paths:
+        artifact = Path(raw_path)
+        if artifact.is_symlink() or not artifact.is_file():
+            raise ValueError("each artifact must be a regular, non-symlink local file")
+        size = artifact.stat().st_size
+        if size > MAX_ARTIFACT_BYTES:
+            raise ValueError("artifact exceeds the maximum verification size")
+        digest = hashlib.sha256()
+        with artifact.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        value = digest.hexdigest()
+        if value not in expected:
+            raise ValueError(f"supplied artifact does not match a receipt digest: {artifact.name}")
+        if value in found:
+            raise ValueError("multiple supplied files match the same receipt artifact digest")
+        found[value] = {"sha256": value, "size_bytes": size, "path_name": artifact.name}
+    missing = expected - set(found)
+    if missing:
+        raise ValueError("missing locally verified receipt artifacts: " + ", ".join(sorted(missing)))
+    if set(found) != expected:
+        raise ValueError("supplied artifacts do not exactly match receipt artifact digests")
+    return [found[digest] for digest in sorted(found)]
