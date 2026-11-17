@@ -1,3 +1,5 @@
+> **DEPRECATED — DO NOT PUBLISH.** This draft assumes a human freelancer account and human-operated service delivery. It is not an implementation target for the Autonomous AI Economy. Retained solely as historical research.
+
 # Upwork Project Catalog — Listing Draft
 
 Status: draft only. Do not publish without the owner's explicit approval after account, identity, tax and payout checks.
