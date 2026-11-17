@@ -29,7 +29,7 @@ Last reviewed: 2026-11-17
 - No production owner console, remote issuer authentication, unified external-action gateway, hardened key management or tamper-proof audit store.
 - No independent evidence verification, appeal workflow, formal dispute policy, legal contract workflow, refunds or settlement.
 - No live customer acquisition or confirmed paying customer. Simulated demo revenue is not actual income.
-- No live payment processing or blockchain transaction has been deployed. Source now includes a gated NOWPayments invoice/IPN adapter, D1 order records, a fixed-price storefront, buyer-token authentication and payment-gated automatic ZIP delivery via Worker Static Assets. It has no provider credentials, deployed Worker, public live checkout, or verified transaction. Outbound payouts, refunds, exchange, escrow, custody and treasury transfers are not integrated.
+- No live payment processing or blockchain transaction has been deployed. Source now includes a gated NOWPayments invoice/IPN adapter, D1 order records, a fixed-price storefront, buyer-token authentication, payment-gated automatic ZIP delivery via Worker Static Assets, and idempotent gross-revenue attribution to the internal `game-asset-builder` ID. It has no provider credentials, deployed Worker, public live checkout, or verified transaction. Net wallet proceeds, agent credits, cryptographic agent enrollment for this producer, outbound payouts, refunds, exchange, escrow, custody and treasury transfers are not integrated. Gross attribution remains pending reconciliation.
 
 ## Signed task-offer API
 
