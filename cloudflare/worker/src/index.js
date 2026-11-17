@@ -319,7 +319,7 @@ async function nowPaymentsIPN(request, env) {
   // the provider retry can safely try again. The SQL CASE protects settled/refunded
   // states from late, out-of-order callbacks.
   const downloadExpiry = normalized === "settled"
-    ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() : null;
+    ? new Date(Date.now() + STORE_DOWNLOAD_WINDOW_MS).toISOString() : null;
   await env.DB.prepare(
     "UPDATE crypto_payment_invoices SET status=CASE WHEN status='refunded' THEN 'refunded' WHEN status='settled' AND ?!='refunded' THEN 'settled' ELSE ? END,download_expires_at=CASE WHEN status!='settled' AND ?='settled' THEN ? ELSE download_expires_at END,last_payment_id=?,actually_paid=?,pay_currency=?,updated_at=? WHERE order_id=?"
   ).bind(normalized, normalized, normalized, downloadExpiry, paymentId,
