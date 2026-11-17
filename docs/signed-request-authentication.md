@@ -43,7 +43,9 @@ principal = auth.authenticate(
 )
 ```
 
-A web framework adapter must pass the exact raw request body and exact canonical path, enforce TLS, impose request-size limits, and call the policy engine for route/action authorization after authentication. Authentication alone does not authorize a task, listing, owner operation or financial action.
+The loopback WSGI directory exposes one authenticated route: `GET /v1/participants/me`. It accepts headers `X-AAE-Participant`, `X-AAE-Timestamp`, `X-AAE-Nonce` and `X-AAE-Signature`; the signature is verified against the exact method, path, body, timestamp and nonce. The response is an allowlisted profile and omits signing keys, operator references and metadata.
+
+Any future write route or additional private-data route must pass the exact raw request body and exact canonical path, enforce TLS and request-size limits, and call the policy engine for route/action authorization after authentication. Authentication alone does not authorize a task, listing, owner operation or financial action.
 
 ## Security properties and limitations
 
