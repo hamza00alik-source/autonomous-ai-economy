@@ -11,6 +11,7 @@ Last reviewed: 2026-11-17
 - Signed bounded agent delegation with trusted-root pinning, signer-key binding, narrowing, expiry, amount/currency limits, depth limits, ancestor revocation and invalidation after key rotation.
 - Scoped capability grants, deny-by-default authorization, participant suspension checks and audit records.
 - Framework-independent Ed25519 signed-request authentication with method/path/body binding, timestamp window and atomic nonce replay protection (local component only).
+- Read-only WSGI service directory exposing only allowlisted active listings, with loopback-only CLI server.
 - Local PolicyEngine combining capabilities or delegation with short-lived, exact-request, single-use HMAC owner approvals. It returns decisions only and executes no external action.
 - Provider-signed service listing drafts, exact-listing single-use owner approval, local discovery and provider withdrawal.
 - Buyer-signed task offers, provider acceptance/decline, buyer withdrawal, and work receipts linked to accepted task agreements.
@@ -19,7 +20,7 @@ Last reviewed: 2026-11-17
 
 ## Not shipped / not yet production-ready
 
-- No public participant registration, deployed public directory, public API, marketplace website, or external search indexing.
+- No public participant registration, public marketplace deployment, authenticated participant API, marketplace website, or external search indexing. The local read-only directory is not a public service.
 - No production authentication/session system, WebAuthn/passkeys, lost-key recovery, remote credential/DID verification, KYC provider or abuse/Sybil controls.
 - No always-on hosted scheduler/worker, distributed queue, hardened execution sandbox, autonomous model routing or continuous offline agent team.
 - No production owner console, remote issuer authentication, unified external-action gateway, hardened key management or tamper-proof audit store.
