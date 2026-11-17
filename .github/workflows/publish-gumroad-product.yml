@@ -1,0 +1,80 @@
+name: Publish Gumroad product (explicit approval required)
+
+on:
+  workflow_dispatch:
+    inputs:
+      product_id:
+        description: "Gumroad draft product ID"
+        required: true
+        type: string
+      confirm_publish:
+        description: "Type PUBLISH to make this product publicly purchasable"
+        required: true
+        default: "NO"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gumroad-product-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require explicit publication confirmation
+        env:
+          CONFIRM_PUBLISH: ${{ inputs.confirm_publish }}
+          PRODUCT_ID: ${{ inputs.product_id }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM_PUBLISH" = "PUBLISH"
+          echo "$PRODUCT_ID" | grep -Eq '^[A-Za-z0-9_-]{4,64}$'
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Download and verify official Gumroad CLI
+        run: |
+          set -euo pipefail
+          version="v0.20261106.1"
+          base="https://github.com/antiwork/gumroad-cli/releases/download/$version"
+          curl -fsSL "$base/checksums.txt" -o checksums.txt
+          curl -fsSL "$base/gumroad-cli_linux_amd64.tar.gz" -o gumroad-cli.tar.gz
+          grep 'gumroad-cli_linux_amd64.tar.gz$' checksums.txt | sha256sum --check -
+          mkdir -p gumroad-cli-extracted
+          tar -xzf gumroad-cli.tar.gz -C gumroad-cli-extracted
+          binary="$(find gumroad-cli-extracted -type f -name gumroad -perm -u+x -print -quit)"
+          test -n "$binary"
+          sudo install -m 0755 "$binary" /usr/local/bin/gumroad
+      - name: Publish selected product
+        env:
+          GUMROAD_ACCESS_TOKEN: ${{ secrets.GUMROAD_ACCESS_TOKEN }}
+          PRODUCT_ID: ${{ inputs.product_id }}
+        run: |
+          set -euo pipefail
+          test -n "$GUMROAD_ACCESS_TOKEN"
+          gumroad products publish "$PRODUCT_ID" --yes --json --no-input --quiet > publish-result.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path("publish-result.json").read_text())
+          product = data.get("product", {})
+          if data.get("success") is not True or product.get("published") is not True:
+              raise SystemExit("Gumroad did not confirm that the product is published")
+          print(json.dumps({
+              "product_id": product.get("id"),
+              "name": product.get("name"),
+              "published": True,
+              "short_url": product.get("short_url"),
+          }, indent=2))
+          PY
+      - name: Upload publication receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: gumroad-publication-receipt
+          path: publish-result.json
+          if-no-files-found: error
+          retention-days: 14
