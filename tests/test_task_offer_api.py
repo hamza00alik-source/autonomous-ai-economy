@@ -39,6 +39,29 @@ class FakeAgreements:
         return {"task_id": task_id, "status": "accepted",
                 "provider_id": kwargs["provider_id"]}
 
+    def offers_for_provider(self, provider_id, *, status="offered", limit=50):
+        return [{
+            "task_id": "task_a", "listing_id": "listing_a",
+            "buyer_id": "buyer_1", "provider_id": provider_id,
+            "title": "Research", "scope": "Scope",
+            "acceptance_criteria": "Criteria", "due_at": None,
+            "price_minor": 500, "currency": "USD",
+            "status": status, "created_at": "2026-11-17T00:00:00+00:00",
+            "private_signature": "never return",
+        }][:limit]
+
+    def get(self, task_id):
+        return {
+            "task_id": task_id, "listing_id": "listing_a",
+            "buyer_id": "buyer_1", "provider_id": "provider_1",
+            "title": "Research", "scope": "Scope",
+            "acceptance_criteria": "Criteria", "due_at": None,
+            "price_minor": 500, "currency": "USD",
+            "status": "offered", "created_at": "2026-11-17T00:00:00+00:00",
+            "updated_at": "2026-11-17T00:00:00+00:00",
+            "buyer_signature": "private",
+        }
+
 
 class SignedTaskOfferApiTests(unittest.TestCase):
     def setUp(self):
@@ -107,6 +130,37 @@ class SignedTaskOfferApiTests(unittest.TestCase):
         response, body = self.request("POST", "/v1/tasks/task_a/responses", raw)
         self.assertEqual(response["status"], "400 Bad Request")
         self.assertEqual(body["error"], "invalid_json_body")
+
+    def get_request(self, path, participant="provider_1"):
+        captured = {}
+        def start_response(status, headers):
+            captured["status"] = status
+        route, _, query = path.partition("?")
+        output = self.app({
+            "REQUEST_METHOD": "GET", "PATH_INFO": route,
+            "QUERY_STRING": query, "CONTENT_LENGTH": "0",
+            "HTTP_X_AAE_PARTICIPANT": participant,
+            "HTTP_X_AAE_TIMESTAMP": "1799999999",
+            "HTTP_X_AAE_NONCE": "qrstuvwxyzABCDEF",
+            "HTTP_X_AAE_SIGNATURE": "valid",
+        }, start_response)
+        return captured, json.loads(b"".join(output))
+
+    def test_provider_inbox_is_scoped_and_query_is_signed(self):
+        response, body = self.get_request("/v1/tasks/offers/inbox?status=offered&limit=5")
+        self.assertEqual(response["status"], "200 OK")
+        self.assertEqual(body["items"][0]["provider_id"], "provider_1")
+        self.assertNotIn("private_signature", body["items"][0])
+        self.assertEqual(self.auth.calls[-1][2],
+                         "/v1/tasks/offers/inbox?status=offered&limit=5")
+
+    def test_agreement_detail_is_private_to_buyer_and_provider(self):
+        response, body = self.get_request("/v1/tasks/task_a", participant="buyer_1")
+        self.assertEqual(response["status"], "200 OK")
+        self.assertNotIn("buyer_signature", body["task"])
+        response, body = self.get_request("/v1/tasks/task_a", participant="stranger")
+        self.assertEqual(response["status"], "404 Not Found")
+        self.assertEqual(body["error"], "not_found")
 
     def test_rejects_invalid_offer_types_and_boolean_amount(self):
         payload = {
