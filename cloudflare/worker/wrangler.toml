@@ -9,7 +9,7 @@ binding = "AI"
 [[d1_databases]]
 binding = "DB"
 database_name = "aae-private-ai-economy"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "25bdc73f-615b-4b71-a7cd-86ba5cd615f8"
 migrations_dir = "migrations"
 
 [triggers]
