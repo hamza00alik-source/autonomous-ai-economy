@@ -56,3 +56,35 @@ def test_game_asset_pack_is_reproducible(tmp_path):
     build_game_asset_pack(first)
     build_game_asset_pack(second)
     assert first.read_bytes() == second.read_bytes()
+
+from collections import defaultdict
+
+from economy.game_asset_pack import _cylinder, _crystal
+
+
+def _cross(a, b, c):
+    u = tuple(b[i] - a[i] for i in range(3))
+    v = tuple(c[i] - a[i] for i in range(3))
+    return (
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    )
+
+
+def test_primitive_face_winding_points_outward():
+    cylinder = defaultdict(list)
+    _cylinder(cylinder, (0, 0, 0), 1.0, 2.0, "stone", sides=8)
+    side_normal = _cross(*cylinder["stone"][0])
+    side_center = tuple(sum(v[i] for v in cylinder["stone"][0]) / 3 for i in range(3))
+    assert side_normal[0] * side_center[0] + side_normal[2] * side_center[2] > 0
+    bottom_normal = _cross(*cylinder["stone"][2])
+    top_normal = _cross(*cylinder["stone"][3])
+    assert bottom_normal[1] < 0
+    assert top_normal[1] > 0
+
+    crystal = defaultdict(list)
+    _crystal(crystal, (0, 0, 0), 1.0, 2.0, sides=8)
+    normal = _cross(*crystal["crystal_light"][0])
+    center = tuple(sum(v[i] for v in crystal["crystal_light"][0]) / 3 for i in range(3))
+    assert normal[0] * center[0] + normal[2] * center[2] > 0
