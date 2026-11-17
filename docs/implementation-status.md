@@ -53,15 +53,21 @@ Set `AAE_CGROUP_ROOT` in the worker process environment to an administrator-dele
 - Live commerce requires security, privacy, local legal/tax and payment-provider eligibility review.
 - A policy decision of `allow` is not an execution command; no external action is performed by the current policy engine.
 
+## Next commercial sequence
+
+1. Validate the first-revenue pilot offer and sample delivery against current public marketplace policy and customer expectations.
+2. Owner verifies Upwork account eligibility, identity/tax requirements, exact Project Catalog creation workflow on Android, and the actual withdrawal methods/fees shown in the account.
+3. Owner reviews and explicitly approves the final project listing, price, delivery window and sample before any publication.
+4. Publish only after that approval; measure impressions, clicks, enquiries, orders, cancellations and cleared net receipts.
+5. Fulfil any first order under owner supervision, using only public sources and free tools unless separate spending approval is granted.
+6. Record first revenue only after cleared funds are received and reconciled after fees.
+
+The fixed-scope Etsy listing audit is a commercial hypothesis, not a validated source of guaranteed sales. Its research basis, exact deliverables, limitations, owner approval gates and success definition are in [first-revenue pilot](first-revenue-pilot.md). No external listing has been created or published, and no customer or revenue exists yet.
+
 ## Next engineering sequence
 
-1. Complete regression/security review of the local marketplace lifecycle and authorization boundaries, including explicit participant-to-task assignment.
-2. Define and test lost-key recovery policy; strengthen audit integrity.
-3. Provision and validate a real delegated cgroup v2 subtree for deployment, add live kernel integration tests, and evolve the targeted seccomp denylist into a reviewed, tested syscall allowlist before considering hostile-code execution.
-4. Extend local abuse controls with reviewed registration/Sybil defenses, then design production authentication, distributed edge rate limits, abuse handling and privacy boundaries before exposing registration or discovery.
-5. Build a browser/mobile-friendly owner and participant console for the sandbox marketplace.
-6. Add independent work verification, dispute responses, appeals and task amendment workflows.
-7. Add durable scheduled workers only after sandbox and cost controls are independently reviewed.
-8. Validate one real, legally permitted paying-customer workflow before considering live payment integrations or scaling.
+1. Complete the minimum local marketplace and authorization work needed to record an owner-supervised pilot transaction without pretending a local ledger is payment processing.
+2. Continue security and recovery work only where it directly blocks safe customer delivery or participant protection.
+3. Keep public deployment, payments, custody, autonomous transfers and always-on hosted infrastructure gated until separate security, legal, provider and owner approvals.
 
 This status distinguishes local prototype code from the future open economy. A committed module is not the same as a deployed, secure or revenue-producing service.
