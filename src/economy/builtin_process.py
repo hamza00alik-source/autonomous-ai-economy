@@ -7,9 +7,15 @@ without bubblewrap fail closed rather than silently running without isolation.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
+
+try:
+    import resource
+except ImportError:
+    resource = None
 from pathlib import Path
 
 MAX_OBJECTIVE = 4096
@@ -66,6 +72,8 @@ def _sandbox_command(bwrap: str, payload: bytes) -> list[str]:
         "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin",
         "--setenv", "HOME", "/nonexistent",
         "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
+        "--uid", "65534",
+        "--gid", "65534",
         sys.executable,
         "-I",
         "-S",
@@ -73,6 +81,17 @@ def _sandbox_command(bwrap: str, payload: bytes) -> list[str]:
     ])
     return command
 
+
+def _apply_process_limits() -> None:
+    """Apply inherited hard limits to Bubblewrap and every sandbox descendant."""
+    if resource is None:
+        raise SandboxUnavailable("POSIX resource limits are unavailable")
+    resource.setrlimit(resource.RLIMIT_CPU, (3, 3))
+    resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
+    resource.setrlimit(resource.RLIMIT_NOFILE, (32, 32))
+    if hasattr(resource, "RLIMIT_NPROC"):
+        resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
 
 def execute_builtin(agent_id: str, objective: str) -> str:
     if agent_id not in _ALLOWED:
@@ -98,6 +117,7 @@ def execute_builtin(agent_id: str, objective: str) -> str:
             check=False,
             close_fds=True,
             env={},
+            preexec_fn=_apply_process_limits if resource is not None else None,
         )
     except subprocess.TimeoutExpired as exc:
         raise TimeoutError("sandboxed built-in agent exceeded its execution time limit") from exc
