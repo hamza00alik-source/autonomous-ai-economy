@@ -1,4 +1,5 @@
 import json
+import shutil
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -7,6 +8,11 @@ from economy.builtin_process import SandboxUnavailable, execute_builtin
 
 
 class BuiltinProcessTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("bwrap"), "bubblewrap is not installed on this host")
+    def test_real_bubblewrap_namespace_smoke(self):
+        result = execute_builtin("verification-auditor", "Check source evidence")
+        self.assertIn("Check source evidence", result)
+
     @patch("economy.builtin_process.subprocess.run")
     @patch("economy.builtin_process.shutil.which", return_value="/usr/bin/bwrap")
     def test_executes_allowlisted_agent_inside_bubblewrap(self, _which, run):
