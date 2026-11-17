@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -37,7 +38,8 @@ class TaskStore:
                     max_attempts INTEGER NOT NULL DEFAULT 3,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    lease_until TEXT
+                    lease_until TEXT,
+                    lease_token TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_tasks_status_created
                     ON tasks(status, created_at);
@@ -53,6 +55,8 @@ class TaskStore:
             columns = {row["name"] for row in db.execute("PRAGMA table_info(tasks)")}
             if "lease_until" not in columns:
                 db.execute("ALTER TABLE tasks ADD COLUMN lease_until TEXT")
+            if "lease_token" not in columns:
+                db.execute("ALTER TABLE tasks ADD COLUMN lease_token TEXT")
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
@@ -147,7 +151,7 @@ class TaskStore:
                 retry = old["attempts"] < old["max_attempts"]
                 status = "queued" if retry else "failed"
                 db.execute(
-                    "UPDATE tasks SET status=?,lease_until=NULL,updated_at=? WHERE task_id=?",
+                    "UPDATE tasks SET status=?,lease_until=NULL,lease_token=NULL,updated_at=? WHERE task_id=?",
                     (status, now, old["task_id"]),
                 )
                 self._event(
@@ -172,10 +176,11 @@ class TaskStore:
                 db.commit()
                 return None
             lease_until = (now_dt + timedelta(seconds=self.lease_seconds)).isoformat()
+            lease_token = secrets.token_urlsafe(32)
             db.execute(
-                "UPDATE tasks SET status='running',attempts=attempts+1,updated_at=?,lease_until=? "
+                "UPDATE tasks SET status='running',attempts=attempts+1,updated_at=?,lease_until=?,lease_token=? "
                 "WHERE task_id=? AND status='queued'",
-                (now, lease_until, row["task_id"]),
+                (now, lease_until, lease_token, row["task_id"]),
             )
             self._event(db, row["task_id"], "started", {"attempt": row["attempts"] + 1})
             claimed = db.execute(
@@ -184,24 +189,28 @@ class TaskStore:
             db.commit()
             return self._row(claimed)
 
-    def finish(self, task_id: str, result: str) -> dict[str, Any]:
-        return self._transition(task_id, "completed", result, "completed")
+    def finish(self, task_id: str, result: str, lease_token: str) -> dict[str, Any]:
+        if not isinstance(result, str) or len(result) > 65536:
+            raise ValueError("result must be text no longer than 65536 characters")
+        return self._transition(task_id, "completed", result, "completed", lease_token)
 
-    def fail(self, task_id: str, error: str) -> dict[str, Any]:
+    def fail(self, task_id: str, error: str, lease_token: str) -> dict[str, Any]:
+        if not isinstance(error, str) or len(error) > 4096:
+            raise ValueError("error must be text no longer than 4096 characters")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM tasks WHERE task_id=?", (task_id,)).fetchone()
             if row is None:
                 db.rollback()
                 raise KeyError(task_id)
-            if row["status"] != "running":
+            if row["status"] != "running" or not row["lease_token"] or not secrets.compare_digest(row["lease_token"], lease_token):
                 db.rollback()
-                raise ValueError("only running tasks can fail")
+                raise ValueError("active task lease is missing or does not match")
             retry = row["attempts"] < row["max_attempts"]
             status = "queued" if retry else "failed"
             now = _now()
             db.execute(
-                "UPDATE tasks SET status=?,result=?,updated_at=?,lease_until=NULL WHERE task_id=?",
+                "UPDATE tasks SET status=?,result=?,updated_at=?,lease_until=NULL,lease_token=NULL WHERE task_id=?",
                 (status, error, now, task_id),
             )
             self._event(db, task_id, "retry_scheduled" if retry else "failed",
@@ -210,16 +219,17 @@ class TaskStore:
             db.commit()
             return self._row(updated) or {}
 
-    def _transition(self, task_id: str, status: str, result: str, event: str) -> dict[str, Any]:
+    def _transition(self, task_id: str, status: str, result: str, event: str,
+                    lease_token: str) -> dict[str, Any]:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT status FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+            row = db.execute("SELECT status,lease_token FROM tasks WHERE task_id=?", (task_id,)).fetchone()
             if row is None:
                 db.rollback()
                 raise KeyError(task_id)
-            if row["status"] != "running":
+            if row["status"] != "running" or not row["lease_token"] or not secrets.compare_digest(row["lease_token"], lease_token):
                 db.rollback()
-                raise ValueError("only running tasks can complete")
+                raise ValueError("active task lease is missing or does not match")
             db.execute(
                 "UPDATE tasks SET status=?,result=?,updated_at=?,lease_until=NULL WHERE task_id=?",
                 (status, result, _now(), task_id),
