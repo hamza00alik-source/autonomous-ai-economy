@@ -11,6 +11,7 @@ from typing import Callable
 from .task_store import TaskStore
 from .task_agreements import TaskAgreementStore
 from .order_dispatch import dispatch_accepted_orders
+from .artifact_export import export_completed_order_artifact
 from .worker import run_once
 
 LOG = logging.getLogger("economy.supervisor")
@@ -34,6 +35,14 @@ def supervise(store: TaskStore, *, agreements: TaskAgreementStore | None = None,
             if agreements is not None:
                 dispatch_accepted_orders(agreements, store)
             result = worker(store)
+            if (result is not None and result.get("status") == "completed"
+                    and result.get("assigned_agent") == "order-delivery-agent"
+                    and result.get("task_id")):
+                artifact_dir = Path(store.path).parent / "deliverables"
+                exported = export_completed_order_artifact(
+                    store, result["task_id"], artifact_dir,
+                )
+                LOG.info("Order draft artifact exported: %s", exported["path"])
             if result is None:
                 idle += 1
             elif result.get("status") == "completed":
