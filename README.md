@@ -60,8 +60,9 @@ A separate brand is being researched. Early collision screening rejected Synthor
 - Google News RSS and Hacker News discovery, manual allowlisted source retrieval, owner-classified source snapshots and source-reviewed opportunity dossiers.
 - Opportunity prioritization, unit-economics scenario calculation, Shared Brain and evidence-linked collective learning.
 - A complete local signed marketplace lifecycle: provider listing draft → explicit local owner approval → buyer-signed task offer → provider-signed acceptance → provider-signed artifact receipt → buyer-side hash verification and signed acceptance.
+- Local authenticated HTTP endpoints for buyer task-offer creation and provider accept/decline, with exact-body request authentication and party identity bound to the signing participant.
 
-These capabilities do not browse autonomously, contact buyers, publish to external marketplaces, spend, process payments, or execute real financial transactions. Local catalog activation is private prototype state, not external publication.
+These capabilities do not browse autonomously, contact buyers, publish to external marketplaces, spend, process payments, or execute real financial transactions. The signed offer HTTP endpoints are local prototype interfaces and must not be exposed to the public internet. Local catalog activation is private prototype state, not external publication.
 
 ## Architecture
 
