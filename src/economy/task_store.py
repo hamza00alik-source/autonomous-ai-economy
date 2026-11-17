@@ -233,11 +233,17 @@ class TaskStore:
             if row is None:
                 db.rollback()
                 raise KeyError(task_id)
-            if row["status"] != "running" or not row["lease_token"] or not secrets.compare_digest(row["lease_token"], lease_token):
+            lease_expired = (
+                not row["lease_until"]
+                or datetime.fromisoformat(row["lease_until"]) <= datetime.now(timezone.utc)
+            )
+            if (row["status"] != "running" or lease_expired
+                    or not isinstance(lease_token, str) or not row["lease_token"]
+                    or not secrets.compare_digest(row["lease_token"], lease_token)):
                 db.rollback()
-                raise ValueError("active task lease is missing or does not match")
+                raise ValueError("active task lease is missing, expired, or does not match")
             db.execute(
-                "UPDATE tasks SET status=?,result=?,updated_at=?,lease_until=NULL WHERE task_id=?",
+                "UPDATE tasks SET status=?,result=?,updated_at=?,lease_until=NULL,lease_token=NULL WHERE task_id=?",
                 (status, result, _now(), task_id),
             )
             self._event(db, task_id, event, {})
