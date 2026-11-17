@@ -1,4 +1,5 @@
 import json
+import resource
 import shutil
 import unittest
 from types import SimpleNamespace
@@ -17,10 +18,10 @@ class BuiltinProcessTests(unittest.TestCase):
     def test_sets_inherited_cpu_memory_file_and_descriptor_limits(self, setrlimit):
         _apply_process_limits()
         limits = {call.args[0]: call.args[1] for call in setrlimit.call_args_list}
-        self.assertEqual(limits[2], (3, 3))
-        self.assertEqual(limits[9], (512 * 1024 * 1024, 512 * 1024 * 1024))
-        self.assertEqual(limits[1], (1024 * 1024, 1024 * 1024))
-        self.assertEqual(limits[7], (32, 32))
+        self.assertEqual(limits[resource.RLIMIT_CPU], (3, 3))
+        self.assertEqual(limits[resource.RLIMIT_AS], (512 * 1024 * 1024, 512 * 1024 * 1024))
+        self.assertEqual(limits[resource.RLIMIT_FSIZE], (1024 * 1024, 1024 * 1024))
+        self.assertEqual(limits[resource.RLIMIT_NOFILE], (32, 32))
     @patch("economy.builtin_process.subprocess.run")
     @patch("economy.builtin_process.shutil.which", return_value="/usr/bin/bwrap")
     def test_executes_allowlisted_agent_inside_bubblewrap(self, _which, run):
