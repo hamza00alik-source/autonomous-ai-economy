@@ -82,6 +82,34 @@ function estimateNeurons(facts) {
   return Math.max(1, Math.ceil(raw * 1.25));
 }
 
+function extractModelText(output) {
+  if (typeof output === "string") return output;
+  if (!output || typeof output !== "object") return null;
+  const candidates = [
+    output.response,
+    output.output_text,
+    output.text,
+    output.result?.response,
+    output.result?.output_text,
+    output.result?.text,
+    output.choices?.[0]?.message?.content,
+    output.choices?.[0]?.text,
+    output.result?.choices?.[0]?.message?.content,
+    output.result?.choices?.[0]?.text,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate;
+    if (Array.isArray(candidate)) {
+      const text = candidate
+        .filter(part => part && typeof part.text === "string")
+        .map(part => part.text)
+        .join("");
+      if (text.trim()) return text;
+    }
+  }
+  return null;
+}
+
 async function sha256(text) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
@@ -578,8 +606,8 @@ async function processOne(env) {
       max_tokens: MAX_OUTPUT_TOKENS,
       temperature: 0.2,
     });
-    const raw = modelResult?.response;
-    if (typeof raw !== "string") throw new Error("model response did not contain text");
+    const raw = extractModelText(modelResult);
+    if (!raw) throw new Error("model response did not contain usable text; returned fields: " + Object.keys(modelResult || {}).join(", ").slice(0, 160));
     const draft = validateDraft(JSON.parse(raw), facts);
     await env.DB.prepare("UPDATE ai_tasks SET status='completed',result_json=?,updated_at=? WHERE task_id=?").bind(JSON.stringify(draft), new Date().toISOString(), claimed.task_id).run();
     return { processed: true, status: "completed", task_id: claimed.task_id, estimated_neurons: estimate };
