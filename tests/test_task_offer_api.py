@@ -36,6 +36,10 @@ class FakeAgreements:
         }
 
     def respond(self, task_id, **kwargs):
+        callback = kwargs.pop("before_accept", None)
+        if callback is not None:
+            callback({"provider_id": kwargs["provider_id"],
+                      "price_minor": 500, "currency": "USD"})
         self.responded = (task_id, kwargs)
         return {"task_id": task_id, "status": "accepted",
                 "provider_id": kwargs["provider_id"]}
