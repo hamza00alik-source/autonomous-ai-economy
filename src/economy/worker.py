@@ -23,8 +23,11 @@ def run_once(store: TaskStore, registry: AgentRegistry | None = None) -> dict | 
     task = store.claim(allowed_agent_ids=registered_ids)
     if task is None:
         return None
+    lease_token = task.get("lease_token")
+    if not lease_token:
+        raise RuntimeError("claimed task is missing its lease token")
     try:
         result = active_registry.get(task["assigned_agent"]).execute(task["objective"])
-        return store.finish(task["task_id"], result)
     except Exception as exc:
-        return store.fail(task["task_id"], f"{type(exc).__name__}: {exc}")
+        return store.fail(task["task_id"], f"{type(exc).__name__}: {exc}"[:4096], lease_token)
+    return store.finish(task["task_id"], result, lease_token)
