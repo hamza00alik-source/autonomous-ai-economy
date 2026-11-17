@@ -370,13 +370,28 @@ Do not claim sales, reviews, engine certification, affiliation with Mobile Legen
     return {"path":str(target),"size_bytes":target.stat().st_size,"sha256":hashlib.sha256(target.read_bytes()).hexdigest(),"manifest":manifest,"published":False,"uploaded":False,"sales_verified":False}
 
 
+class GameAssetBuilderAgent:
+    """Deterministic production agent for original procedural 3D game props.
+
+    The agent ID is an internal attribution label, not a legal identity or
+    cryptographic participant credential. Its output is still subject to QA.
+    """
+
+    agent_id = "game-asset-builder"
+    role = "procedural 3D game asset production"
+
+    def build(self, output: str | Path) -> dict:
+        return build_game_asset_pack(output)
+
+
 def main() -> int:
     parser=argparse.ArgumentParser(description="Build the MOBA Objective Props GLB asset pack")
     sub=parser.add_subparsers(dest="command",required=True)
     build=sub.add_parser("build",help="generate the GLB assets and deterministic ZIP")
     build.add_argument("--output",type=Path,default=Path("dist/moba-objective-props.zip"))
     args=parser.parse_args()
-    print(json.dumps(build_game_asset_pack(args.output),indent=2,sort_keys=True))
+    agent = GameAssetBuilderAgent()
+    print(json.dumps(agent.build(args.output),indent=2,sort_keys=True))
     return 0
 
 
