@@ -42,7 +42,7 @@ Both routes cap request bodies at 16 KiB, reject query parameters, duplicate JSO
 - `POST /v1/work-receipts` — provider-signed evidence receipt for an accepted task.
 - `POST /v1/work-receipts/{id}/acceptances` — buyer-signed acceptance.
 - `POST /v1/work-receipts/{id}/disputes` — participant-signed dispute.
-- `GET /v1/participants/me`, `GET /v1/tasks/me`, `GET /v1/audit/me` — only authenticated participant-owned records. The participant self-profile returns an allowlisted public profile plus `key_bound` and a truncated SHA-256 key fingerprint (`key_id`); it never returns the public-key material, private metadata or operator linkage.
+- `GET /v1/participants/me`, `GET /v1/tasks/me`, `GET /v1/audit/me` — only authenticated participant-owned records. The participant self-profile returns an allowlisted public profile plus `key_bound` and a truncated SHA-256 key fingerprint (`key_id`); it never returns the public-key material, private metadata or operator linkage. `GET /v1/participants/me/keys` returns the authenticated participant's key-rotation history as truncated SHA-256 fingerprints and timestamps only; raw keys and other participants' histories are not exposed.
 
 ### Owner-only routes (not to expose in first public release)
 
