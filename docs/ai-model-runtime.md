@@ -47,4 +47,4 @@ Never commit credentials, paste them into chat, or store them in the repository.
 
 ## Important boundary
 
-This adapter is a model transport and budget guard, not yet a fully autonomous agent. The next engineering step is to connect the model to typed specialist-agent tasks, persist validated outputs, and let the existing policy/QA/approval system decide what can happen next. The model itself receives no direct tools or authority to publish, spend, contact buyers, or move money.
+This adapter is a model transport and budget guard, not yet a fully autonomous agent. The model is now connected to a dedicated queue worker for the `ai-product-copy-agent`. Queue tasks with `economy-ai queue-copy --facts-file ...`; the supervisor processes them in a separate network-capable lane while the built-in worker sandbox remains offline. The output is persisted as a completed task result and remains an unpublished draft. Other specialist workflows and the wider opportunity pipeline are not yet model-driven. The model itself receives no direct tools or authority to publish, spend, contact buyers, or move money.
