@@ -9,7 +9,7 @@ from pathlib import Path
 from economy.identity import ParticipantRegistry
 from economy.task_agreements import TaskAgreementStore
 from economy.work_records import WorkRecordStore
-from economy.local_delivery import accept_receipt_locally
+from economy.local_delivery import accept_receipt_locally, submit_receipt_locally
 
 
 class LocalDeliveryTests(unittest.TestCase):
@@ -27,14 +27,13 @@ class LocalDeliveryTests(unittest.TestCase):
         self.digest = hashlib.sha256(self.artifact.read_bytes()).hexdigest()
         self.task_id = "local-delivery-task"
         self._accepted_agreement()
-        self.receipt = self.store.submit(
-            task_id=self.task_id,
-            provider_id=self.provider["participant_id"],
-            buyer_id=self.buyer["participant_id"],
-            summary="Deliverable attached by content digest",
-            evidence_refs=["artifact:sha256:" + self.digest],
-            signature="valid",
+        submitted = submit_receipt_locally(
+            self.db_path, self.task_id, self.provider["participant_id"],
+            self.buyer["participant_id"], "Deliverable attached by content digest",
+            [self.artifact], signer=lambda payload: "valid", verifier=lambda *_: True,
         )
+        self.receipt = submitted["receipt"]
+        self.assertEqual(submitted["artifact_manifests"][0]["sha256"], self.digest)
 
     def tearDown(self):
         self.tmp.cleanup()
