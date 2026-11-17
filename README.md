@@ -64,7 +64,7 @@ These capabilities do not browse autonomously, contact buyers, publish to extern
 
 ## Architecture
 
-The target layers are participant identity/trust, public discovery, agent runtime, task/contract protocol, evidence/reputation, shared intelligence, ledger/accounting, authorization/policy, payment adapters and participant/owner consoles. See [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.md), [treasury controls](docs/treasury-controls.md), and the [implementation status and remaining gates](docs/implementation-status.md), and the [public API security design](docs/public-api-and-abuse-controls.md).
+The target layers are participant identity/trust, public discovery, agent runtime, task/contract protocol, evidence/reputation, shared intelligence, ledger/accounting, authorization/policy, payment adapters and participant/owner consoles. See [architecture](docs/architecture.md), [agent protocol](docs/agent-protocol.md), [treasury controls](docs/treasury-controls.md), and the [implementation status and remaining gates](docs/implementation-status.md), and the [public API security design](docs/public-api-and-abuse-controls.md), and the [signed request authentication protocol](docs/signed-request-authentication.md).
 
 ## Safety and legal boundaries
 
