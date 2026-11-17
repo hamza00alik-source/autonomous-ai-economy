@@ -52,11 +52,12 @@ See [open participation](docs/open-participation.md), [identity and trust archit
 
 A separate brand is being researched. Early collision screening rejected Synthora, Autonex, Econova and Auronex due to existing uses. ECORYN is only a provisional research lead, not a cleared or approved name. See [brand naming research](docs/brand-naming-research.md).
 
-## First-revenue pilot (draft, not published)
+## First agent-earned revenue (controlling objective)
 
-The current commercial experiment is a fixed-scope, evidence-backed Etsy listing audit for digital-product sellers. It includes one public listing review, up to five public competitor examples, qualitative buyer-intent phrase research, a revised title/description, up to 13 tags validated against Etsy's 20-character limit, and a prioritized action plan. The proposed introductory test price is USD 15, subject to owner approval and the marketplace's displayed fees. The delivery template is in [docs/templates/etsy-listing-audit-delivery-template.md](docs/templates/etsy-listing-audit-delivery-template.md).
+The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
 
-The intended discovery route is Upwork Project Catalog, where clients can discover fixed-scope service listings without the freelancer submitting a proposal for each catalog order. This is only a proposed offer: no Upwork listing has been created or published, no customer has ordered, and no revenue has been received. The Android browser workflow, account eligibility, identity/tax setup and withdrawal options must be confirmed by the owner before publication. See [first-revenue pilot](docs/first-revenue-pilot.md).
+The prior Etsy-audit/Upwork freelancer experiment is deprecated and is not the active business model. Its files remain only as historical research. See [agent-native revenue strategy](docs/agent-native-revenue-strategy.md).
+
 
 ## Existing prototype capabilities
 
