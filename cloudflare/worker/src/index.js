@@ -619,7 +619,7 @@ async function processOne(env) {
 }
 
 export {
-  MODEL_ID, DAILY_NEURON_BUDGET, validFacts, validateDraft, estimateNeurons,
+  MODEL_ID, DAILY_NEURON_BUDGET, validFacts, validateDraft, estimateNeurons, extractModelText,
   constantTimeEqual, processOne, sortObjectDeep, verifyNowPaymentsSignature,
   paymentStatusFromWebhook,
 };
