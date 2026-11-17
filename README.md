@@ -92,6 +92,8 @@ A deployable Cloudflare Worker now provides a separate five-minute scheduled AI 
 
 The official Gumroad CLI now supports product creation and multipart ZIP upload. This repository includes a manual-only **Prepare Gumroad product draft** workflow that builds the 3D pack, generates AI listing copy, uploads the ZIP, and creates an unpublished Gumroad draft. A separate **Publish Gumroad product** workflow requires the exact `PUBLISH` confirmation and a product ID. Neither workflow has been run; no seller account, token, draft, or live listing exists yet. Gumroad requires a real Pakistani bank account for PKR payouts (Payoneer is not accepted), and Discover eligibility requires genuine sales and account review. See `docs/first-agent-product.md`.
 
+A daily, read-only Gumroad revenue monitor is also included. It records aggregate net sales, units, refunds, and payout statuses without collecting buyer emails or names. It requires a seller token with sales/payout read scopes and has not been run yet.
+
 ## First agent-earned revenue
 
 The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval once properly configured. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
