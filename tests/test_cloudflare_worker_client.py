@@ -72,7 +72,7 @@ def test_client_queues_polls_and_saves_unpublished_draft(tmp_path):
     assert result["published"] is False
     assert len(calls) == 3
     assert all(call[2] == "Bearer secret" for call in calls)
-    assert sleeps == [5, 5]
+    assert sleeps == [5]
     assert json.loads(output.read_text())["published"] is False
 
 
