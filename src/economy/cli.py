@@ -229,6 +229,7 @@ def main() -> None:
     capability_grant = sub.add_parser("capability-grant", help="grant one explicitly scoped capability")
     capability_grant.add_argument("--subject", required=True)
     capability_grant.add_argument("--issuer", required=True)
+    capability_grant.add_argument("--issuer-signature", required=True, help="Ed25519 signature over CapabilityStore.grant_payload for the exact grant")
     capability_grant.add_argument("--action", required=True)
     capability_grant.add_argument("--resource", required=True)
     capability_grant.add_argument("--expires-at")
@@ -455,10 +456,11 @@ def main() -> None:
         ), indent=2))
     elif args.command == "capability-grant":
         store = CapabilityStore(args.data_dir / "participants.sqlite3")
-        grant_id = store.grant(args.subject, args.issuer, args.action, args.resource,
-                               expires_at=args.expires_at, max_amount_minor=args.max_amount_minor,
-                               currency=args.currency)
-        print(json.dumps({"grant_id": grant_id, "notice": "Local prototype grant; issuer authority is not authenticated by this CLI."}, indent=2))
+        grant_id = store.grant_signed(args.subject, args.issuer, args.action, args.resource,
+                                      args.issuer_signature, expires_at=args.expires_at,
+                                      max_amount_minor=args.max_amount_minor,
+                                      currency=args.currency)
+        print(json.dumps({"grant_id": grant_id, "notice": "Issuer key possession verified; this is a local capability grant, not authorization for high-risk execution."}, indent=2))
     elif args.command == "authorize":
         store = CapabilityStore(args.data_dir / "participants.sqlite3")
         print(json.dumps(store.authorize(args.subject, args.action, args.resource,
