@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,10 @@ class PermissionTests(unittest.TestCase):
         self.store = CapabilityStore(db_path)
         self.registry = ParticipantRegistry(db_path)
         self.agent_id = self.registry.create_human("agent-subject", "Agent Subject")["participant_id"]
+        self.owner_id = self.registry.create_human("grant-owner", "Grant Owner")["participant_id"]
+        with sqlite3.connect(db_path) as db:
+            db.execute("UPDATE participants SET public_key=? WHERE participant_id=?",
+                       ("test-owner-public-key", self.owner_id))
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -27,6 +32,41 @@ class PermissionTests(unittest.TestCase):
         result = isolated.authorize("agent_missing", "task:submit", "project:1")
         self.assertEqual(result["decision"], "deny")
         self.assertEqual(result["reason"], "participant registry is unavailable")
+
+    def test_signed_grant_requires_active_key_bound_human_issuer(self):
+        payload = self.store.grant_payload(
+            self.agent_id, self.owner_id, "task:submit", "project:signed"
+        )
+        grant_id = self.store.grant_signed(
+            self.agent_id, self.owner_id, "task:submit", "project:signed",
+            "owner-signature", verifier=lambda key, message, signature:
+                key == "test-owner-public-key" and message == payload and signature == "owner-signature",
+        )
+        self.assertTrue(grant_id.startswith("grant_"))
+        self.assertEqual(
+            self.store.authorize(self.agent_id, "task:submit", "project:signed")["decision"],
+            "allow",
+        )
+
+    def test_signed_grant_rejects_tampering_and_untrusted_issuer(self):
+        with self.assertRaisesRegex(ValueError, "signature is invalid"):
+            self.store.grant_signed(
+                self.agent_id, self.owner_id, "task:submit", "project:one",
+                "owner-signature", verifier=lambda *_: False,
+            )
+        with self.assertRaisesRegex(ValueError, "human or organization"):
+            self.store.grant_signed(
+                self.agent_id, self.agent_id, "task:submit", "project:one",
+                "agent-signature", verifier=lambda *_: True,
+            )
+
+    def test_signed_grant_rejects_unkeyed_owner(self):
+        unkeyed = self.registry.create_human("unkeyed-owner", "Unkeyed Owner")["participant_id"]
+        with self.assertRaisesRegex(ValueError, "key-bound"):
+            self.store.grant_signed(
+                self.agent_id, unkeyed, "task:submit", "project:one",
+                "signature", verifier=lambda *_: True,
+            )
 
     def test_exact_scope_allows(self):
         self.store.grant(self.agent_id, "owner_1", "task:submit", "project:1")
