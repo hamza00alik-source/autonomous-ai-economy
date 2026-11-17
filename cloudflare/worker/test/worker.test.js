@@ -122,24 +122,41 @@ class FakeD1Statement {
     if (this.sql.includes("SELECT event_hash FROM crypto_payment_events")) {
       return this.db.events.get(this.values[0]) || null;
     }
-    if (this.sql.includes("SELECT order_id,invoice_id,price_amount,price_currency,status FROM crypto_payment_invoices")) {
+    if (this.sql.includes("SELECT order_id,invoice_id,price_amount,price_currency,status,product_id,agent_id FROM crypto_payment_invoices")) {
       return this.db.invoice?.order_id === this.values[0] ? { ...this.db.invoice } : null;
     }
     if (this.sql.includes("SELECT order_id,product_id,status,download_expires_at,buyer_token_hash FROM crypto_payment_invoices")) {
       return this.db.invoice?.order_id === this.values[0] ? { ...this.db.invoice } : null;
+    }
+    if (this.sql.includes("SELECT COUNT(*) AS sales_count")) {
+      const rows = [...this.db.revenue.values()].filter(row => row.agent_id === this.values[0]);
+      const sum = (predicate, field) => rows.filter(predicate).reduce((total, row) => total + (row[field] || 0), 0);
+      return {
+        sales_count: rows.length,
+        gross_settled_minor: sum(() => true, "gross_amount_minor"),
+        awaiting_reconciliation_minor: sum(row => row.status === "settled_pending_reconciliation", "gross_amount_minor"),
+        reconciled_net_minor: sum(row => row.status === "reconciled", "net_amount_minor"),
+        credited_to_agent_minor: sum(row => row.status === "reconciled", "agent_credit_minor")
+      };
     }
     if (this.sql.includes("SELECT status FROM crypto_payment_invoices")) {
       return this.db.invoice?.order_id === this.values[0] ? { status: this.db.invoice.status } : null;
     }
     return null;
   }
+  async all() {
+    if (this.sql.includes("FROM agent_revenue_events WHERE agent_id=?")) {
+      return { results: [...this.db.revenue.values()].filter(row => row.agent_id === this.values[0]) };
+    }
+    return { results: [] };
+  }
   async run() {
     if (this.sql.startsWith("INSERT OR IGNORE INTO crypto_payment_invoices")) {
-      const [order_id, price_amount, product_id, buyer_token_hash, created_at, updated_at] = this.values;
+      const [order_id, price_amount, product_id, buyer_token_hash, agent_id, created_at, updated_at] = this.values;
       if (!this.db.invoice) {
         this.db.invoice = {
           order_id, provider: "nowpayments", price_amount, price_currency: "usd",
-          status: "creating", product_id, buyer_token_hash,
+          status: "creating", product_id, buyer_token_hash, agent_id,
           created_at, updated_at, download_count: 0
         };
         return { meta: { changes: 1 } };
@@ -150,6 +167,31 @@ class FakeD1Statement {
       const [invoice_id, checkout_url, updated_at, order_id] = this.values;
       if (this.db.invoice?.order_id === order_id) {
         Object.assign(this.db.invoice, { invoice_id, checkout_url, status: "pending", updated_at });
+      }
+      return { meta: { changes: 1 } };
+    }
+    if (this.sql.startsWith("INSERT OR IGNORE INTO agent_revenue_events")) {
+      const [order_id, agent_id, product_id, gross_amount_minor, gross_currency,
+        provider_payment_id, crypto_received_amount, crypto_currency,
+        provider_outcome_amount, provider_outcome_currency, settled_at, created_at, updated_at] = this.values;
+      if (!this.db.revenue.has(order_id)) {
+        this.db.revenue.set(order_id, {
+          order_id, agent_id, product_id, gross_amount_minor, gross_currency,
+          provider_payment_id, crypto_received_amount, crypto_currency,
+          provider_outcome_amount, provider_outcome_currency,
+          status: "settled_pending_reconciliation", net_amount_minor: null,
+          net_currency: null, agent_credit_minor: null, agent_credit_currency: null,
+          settled_at, reconciled_at: null, created_at, updated_at
+        });
+      }
+      return { meta: { changes: 1 } };
+    }
+    if (this.sql.startsWith("UPDATE agent_revenue_events SET status=")) {
+      const [updated_at, order_id] = this.values;
+      const row = this.db.revenue.get(order_id);
+      if (row) {
+        row.status = row.status === "reconciled" ? "refund_review" : "reversed";
+        row.updated_at = updated_at;
       }
       return { meta: { changes: 1 } };
     }
@@ -192,6 +234,7 @@ function fakePaymentDb(invoice = null) {
   return {
     invoice,
     events: new Map(),
+    revenue: new Map(),
     prepare(sql) { return new FakeD1Statement(this, sql); }
   };
 }
@@ -206,7 +249,7 @@ test("NOWPayments IPN updates a matching invoice once and marks it settled", asy
   const db = fakePaymentDb({
     order_id: "order-123", invoice_id: "invoice-456",
     price_amount: "5.00", price_currency: "usd", status: "pending",
-    product_id: "moba-objective-props", buyer_token_hash: "unused"
+    product_id: "moba-objective-props", agent_id: "game-asset-builder", buyer_token_hash: "unused"
   });
   const payload = {
     payment_id: 98765, invoice_id: "invoice-456", payment_status: "finished",
@@ -225,6 +268,12 @@ test("NOWPayments IPN updates a matching invoice once and marks it settled", asy
   assert.equal(db.invoice.status, "settled");
   assert.ok(Date.parse(db.invoice.download_expires_at) > Date.now());
   assert.equal(db.events.size, 1);
+  const accrued = db.revenue.get("order-123");
+  assert.equal(accrued.agent_id, "game-asset-builder");
+  assert.equal(accrued.gross_amount_minor, 500);
+  assert.equal(accrued.status, "settled_pending_reconciliation");
+  assert.equal(accrued.net_amount_minor, null);
+  assert.equal(accrued.agent_credit_minor, null);
 
   const duplicate = await worker.fetch(makeRequest(payload), env);
   assert.equal(duplicate.status, 200);
@@ -243,6 +292,7 @@ test("NOWPayments IPN updates a matching invoice once and marks it settled", asy
   assert.equal(refund.status, 200);
   assert.equal((await refund.json()).status, "refunded");
   assert.equal(db.invoice.status, "refunded");
+  assert.equal(db.revenue.get("order-123").status, "reversed");
 });
 
 test("NOWPayments IPN rejects an invalid signature before database access", async () => {
@@ -311,6 +361,7 @@ test("public checkout fixes the product price and creates an invoice with a priv
     assert.equal(data.checkout_url, "https://nowpayments.io/invoice/checkout-789");
     assert.equal(data.price_amount, "5.00");
     assert.equal(db.invoice.product_id, "moba-objective-props");
+    assert.equal(db.invoice.agent_id, "game-asset-builder");
     assert.equal(db.invoice.buyer_token_hash, createHash("sha256").update(data.access_token).digest("hex"));
     assert.equal(db.invoice.status, "pending");
     assert.equal(providerPayload.price_amount, 5);
@@ -402,4 +453,36 @@ test("direct public product-file path is blocked even when static assets are con
     ASSETS: { fetch: async () => new Response("private asset") }
   });
   assert.equal(response.status, 404);
+});
+
+
+test("agent revenue endpoint exposes gross attribution but no unreconciled agent credit", async () => {
+  const db = fakePaymentDb();
+  db.revenue.set("moba-order-789", {
+    order_id: "moba-order-789", agent_id: "game-asset-builder",
+    product_id: "moba-objective-props", gross_amount_minor: 500,
+    gross_currency: "usd", provider_payment_id: "payment-123",
+    crypto_received_amount: "0.25", crypto_currency: "btc",
+    provider_outcome_amount: "0.249", provider_outcome_currency: "btc",
+    status: "settled_pending_reconciliation", net_amount_minor: null,
+    net_currency: null, agent_credit_minor: null, agent_credit_currency: null,
+    settled_at: new Date().toISOString(), reconciled_at: null
+  });
+  const unauthenticated = await worker.fetch(new Request("https://worker.example/v1/agents/game-asset-builder/revenue"), {
+    AAE_QUEUE_TOKEN: "owner-secret-token", DB: db
+  });
+  assert.equal(unauthenticated.status, 401);
+  const response = await worker.fetch(new Request("https://worker.example/v1/agents/game-asset-builder/revenue", {
+    headers: { authorization: "Bearer owner-secret-token" }
+  }), { AAE_QUEUE_TOKEN: "owner-secret-token", DB: db });
+  assert.equal(response.status, 200);
+  const report = await response.json();
+  assert.equal(report.agent_id, "game-asset-builder");
+  assert.equal(report.sales_count, 1);
+  assert.equal(report.gross_settled_minor, 500);
+  assert.equal(report.awaiting_reconciliation_minor, 500);
+  assert.equal(report.reconciled_net_minor, 0);
+  assert.equal(report.credited_to_agent_minor, 0);
+  assert.equal(report.events[0].agent_credit_minor, null);
+  assert.match(report.notice, /not a legal identity/);
 });
