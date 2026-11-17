@@ -90,7 +90,7 @@ async function sha256(text) {
 async function authorized(request, env) {
   const expected = env.AAE_QUEUE_TOKEN;
   const authorization = request.headers.get("authorization") || "";
-  const match = authorization.match(/^Bearer ([^\\s]+)$/i);
+  const match = authorization.match(/^Bearer ([^\s]+)$/i);
   return !!expected && !!match && constantTimeEqual(match[1], expected);
 }
 
