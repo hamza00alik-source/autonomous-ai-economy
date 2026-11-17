@@ -32,6 +32,8 @@ class CgroupV2Tests(unittest.TestCase):
                 self.assertEqual((limits.path / "cpu.max").read_text(), f"{CPU_QUOTA} {CPU_PERIOD}")
                 self.assertEqual((limits.path / "pids.max").read_text(), str(PIDS_MAX))
             finally:
+                for name in ("memory.max", "cpu.max", "pids.max"):
+                    (limits.path / name).unlink(missing_ok=True)
                 limits.cleanup()
 
     def test_rejects_missing_controller(self):
@@ -63,6 +65,8 @@ class CgroupV2Tests(unittest.TestCase):
                     limits.attach_current_process()
                 self.assertEqual(procs.read_text(), "4242")
             finally:
+                for name in ("memory.max", "cpu.max", "pids.max", "cgroup.procs"):
+                    (limits.path / name).unlink(missing_ok=True)
                 limits.cleanup()
 
 
