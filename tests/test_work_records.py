@@ -77,7 +77,12 @@ class WorkRecordTests(unittest.TestCase):
             self.provider["participant_id"], "task-1", agreement_digest,
             ["a" * 64],
         )
-        self.assertTrue(signature_payload)
+        acceptance = json.loads(signature_payload)
+        self.assertEqual(acceptance["version"], "2")
+        self.assertEqual(acceptance["task_id"], "task-1")
+        self.assertEqual(acceptance["agreement_id"], "task-1")
+        self.assertEqual(acceptance["agreement_digest"], agreement_digest)
+        self.assertEqual(acceptance["artifact_digests"], ["a" * 64])
         accepted = self.store.accept(
             receipt["receipt_id"], buyer_id=self.buyer["participant_id"], signature="valid"
         )
