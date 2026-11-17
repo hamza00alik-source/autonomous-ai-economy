@@ -4,6 +4,8 @@ This file intentionally uses only the Python standard library. It is not an
 untrusted-code interpreter and must never be extended to eval/exec user code.
 """
 import json
+import os
+import resource
 import sys
 
 MAX_INPUT = 8192
@@ -12,6 +14,18 @@ AGENTS = {
     "opportunity-researcher": "opportunity research",
     "verification-auditor": "verification",
 }
+
+
+def sandbox_facts():
+    """Return kernel-reported identity and inherited limits for parent checks."""
+    return {
+        "uid": os.getuid(),
+        "gid": os.getgid(),
+        "cpu_seconds": list(resource.getrlimit(resource.RLIMIT_CPU)),
+        "address_space_bytes": list(resource.getrlimit(resource.RLIMIT_AS)),
+        "file_size_bytes": list(resource.getrlimit(resource.RLIMIT_FSIZE)),
+        "open_files": list(resource.getrlimit(resource.RLIMIT_NOFILE)),
+    }
 
 
 def main():
@@ -31,7 +45,10 @@ def main():
     role = AGENTS[agent_id]
     result = (f"[{role}] Accepted objective for structured analysis: "
               f"{clean[:500]}. This is a deterministic prototype result, not external research.")
-    sys.stdout.write(json.dumps({"result": result}, separators=(",", ":")))
+    sys.stdout.write(json.dumps(
+        {"result": result, "sandbox": sandbox_facts()},
+        separators=(",", ":"),
+    ))
 
 
 if __name__ == "__main__":
