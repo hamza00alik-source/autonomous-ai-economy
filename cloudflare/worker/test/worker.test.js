@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validFacts, validateDraft, estimateNeurons, constantTimeEqual, DAILY_NEURON_BUDGET } from "../src/index.js";
+import worker, { validFacts, validateDraft, estimateNeurons, constantTimeEqual, DAILY_NEURON_BUDGET } from "../src/index.js";
 
 const facts = {
   product_name: "MOBA Objective Props",
@@ -52,4 +52,17 @@ test("budget estimator remains bounded and uses a safety margin", () => {
 test("constant time comparison handles equal and unequal secrets", () => {
   assert.equal(constantTimeEqual("secret", "secret"), true);
   assert.equal(constantTimeEqual("secret", "secreu"), false);
+});
+
+
+test("private API rejects absent or malformed bearer tokens before database access", async () => {
+  const env = { AAE_QUEUE_TOKEN: "owner-secret-token" };
+  const missing = await worker.fetch(new Request("https://example.workers.dev/v1/status"), env);
+  assert.equal(missing.status, 401);
+  const malformed = await worker.fetch(new Request("https://example.workers.dev/v1/status", {
+    headers: { authorization: "owner-secret-token" }
+  }), env);
+  assert.equal(malformed.status, 401);
+  const health = await worker.fetch(new Request("https://example.workers.dev/health"), env);
+  assert.equal(health.status, 200);
 });
