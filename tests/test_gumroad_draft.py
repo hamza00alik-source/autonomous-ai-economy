@@ -98,6 +98,7 @@ def test_draft_creation_refuses_published_response_and_rolls_back(tmp_path):
         if "unpublish" in command:
             return SimpleNamespace(returncode=0, stdout='{"success":true}', stderr="")
         return SimpleNamespace(returncode=0, stdout=json.dumps({
+            "success": True,
             "product": {"id": "prod-live", "published": True}
         }), stderr="")
 
