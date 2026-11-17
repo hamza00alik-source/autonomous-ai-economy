@@ -443,6 +443,23 @@ class DirectoryApplication:
             return None, None, self._response(start_response, "400 Bad Request",
                                                {"error": "invalid_json_body"})
 
+    def _consume_participant_quota(self, start_response, participant_id: str,
+                                    operation: str, limit: int):
+        if self.registry is None:
+            return None
+        try:
+            self.registry.consume_operation_quota(
+                participant_id, operation, limit=limit, window_seconds=3600
+            )
+        except ParticipantRateLimitExceeded:
+            return self._response(start_response, "429 Too Many Requests",
+                                  {"error": "participant_operation_rate_limited"},
+                                  [("Retry-After", "3600")])
+        except Exception:
+            return self._response(start_response, "503 Service Unavailable",
+                                  {"error": "participant_quota_temporarily_unavailable"})
+        return None
+
     def _lock_participant_account(self, environ, start_response):
         if self.registry is None:
             return self._response(start_response, "503 Service Unavailable",
@@ -593,6 +610,11 @@ class DirectoryApplication:
         if ("price_minor" in body) != ("currency" in body):
             return self._response(start_response, "400 Bad Request",
                                   {"error": "invalid_offer_fields"})
+        limited = self._consume_participant_quota(
+            start_response, principal["participant_id"], "task_offer_create", 10
+        )
+        if limited is not None:
+            return limited
         try:
             offer = self.agreements.create_offer(
                 task_id=body["task_id"], listing_id=body["listing_id"],
@@ -626,6 +648,11 @@ class DirectoryApplication:
         if set(body) != {"decision", "response_signature"}:
             return self._response(start_response, "400 Bad Request",
                                   {"error": "invalid_response_fields"})
+        limited = self._consume_participant_quota(
+            start_response, principal["participant_id"], "task_offer_respond", 30
+        )
+        if limited is not None:
+            return limited
         try:
             offer = self.agreements.respond(
                 task_id, provider_id=principal["participant_id"],
