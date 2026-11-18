@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from economy.financial_ledger import DoubleEntryLedger
+from economy.allocation import AllocationPolicy, AllocationShare, allocate_reconciled_receipt
 from economy.financial_policy import FinancialPolicyStore, _canonical
 from economy.financial_spending import AgentSpending
 from economy.expense_scheduler import AgentExpenseScheduler, ExpenseScheduleError
@@ -91,14 +92,19 @@ class ExpenseSchedulerTests(unittest.TestCase):
         schedule = self.create()
         now = datetime.now(timezone.utc)
         self.assertEqual(self.scheduler.run_due(now=now), {"settled": 0, "blocked": 1})
-        self.ledger.post(
-            idempotency_key="replenish-budget", description="Simulated reconciled-earnings allocation",
-            currency="USD", lines=[
-                {"account_id": "agent-budget:agent", "direction": "debit",
-                 "amount_minor": 500, "reference": "receipt-allocation"},
-                {"account_id": "treasury:available", "direction": "credit",
-                 "amount_minor": 500, "reference": "receipt-allocation"},
-            ])
+        self.ledger.record_simulated_receipt(
+            source_reference="earned-revenue-1", agent_id="agent", currency="USD",
+            expected_gross_minor=600, expected_fee_minor=100)
+        self.ledger.confirm_simulated_receipt(
+            source_reference="earned-revenue-1", received_gross_minor=600,
+            received_fee_minor=100)
+        self.ledger.reconcile_simulated_receipt(source_reference="earned-revenue-1")
+        allocation_policy = AllocationPolicy(
+            policy_id="agent-budget", version=1,
+            shares=(AllocationShare("agent-budget:{agent_id}", 10_000),))
+        allocate_reconciled_receipt(
+            self.ledger, agent_id="agent", net_amount_minor=500, currency="USD",
+            source_reference="earned-revenue-1", policy=allocation_policy)
         self.assertEqual(self.scheduler.run_due(now=now), {"settled": 1, "blocked": 0})
 
     def test_daily_limit_blocks_repeated_occurrence_without_skipping_due(self):
@@ -138,6 +144,18 @@ class ExpenseSchedulerTests(unittest.TestCase):
         self.create()
         with self.assertRaisesRegex(ExpenseScheduleError, "changed terms"):
             self.create(amount_minor=201)
+
+    def test_policy_supersession_blocks_existing_recurring_schedule(self):
+        schedule = self.create()
+        payload = self.policies.payload(
+            policy_id="ops", version=2, owner_id="owner", agent_id="agent",
+            currency="USD", per_transaction_limit_minor=300,
+            daily_spend_limit_minor=600, allowed_destinations=["service:compute"])
+        self.policies.save(payload, b64(self.key.sign(_canonical(payload))))
+        now = datetime.now(timezone.utc)
+        self.assertEqual(self.scheduler.run_due(now=now), {"settled": 0, "blocked": 1})
+        self.assertEqual(datetime.fromisoformat(self.scheduler.get(schedule["schedule_id"])["next_run_at"]),
+                         datetime.fromisoformat(schedule["next_run_at"]))
 
     def test_timezone_is_required(self):
         with self.assertRaisesRegex(ExpenseScheduleError, "timezone"):
