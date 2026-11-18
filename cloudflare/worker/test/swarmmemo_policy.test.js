@@ -11,6 +11,7 @@ function task(overrides = {}) {
     eligible: 1,
     simulated: 0,
     request_truncated: 0,
+    reward_json: JSON.stringify({ amount: 0.02, unit: "USDC" }),
     ...overrides,
   };
 }
@@ -80,4 +81,10 @@ test("auto-approves only safe tasks for internal preparation", async () => {
   assert.equal(updates.length, 1);
   assert.match(updates[0].sql, /approved_awaiting_executor/);
   assert.match(result.notice, /does not claim, submit, publish, spend/);
+});
+
+test("rejects credit-only or missing rewards even when research scope is safe", () => {
+  assert.equal(screenSwarmMemoTask(task({ reward_json: JSON.stringify({ amount: 240, unit: "credit" }) })).reason, "no_explicit_cash_reward");
+  assert.equal(screenSwarmMemoTask(task({ reward_json: null })).reason, "no_explicit_cash_reward");
+  assert.equal(screenSwarmMemoTask(task({ reward_json: JSON.stringify({ cash_reward: { amount: 0.02, currency: "USDC" } }) })).allowed, true);
 });
