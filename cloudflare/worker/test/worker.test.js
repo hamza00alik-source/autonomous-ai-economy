@@ -89,6 +89,43 @@ test("private API rejects absent or malformed bearer tokens before database acce
   assert.equal(health.status, 200);
 });
 
+test("private status exposes persistent Base indexer halt state without exposing secrets", async () => {
+  const env = {
+    AAE_QUEUE_TOKEN: "owner-secret-token",
+    AAE_BASE_USDC_INDEXER_ENABLED: "true",
+    DB: {
+      prepare(sql) {
+        return {
+          values: [],
+          bind(...values) { this.values = values; return this; },
+          async first() {
+            if (sql.includes("ai_daily_budget")) return { reserved_neurons: 0 };
+            if (sql.includes("base_usdc_indexer_state")) return {
+              next_block: 12345, halted_at: "2026-11-18T10:00:00.000Z",
+              halt_reason: "checkpoint_hash_mismatch", updated_at: "2026-11-18T10:00:00.000Z"
+            };
+            return null;
+          },
+          async all() { return { results: [] }; }
+        };
+      }
+    }
+  };
+  const response = await worker.fetch(new Request("https://example.workers.dev/v1/status", {
+    headers: { authorization: "Bearer owner-secret-token" }
+  }), env);
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.deepEqual(data.base_usdc_indexer, {
+    enabled: true, state: "halted", next_block: 12345,
+    halted_at: "2026-11-18T10:00:00.000Z",
+    halt_reason: "checkpoint_hash_mismatch",
+    updated_at: "2026-11-18T10:00:00.000Z",
+    manual_review_required: true
+  });
+  assert.equal(JSON.stringify(data).includes("owner-secret-token"), false);
+});
+
 
 function sortDeep(value) {
   if (Array.isArray(value)) return value.map(sortDeep);
