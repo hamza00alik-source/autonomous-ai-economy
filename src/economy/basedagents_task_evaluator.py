@@ -99,7 +99,7 @@ class PaidTaskCapabilityEvaluator:
         if not criteria:
             reasons.append("explicit_acceptance_criteria_missing")
         try:
-            normalized_amount = re.sub(r"(?i)\\s*USDC\\s*$", "", str(amount_text)).strip().replace("$", "").replace(",", "")
+            normalized_amount = re.sub(r"(?i)\s*USDC\s*$", "", str(amount_text)).strip().replace("$", "").replace(",", "")
             amount = Decimal(normalized_amount)
         except (InvalidOperation, TypeError, ValueError):
             amount = Decimal("0")
