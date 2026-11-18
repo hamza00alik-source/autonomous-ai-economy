@@ -101,3 +101,29 @@ def evaluate_claim_readiness(task: dict, agent: dict, *,
         bounty_usdc=str(raw_amount) if raw_amount is not None else None,
         claim_allowed=False,
     )
+
+
+def evaluate_claim_readiness_with_chain_verifier(
+    task: dict, agent: dict, payment: dict, verifier: Any,
+) -> tuple[ClaimReadiness, dict[str, Any]]:
+    """Verify the registry-linked deposit, then evaluate owner-review readiness.
+
+    The boolean passed internally is derived only from the verifier result;
+    callers cannot substitute a registry-provided `escrow_verified` flag.
+    This function still never permits or performs a marketplace claim.
+    """
+    if not hasattr(verifier, "verify") or not callable(verifier.verify):
+        raise TypeError("verifier must provide a callable verify(task, payment)")
+    verification = verifier.verify(task, payment)
+    if not isinstance(verification, dict) or verification.get("verified") is not True:
+        verification = verification if isinstance(verification, dict) else {
+            "verified": False, "status": "blocked", "reason": "invalid_verifier_result"
+        }
+        readiness = evaluate_claim_readiness(task, agent, escrow_verified=False)
+        return readiness, verification
+    task_with_payment = dict(task)
+    task_with_payment["payment"] = payment
+    readiness = evaluate_claim_readiness(
+        task_with_payment, agent, escrow_verified=True
+    )
+    return readiness, verification
