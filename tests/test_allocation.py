@@ -23,17 +23,14 @@ class AllocationTests(unittest.TestCase):
                 AllocationShare("owner-distribution:payable", 2000),
             ),
         )
-        self.ledger.post(
-            idempotency_key="receipt-1",
-            description="Simulated reconciled receipt",
-            currency="USD",
-            lines=[
-                {"account_id": "treasury:available", "direction": "debit",
-                 "amount_minor": 101, "reference": "receipt-1"},
-                {"account_id": "revenue:clearing", "direction": "credit",
-                 "amount_minor": 101, "reference": "receipt-1"},
-            ],
+        self.ledger.record_simulated_receipt(
+            source_reference="receipt-1", agent_id="agent-a", currency="USD",
+            expected_gross_minor=101, expected_fee_minor=0,
         )
+        self.ledger.confirm_simulated_receipt(
+            source_reference="receipt-1", received_gross_minor=101, received_fee_minor=0,
+        )
+        self.ledger.reconcile_simulated_receipt(source_reference="receipt-1")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -44,7 +41,6 @@ class AllocationTests(unittest.TestCase):
             "net_amount_minor": 101,
             "currency": "USD",
             "source_reference": "receipt-1",
-            "settlement_state": "reconciled",
             "policy": self.policy,
         }
         args.update(overrides)
@@ -62,8 +58,12 @@ class AllocationTests(unittest.TestCase):
         self.assertEqual(debits, credits)
 
     def test_pending_or_unreconciled_receipt_cannot_be_allocated(self):
+        self.ledger.record_simulated_receipt(
+            source_reference="pending-1", agent_id="agent-a", currency="USD",
+            expected_gross_minor=100, expected_fee_minor=0,
+        )
         with self.assertRaisesRegex(FinancialLedgerError, "reconciled"):
-            self.allocate(settlement_state="pending")
+            self.allocate(source_reference="pending-1", net_amount_minor=100)
 
     def test_insufficient_treasury_balance_fails_closed(self):
         with self.assertRaisesRegex(FinancialLedgerError, "insufficient"):
