@@ -6,11 +6,11 @@ function safeString(value, max = 500) {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
-function feedCursor(payload) {
+export function feedCursor(payload) {
   return safeString(payload?.since || payload?.data?.since, 500);
 }
 
-function feedUnchanged(payload) {
+export function feedUnchanged(payload) {
   return payload?.unchanged === true || payload?.data?.unchanged === true;
 }
 
