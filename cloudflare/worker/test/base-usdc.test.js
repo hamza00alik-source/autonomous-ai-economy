@@ -10,6 +10,8 @@ import {
   BASE_USDC_CHECKOUT_ABI,
   decodeBaseUsdcPaymentLog,
   verifyBaseUsdcFinality,
+  createBasePublicClient,
+  fetchConfirmedBaseUsdcLogs,
 } from "../src/base-usdc.js";
 
 const TEST_ONLY_PRIVATE_KEY = "0x0123456789012345678901234567890123456789012345678901234567890123";
@@ -195,4 +197,82 @@ test("Base payment finality requires successful canonical receipt and configured
   assert.throws(() => verifyBaseUsdcFinality({
     log, receipt, block: { ...block, hash: "0x" + "11".repeat(32) }, headBlock: 105n, confirmations: 6,
   }), /not canonical/);
+});
+
+
+test("Base RPC scanner bounds ranges and returns only receipt-verified confirmed events", async () => {
+  const orderIdHash = "0x" + "ab".repeat(32);
+  const buyer = "0x3333333333333333333333333333333333333333";
+  const transactionHash = "0x" + "cd".repeat(32);
+  const blockHash = "0x" + "ef".repeat(32);
+  const topics = encodeEventTopics({
+    abi: BASE_USDC_CHECKOUT_ABI,
+    eventName: "OrderPaid",
+    args: { orderId: orderIdHash, buyer, merchant },
+  });
+  const data = encodeAbiParameters(
+    [{ type: "uint256" }, { type: "address" }],
+    [5_000_000n, BASE_USDC_ADDRESS],
+  );
+  const log = {
+    address: contract,
+    topics,
+    data,
+    transactionHash,
+    blockHash,
+    blockNumber: 100n,
+    logIndex: 0,
+    removed: false,
+  };
+  const receipt = { status: "success", transactionHash, blockHash, blockNumber: 100n };
+  const block = { hash: blockHash, number: 100n };
+  const calls = [];
+  const client = {
+    async getBlockNumber() { return 120n; },
+    async getLogs(args) { calls.push(args); return [log]; },
+    async getTransactionReceipt() { return receipt; },
+    async getBlock() { return block; },
+  };
+  const result = await fetchConfirmedBaseUsdcLogs({
+    client,
+    contractAddress: contract,
+    fromBlock: 95n,
+    toBlock: 110n,
+    confirmations: 6,
+  });
+  assert.equal(result.headBlock, "120");
+  assert.equal(result.scannedToBlock, "110");
+  assert.equal(result.events.length, 1);
+  assert.equal(result.events[0].orderIdHash, orderIdHash);
+  assert.equal(result.events[0].amountMinor, "5000000");
+  assert.equal(result.events[0].finality.confirmed, true);
+  assert.equal(calls[0].fromBlock, 95n);
+  assert.equal(calls[0].toBlock, 110n);
+  await assert.rejects(() => fetchConfirmedBaseUsdcLogs({
+    client,
+    contractAddress: contract,
+    fromBlock: 0n,
+    toBlock: 1001n,
+    confirmations: 6,
+  }), /scan limit/);
+});
+
+test("Base RPC scanner does not advance when the head has not reached finality", async () => {
+  let queried = false;
+  const result = await fetchConfirmedBaseUsdcLogs({
+    client: {
+      async getBlockNumber() { return 4n; },
+      async getLogs() { queried = true; return []; },
+      async getTransactionReceipt() { throw new Error("not expected"); },
+      async getBlock() { throw new Error("not expected"); },
+    },
+    contractAddress: contract,
+    fromBlock: 1n,
+    toBlock: 4n,
+    confirmations: 6,
+  });
+  assert.equal(result.scannedToBlock, null);
+  assert.equal(result.events.length, 0);
+  assert.equal(queried, false);
+  assert.throws(() => createBasePublicClient("http://rpc.example"), /HTTPS/);
 });
