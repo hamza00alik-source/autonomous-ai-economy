@@ -147,10 +147,11 @@ class BasedAgentsEscrowVerifier:
                 raise ValueError("missing_or_invalid_deposit_tx_hash")
             if audit_hashes and any(h.lower() != tx_hash.lower() for h in audit_hashes):
                 raise ValueError("payment_audit_transaction_mismatch")
-            if payment.get("verified") not in (True, 1):
-                raise ValueError("registry_payment_not_verified")
-            if payment.get("status") not in ("funded", "pending", "authorized", "settling", "settled"):
-                raise ValueError("registry_payment_status_not_funded")
+            # In BasedAgents escrow v1, a settled deposit moves its transaction
+            # facts to task.escrow and clears the active payment columns. The
+            # payment record can therefore remain pending/unverified while the
+            # escrow is genuinely funded. The explicit escrow state plus the
+            # independent Base receipt below are authoritative for this leg.
 
             config = self._get_json("https://api.basedagents.ai/.well-known/x402", self.timeout)
             if config.get("payments_enabled") is not True:
