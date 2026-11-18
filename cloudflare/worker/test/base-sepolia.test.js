@@ -43,7 +43,7 @@ test("Base Sepolia invoice signature uses chain 84532 and recovers only in that 
     chainId: BASE_SEPOLIA_CHAIN_ID,
   });
   assert.equal(recovered.toLowerCase(), signer.address.toLowerCase());
-  await assert.rejects(() => recoverBaseUsdcInvoiceSigner({
+  const wrongDomainRecovery = await recoverBaseUsdcInvoiceSigner({
     orderIdHash: invoice.orderIdHash,
     amountMinor: invoice.amountMinor,
     deadline,
@@ -51,7 +51,8 @@ test("Base Sepolia invoice signature uses chain 84532 and recovers only in that 
     contractAddress: contract,
     signature: invoice.signature,
     chainId: BASE_MAINNET_CHAIN_ID,
-  }), /recovered|signature|address/i);
+  });
+  assert.notEqual(wrongDomainRecovery.toLowerCase(), signer.address.toLowerCase());
 });
 
 test("Base Sepolia event decoder accepts only Circle's Sepolia USDC token and chain", () => {
