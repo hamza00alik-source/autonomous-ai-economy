@@ -69,10 +69,11 @@ contract BaseUsdcDirectCheckoutTest is Test {
     function testPaymentEmitsIndexedOrderAndBuyer() public {
         bytes32 orderId = keccak256("order-event");
         uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signature(orderId, 5_000_000, deadline);
         vm.expectEmit(true, true, true, true);
         emit BaseUsdcDirectCheckout.OrderPaid(orderId, buyer, merchant, 5_000_000, USDC);
         vm.prank(buyer);
-        checkout.pay(orderId, 5_000_000, deadline, _signature(orderId, 5_000_000, deadline));
+        checkout.pay(orderId, 5_000_000, deadline, sig);
     }
 
     function testCannotReplayOrderId() public {
@@ -126,17 +127,19 @@ contract BaseUsdcDirectCheckoutTest is Test {
     function testRejectsZeroOrderId() public {
         uint256 deadline = block.timestamp + 1 hours;
         bytes32 orderId = bytes32(0);
+        bytes memory sig = _signature(orderId, 1_000_000, deadline);
         vm.expectRevert(BaseUsdcDirectCheckout.InvalidOrderId.selector);
         vm.prank(buyer);
-        checkout.pay(orderId, 1_000_000, deadline, _signature(orderId, 1_000_000, deadline));
+        checkout.pay(orderId, 1_000_000, deadline, sig);
     }
 
     function testRejectsZeroAmount() public {
         bytes32 orderId = keccak256("zero-amount");
         uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signature(orderId, 0, deadline);
         vm.expectRevert(BaseUsdcDirectCheckout.InvalidAmount.selector);
         vm.prank(buyer);
-        checkout.pay(orderId, 0, deadline, _signature(orderId, 0, deadline));
+        checkout.pay(orderId, 0, deadline, sig);
     }
 
     function testCannotDeployOnWrongChain() public {
