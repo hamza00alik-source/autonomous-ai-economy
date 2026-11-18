@@ -135,10 +135,10 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      const td=document.createElement("td");
      if(item.status!=="cancelled"){
        const btn=document.createElement("button");btn.className="secondary";btn.textContent=item.status==="paused"?"Resume":"Pause";
-       btn.addEventListener("click",async()=>{btn.disabled=true;try{await postJson("/v1/owner/financial-controls/schedules/"+encodeURIComponent(item.schedule_id)+"/status",{status:item.status==="paused"?"active":"paused"});await loadFinancialControls();}catch(e){$("financialMessage").textContent=e.message;}finally{btn.disabled=false;}});
+       btn.addEventListener("click",async()=>{const next=item.status==="paused"?"active":"paused";if(next==="active"&&!window.confirm("Resume this recurring simulated expense schedule? It may post future expenses to the cloud ledger."))return;btn.disabled=true;try{await postJson("/v1/owner/financial-controls/schedules/"+encodeURIComponent(item.schedule_id)+"/status",{status:next});await loadFinancialControls();}catch(e){$("financialMessage").textContent=e.message;}finally{btn.disabled=false;}});
        td.appendChild(btn);
        const cancel=document.createElement("button");cancel.className="secondary";cancel.style.marginLeft="6px";cancel.textContent="Cancel";
-       cancel.addEventListener("click",async()=>{cancel.disabled=true;try{await postJson("/v1/owner/financial-controls/schedules/"+encodeURIComponent(item.schedule_id)+"/status",{status:"cancelled"});await loadFinancialControls();}catch(e){$("financialMessage").textContent=e.message;}finally{cancel.disabled=false;}});
+       cancel.addEventListener("click",async()=>{if(!window.confirm("Cancel this recurring expense schedule?"))return;cancel.disabled=true;try{await postJson("/v1/owner/financial-controls/schedules/"+encodeURIComponent(item.schedule_id)+"/status",{status:"cancelled"});await loadFinancialControls();}catch(e){$("financialMessage").textContent=e.message;}finally{cancel.disabled=false;}});
        td.appendChild(cancel);
      } else td.textContent="—";
      tr.appendChild(td);body.appendChild(tr);
@@ -171,6 +171,7 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
  $("emergencyPause").addEventListener("click",async()=>{
    if(!financialControls)return;
    const paused=!financialControls.emergency_paused;
+   if(!paused&&!window.confirm("Resume simulated cloud spending? Due recurring expenses may be journaled automatically under active signed policies."))return;
    $("emergencyPause").disabled=true;
    try{await postJson("/v1/owner/financial-controls/emergency-pause",{paused,reason:paused?"Owner emergency pause":"Owner resumed simulated spending"});await loadFinancialControls();$("financialMessage").textContent=paused?"Emergency pause is active.":"Simulated cloud spending resumed.";}
    catch(error){$("financialMessage").textContent=error.message;}
@@ -180,6 +181,7 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    event.preventDefault();
    const due=$("scheduleDue").value;
    const payload={agent_id:$("scheduleAgent").value.trim(),destination:$("scheduleDestination").value.trim(),currency:$("scheduleCurrency").value.trim().toUpperCase(),amount_minor:Number($("scheduleAmount").value),interval_seconds:Number($("scheduleInterval").value),next_due_at:new Date(due).toISOString()};
+   if(!window.confirm("Create this recurring simulated expense schedule? Amount is in currency minor units and it will run automatically only while the owner has spending unpaused."))return;
    try{await postJson("/v1/owner/financial-controls/schedules",payload);$("financialMessage").textContent="Schedule created under the active signed policy.";event.target.reset();$("scheduleCurrency").value="USD";$("scheduleInterval").value="86400";await loadFinancialControls();}
    catch(error){$("financialMessage").textContent=error.message;}
  });
