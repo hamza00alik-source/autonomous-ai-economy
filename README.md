@@ -117,6 +117,14 @@ economy-ai evaluate-paid-tasks --limit 10 --minimum-bounty 0.10
 
 A result of `qualified_for_local_draft` is only a scope/capability pre-check. It does not mean the task has been claimed, the work is completed, or payment is guaranteed. The command never claims work and always reports `claim_allowed: false`. Missing details or ambiguous requirements remain in manual review.
 
+Evaluation results are retained in the same local SQLite database and can be reviewed later:
+
+```bash
+economy-ai list-task-evaluations --limit 20
+```
+
+This gives the supervisor a durable record of why a task passed or remained blocked, without changing the external marketplace task.
+
 ## First agent-earned revenue
 
 The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval once properly configured. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
