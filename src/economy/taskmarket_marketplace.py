@@ -323,6 +323,10 @@ class TaskmarketTaskEvaluator:
             reasons.append("escrow_not_tracked_by_platform")
         if not reward_raw or booked != reward_raw:
             reasons.append("escrow_booked_amount_mismatch")
+        if data.get("escrow_verified_onchain") is not True:
+            reasons.append("escrow_not_independently_verified")
+        if str(data.get("escrow_verified_amount_base_units") or "") != reward_raw:
+            reasons.append("onchain_escrow_amount_mismatch")
         if reward is None or reward < self.minimum_reward:
             reasons.append("reward_below_minimum_or_invalid")
         if net_reward is None or net_reward < self.minimum_reward:
