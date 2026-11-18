@@ -55,8 +55,9 @@ contract BaseUsdcDirectCheckoutSepoliaTest is Test {
         bytes32 orderId = keccak256("sepolia-order-001");
         uint256 amount = 5_000_000;
         uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signature(orderId, amount, deadline);
         vm.prank(buyer);
-        checkout.pay(orderId, amount, deadline, _signature(orderId, amount, deadline));
+        checkout.pay(orderId, amount, deadline, sig);
         assertEq(MockSepoliaUsdc(USDC).balanceOf(merchant), amount);
         assertEq(MockSepoliaUsdc(USDC).balanceOf(buyer), 15_000_000);
         assertTrue(checkout.paidOrder(orderId));
@@ -74,9 +75,10 @@ contract BaseUsdcDirectCheckoutSepoliaTest is Test {
 
         bytes32 expiredOrder = keccak256("sepolia-expired");
         uint256 expired = block.timestamp - 1;
+        bytes memory expiredSig = _signature(expiredOrder, 1_000_000, expired);
         vm.expectRevert(BaseUsdcDirectCheckoutSepolia.ExpiredInvoice.selector);
         vm.prank(buyer);
-        checkout.pay(expiredOrder, 1_000_000, expired, _signature(expiredOrder, 1_000_000, expired));
+        checkout.pay(expiredOrder, 1_000_000, expired, expiredSig);
     }
 
     function testSepoliaContractCannotDeployOnMainnet() public {
