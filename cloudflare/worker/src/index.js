@@ -1,5 +1,6 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
+import { getCloudFinancialControls, setCloudEmergencyPause, createCloudExpenseSchedule, setCloudExpenseScheduleStatus } from "./financial_controls.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -795,6 +796,68 @@ export default {
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
     if (url.pathname === "/v1/owner/overview" && request.method === "GET") return ownerOverview(env);
     if (url.pathname === "/v1/owner/tasks" && request.method === "GET") return ownerTasks(env);
+    if (url.pathname === "/v1/owner/financial-controls" && request.method === "GET") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned; financial controls remain unavailable" }, 503);
+      const result = await getCloudFinancialControls(env.DB, env.AAE_OWNER_ID);
+      return result.ok ? json(result) : json({ error: result.reason }, 400);
+    }
+    if (url.pathname === "/v1/owner/financial-controls/emergency-pause" && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 512) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).some(key => !["paused","reason"].includes(key)) || typeof body.paused !== "boolean") {
+        return json({ error: "paused boolean and optional reason are required" }, 400);
+      }
+      const result = await setCloudEmergencyPause(env.DB, {
+        ownerId: env.AAE_OWNER_ID, actorId: env.AAE_OWNER_ID,
+        paused: body.paused, reason: body.reason
+      });
+      return result.ok ? json(result) : json({ error: result.reason }, 403);
+    }
+    if (url.pathname === "/v1/owner/financial-controls/schedules" && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 2048) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).some(key => !["agent_id","destination","currency","amount_minor","interval_seconds","next_due_at"].includes(key))) {
+        return json({ error: "invalid schedule fields" }, 400);
+      }
+      const result = await createCloudExpenseSchedule(env.DB, {
+        ownerId: env.AAE_OWNER_ID, scheduleId: crypto.randomUUID(),
+        agentId: body.agent_id, destination: body.destination, currency: body.currency,
+        amountMinor: body.amount_minor, intervalSeconds: body.interval_seconds, nextDueAt: body.next_due_at
+      });
+      return result.ok ? json(result, 201) : json({ error: result.reason }, 409);
+    }
+    const financialScheduleMatch = url.pathname.match(/^\\/v1\\/owner\\/financial-controls\\/schedules\\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\\/status$/);
+    if (financialScheduleMatch && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 256) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      const result = await setCloudExpenseScheduleStatus(env.DB, {
+        ownerId: env.AAE_OWNER_ID, scheduleId: financialScheduleMatch[1], status: body?.status
+      });
+      return result.ok ? json(result) : json({ error: result.reason }, 409);
+    }
     if (url.pathname === "/v1/swarmmemo/work" && request.method === "GET") {
       const limit = Number(url.searchParams.get("limit") || 50);
       return json(await listSwarmMemoWork(env, limit));
