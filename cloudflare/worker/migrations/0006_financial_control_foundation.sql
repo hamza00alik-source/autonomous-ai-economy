@@ -188,3 +188,54 @@ CREATE TABLE IF NOT EXISTS financial_audit_events (
 
 CREATE INDEX IF NOT EXISTS idx_financial_audit_owner_created
   ON financial_audit_events(owner_id, created_at DESC);
+
+-- Posted journal history and audit events are append-only.
+CREATE TRIGGER IF NOT EXISTS trg_financial_journal_transactions_no_update
+BEFORE UPDATE ON financial_journal_transactions
+BEGIN
+  SELECT RAISE(ABORT, 'posted journal transactions are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_journal_transactions_no_delete
+BEFORE DELETE ON financial_journal_transactions
+BEGIN
+  SELECT RAISE(ABORT, 'posted journal transactions are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_journal_postings_no_update
+BEFORE UPDATE ON financial_journal_postings
+BEGIN
+  SELECT RAISE(ABORT, 'posted journal postings are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_journal_postings_no_delete
+BEFORE DELETE ON financial_journal_postings
+BEGIN
+  SELECT RAISE(ABORT, 'posted journal postings are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_posting_currency_match
+BEFORE INSERT ON financial_journal_postings
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM financial_journal_transactions t
+  JOIN financial_accounts a ON a.account_id = NEW.account_id
+  WHERE t.transaction_id = NEW.transaction_id
+    AND t.currency = NEW.currency
+    AND a.currency = NEW.currency
+)
+BEGIN
+  SELECT RAISE(ABORT, 'posting currency must match transaction and account');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_audit_events_no_update
+BEFORE UPDATE ON financial_audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'financial audit events are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_audit_events_no_delete
+BEFORE DELETE ON financial_audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'financial audit events are append-only');
+END;
