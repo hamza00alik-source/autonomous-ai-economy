@@ -12,6 +12,11 @@ from .task_store import TaskStore
 from .basedagents_marketplace import BasedAgentsPublicTasks
 from .basedagents_opportunities import BasedAgentsOpportunityScanner, PaidOpportunityStore
 from .basedagents_task_evaluator import PaidTaskCapabilityEvaluator
+from .jobbi_gigs import JobbiPublicGigs, JobbiGigStore
+from .taskmarket_marketplace import BaseEscrowReceiptVerifier, TaskmarketPublicTasks, TaskmarketTaskEvaluator, TaskmarketOpportunityStore
+from .source_board_verifier import GitHubSourceBoardVerifier
+from .github_task_drafter import GitHubTaskDraftBuilder
+from .makefun_marketplace import MakeFunPublicBounties
 
 
 def main() -> int:
@@ -47,11 +52,102 @@ def main() -> int:
     evaluate.add_argument("--minimum-bounty", default="0.10")
     evaluate.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
 
+    jobbi_scan = sub.add_parser("scan-jobbi-gigs", help="discover public agent gigs from Jobbi; never claims work")
+    jobbi_scan.add_argument("--limit", type=int, default=100)
+    jobbi_scan.add_argument("--source", help="optional board key such as algora or agentbounties")
+    jobbi_scan.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/jobbi-gigs.sqlite3")
+
+    jobbi_list = sub.add_parser("list-jobbi-gigs", help="list locally stored Jobbi gigs awaiting manual review")
+    jobbi_list.add_argument("--limit", type=int, default=20)
+    jobbi_list.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/jobbi-gigs.sqlite3")
+
+    tm_scan = sub.add_parser("scan-taskmarket-tasks", help="scan Base USDC tasks; never registers, claims or submits")
+    tm_scan.add_argument("--limit", type=int, default=100)
+    tm_scan.add_argument("--minimum-reward", default="1.00")
+    tm_scan.add_argument("--maximum-submissions", type=int, default=5)
+    tm_scan.add_argument("--verify-limit", type=int, default=25, help="maximum tasks to verify against Base receipts per scan")
+    tm_scan.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/taskmarket-opportunities.sqlite3")
+
+    tm_list = sub.add_parser("list-taskmarket-tasks", help="list saved Taskmarket opportunities and conservative evaluations")
+    tm_list.add_argument("--limit", type=int, default=20)
+    tm_list.add_argument("--qualified-only", action="store_true")
+    tm_list.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/taskmarket-opportunities.sqlite3")
+
+    makefun_scan = sub.add_parser("scan-makefun-bounties", help="discover public make.fun USDC coding bounties; never registers or enters")
+    makefun_scan.add_argument("--limit", type=int, default=50)
+
+    source_check = sub.add_parser("verify-source-url", help="read-only check a GitHub issue/PR source before drafting")
+    source_check.add_argument("--url", required=True)
+
     evaluated = sub.add_parser("list-task-evaluations", help="list persisted task scope/capability evaluations")
     evaluated.add_argument("--limit", type=int, default=20)
     evaluated.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
 
     args = parser.parse_args()
+    if args.command == "scan-makefun-bounties":
+        rows = MakeFunPublicBounties().search(limit=args.limit)
+        print(json.dumps({
+            "source": "make.fun",
+            "fetched": len(rows),
+            "bounties": [row.to_dict() for row in rows],
+            "notice": "Public listings only. No account, keypair, wallet, claim, entry, submission or payment action. Payment and entry eligibility are unverified.",
+            "external_actions": 0,
+            "entry_allowed": False,
+        }, indent=2))
+        return 0
+
+    if args.command == "verify-source-url":
+        result = GitHubSourceBoardVerifier().verify(args.url)
+        print(json.dumps({**result.to_dict(), "external_actions": 0, "submission_allowed": False}, indent=2))
+        return 0 if result.verified else 2
+
+    if args.command == "scan-jobbi-gigs":
+        db_path = args.db or (args.data_dir / "jobbi-gigs.sqlite3")
+        store = JobbiGigStore(db_path)
+        gigs = JobbiPublicGigs().search(limit=args.limit, source=args.source)
+        print(json.dumps({
+            "source": "jobbi",
+            "fetched": len(gigs),
+            **store.save_many(gigs),
+            "notice": "Jobbi is an index, not the payer. All listings remain unverified until checked at their original boards.",
+        }, indent=2))
+        return 0
+
+    if args.command == "list-jobbi-gigs":
+        db_path = args.db or (args.data_dir / "jobbi-gigs.sqlite3")
+        store = JobbiGigStore(db_path)
+        print(json.dumps(store.list_review_required(limit=args.limit), indent=2))
+        return 0
+
+    if args.command == "scan-taskmarket-tasks":
+        db_path = args.db or (args.data_dir / "taskmarket-opportunities.sqlite3")
+        store = TaskmarketOpportunityStore(db_path)
+        evaluator = TaskmarketTaskEvaluator(
+            minimum_reward_usdc=args.minimum_reward,
+            maximum_submissions=args.maximum_submissions,
+        )
+        if not 0 <= args.verify_limit <= 100:
+            raise ValueError("--verify-limit must be between 0 and 100")
+        leads = TaskmarketPublicTasks().search(limit=args.limit)
+        verifier = BaseEscrowReceiptVerifier()
+        checked = [verifier.verify_lead(lead) if index < args.verify_limit else lead
+                   for index, lead in enumerate(leads)]
+        summary = store.save_many(checked, evaluator)
+        print(json.dumps({
+            "source": "taskmarket",
+            **summary,
+            "note": "Escrow is independently checked against Base receipts when within verify-limit; no identity, wallet, claim, submission or payment action was performed.",
+        }, indent=2))
+        return 0
+
+    if args.command == "list-taskmarket-tasks":
+        db_path = args.db or (args.data_dir / "taskmarket-opportunities.sqlite3")
+        store = TaskmarketOpportunityStore(db_path)
+        print(json.dumps(store.list_opportunities(
+            limit=args.limit, qualified_only=args.qualified_only,
+        ), indent=2))
+        return 0
+
     if args.command == "status":
         print(json.dumps(runtime_status(args.data_dir), indent=2))
         return 0

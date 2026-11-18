@@ -4,6 +4,20 @@ A zero-cost-first open economy architecture for independent AI agents and human 
 
 > Standalone project: not part of OpenCompany or any other business system.
 
+## make.fun public bounty discovery
+
+Discover open AI coding competitions without registration or a wallet:
+
+```bash
+economy-ai scan-makefun-bounties --limit 50
+```
+
+This is read-only discovery. It does not enter competitions, upload code,
+attach session transcripts, sign, claim, or transfer funds. Listings are
+unverified leads; inspect the official bounty rules, grading metric, deadline,
+entry fee, escrow, transcript requirements and eligibility before considering
+participation. See [make.fun discovery safety notes](docs/makefun-public-bounty-discovery.md).
+
 ## Product direction
 
 The economy is open to both AI agents and humans. Participation is permissionless at the public discovery and low-risk contribution layers, while access to private data, privileged tools, payments and treasury operations is gated by scoped identity claims, accountability, evidence, authorization and applicable legal/provider checks.
@@ -125,6 +139,30 @@ economy-ai list-task-evaluations --limit 20
 
 This gives the supervisor a durable record of why a task passed or remained blocked, without changing the external marketplace task.
 
+### Aggregated agent-gig discovery (Jobbi)
+
+Jobbi provides a free, public, read-only JSON feed aggregating agent-lane gigs from multiple boards. The optional adapter stores the original board link, reward currency/amount, payment rail/state, acceptance method, and payout-grade metadata for manual review:
+
+```bash
+economy-ai scan-jobbi-gigs --limit 100
+economy-ai scan-jobbi-gigs --source agentbounties --limit 50
+economy-ai list-jobbi-gigs --limit 20
+```
+
+Jobbi is an index, not the buyer or payer. Its `escrowed` and `promised` fields are third-party listing metadata and are not independently verified by this project. The shortlist additionally requires a positive USD/USDC reward, escrowed payment state, payout grade A/B, a known source publication date within 365 days, no more than 10 comments, and no detected outreach/promotion requirement. These are preliminary filters only; they do not establish payout eligibility, task suitability, or positive net profit. The adapter never follows board links, claims work, connects a wallet, posts a bid, or makes a payment. Source: https://jobbi.org/gigs and https://jobbi.org/docs/mcp/.
+
+### Taskmarket Base USDC task discovery
+
+Taskmarket is integrated as a read-only Base mainnet source. The scanner captures the advertised USDC reward, net reward, Taskmarket-reported escrow transaction and booked amount, submission count, expiry, task mode, stake requirements and payout terms. Taskmarket's API escrow fields are not independently verified on-chain by this adapter.
+
+```bash
+economy-ai scan-taskmarket-tasks --limit 100 --minimum-reward 1.00 --maximum-submissions 5 --verify-limit 25
+economy-ai list-taskmarket-tasks --limit 20
+economy-ai list-taskmarket-tasks --qualified-only
+```
+
+The scanner checks each selected escrow transaction against Base's public JSON-RPC receipt and requires a successful Taskmarket `EscrowFunded` event for the exact task ID and reward amount. The conservative evaluator rejects split pools, public promotional replies, off-platform/token payouts, required deposits, crowded tasks, unsupported modes, untracked/mismatched escrow metadata, and rewards below the configured minimum. If receipt verification is unavailable, the task remains unqualified. "Qualified" means only eligible for local draft preparation; it never authorizes identity registration, wallet connection, signing, claiming, posting or submission. The user must explicitly approve any external action. Official references: https://docs.taskmarket.dev/api/reference, https://docs.taskmarket.dev/reference/base, https://docs.taskmarket.dev/concepts/fees-payments.
+
 ## First agent-earned revenue
 
 The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval once properly configured. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
@@ -138,3 +176,25 @@ The target layers are participant identity/trust, public discovery, agent runtim
 ## Safety and legal boundaries
 
 No autonomous borrowing, leverage, speculative trading, unlimited transfers, or bypassing KYC/legal restrictions. Receiving funds into an owner-controlled wallet is distinct from offering regulated custody or exchange services. Escrow, custody, exchange and money transmission are not enabled. Obtain qualified local advice before regulated financial activity.
+
+
+### Original GitHub source verification
+
+Before preparing a local work draft from a Jobbi/Algora GitHub listing, check the canonical source issue or pull request directly:
+
+```bash
+economy-ai verify-source-url --url https://github.com/owner/repo/issues/123
+```
+
+The command uses GitHub's public read-only API and reports whether the source item is still open, its latest title/update timestamp, and visible comment count. It flags closed or merged items and high/unknown competition. Only canonical GitHub issue/PR URLs are supported. API errors remain unverified. This check does not prove bounty payment, task acceptance, or that the listing permits AI-generated work; repository contribution rules and reward terms still require review. It never claims, comments, creates a branch, opens a PR, or submits work.
+
+
+### Local GitHub task draft packets
+
+For a GitHub issue or pull request that has passed the read-only source check, the CLI can save a local preparation packet:
+
+```bash
+economy-ai prepare-github-task-draft --url https://github.com/owner/repo/issues/123 --output ./drafts/task-123.json
+```
+
+The builder rechecks source state, rejects closed/merged items and high or unknown visible comment counts, then fetches the full issue body. It only marks a packet ready for human review when it detects an explicit deliverable and acceptance-criteria wording; otherwise it records blockers for review. The packet contains the original task text, detected scope lines, a local QA checklist and a response outline. It is not an AI-generated completed deliverable, does not prove payment or eligibility, and cannot claim or submit work. Output files are create-only and will not overwrite an existing packet.

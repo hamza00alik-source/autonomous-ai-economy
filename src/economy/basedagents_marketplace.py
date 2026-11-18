@@ -32,6 +32,8 @@ class PaidTaskLead:
     verification_status: str = "unverified"
     payment_verified: bool = False
     required_capabilities: tuple[str, ...] = ()
+    payment_status: str | None = None
+    escrow_status: str | None = None
 
     @property
     def lead_id(self) -> str:
@@ -44,7 +46,7 @@ class PaidTaskLead:
 
 
 class BasedAgentsPublicTasks:
-    """Fetch open task leads without credentials or write permissions."""
+    """Fetch open task and payment records without credentials or write permissions."""
 
     def __init__(self, *, timeout_seconds: float = 12,
                  fetcher: Callable[[str, float], bytes] | None = None):
@@ -69,14 +71,19 @@ class BasedAgentsPublicTasks:
             raise ValueError("task response exceeds 1 MB safety limit")
         return body
 
-    def get_task(self, task_id: str) -> dict:
-        """Fetch one public task detail record; never authenticates or writes."""
+    @staticmethod
+    def _task_id(task_id: str) -> str:
         if not isinstance(task_id, str) or not task_id or len(task_id) > 160:
             raise ValueError("task_id must be a non-empty string up to 160 characters")
         if any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for ch in task_id):
             raise ValueError("task_id contains unsupported characters")
-        url = BASE_URL + "/v1/tasks/" + quote(task_id, safe="")
-        payload = json.loads(self._fetcher(url, self.timeout_seconds))
+        return quote(task_id, safe="")
+
+    def get_task(self, task_id: str) -> dict:
+        """Fetch one public task detail record, preserving its payment summary."""
+        encoded_id = self._task_id(task_id)
+        payload = json.loads(self._fetcher(BASE_URL + "/v1/tasks/" + encoded_id,
+                                           self.timeout_seconds))
         if not isinstance(payload, dict):
             raise ValueError("unexpected task detail response schema")
         task = payload.get("task", payload)
@@ -85,7 +92,24 @@ class BasedAgentsPublicTasks:
         returned_id = task.get("task_id") or task.get("id")
         if returned_id is not None and returned_id != task_id:
             raise ValueError("task detail ID does not match requested ID")
-        return task
+        result = dict(task)
+        if isinstance(payload.get("payment"), dict) and not isinstance(result.get("payment"), dict):
+            result["payment"] = payload["payment"]
+        return result
+
+    def get_task_payment(self, task_id: str) -> dict:
+        """Fetch the separate public payment audit endpoint; read-only."""
+        encoded_id = self._task_id(task_id)
+        payload = json.loads(self._fetcher(
+            BASE_URL + "/v1/tasks/" + encoded_id + "/payment",
+            self.timeout_seconds,
+        ))
+        if not isinstance(payload, dict) or not isinstance(payload.get("payment"), dict):
+            raise ValueError("unexpected task payment response schema")
+        payment = payload["payment"]
+        if payment.get("task_id") not in (None, task_id):
+            raise ValueError("payment record task ID does not match requested ID")
+        return payment
 
     def search(self, *, limit: int = 50, offset: int = 0) -> list[PaidTaskLead]:
         if not 1 <= limit <= 100:
@@ -110,17 +134,21 @@ class BasedAgentsPublicTasks:
             title = row.get("title")
             if not isinstance(task_id, str) or not isinstance(title, str):
                 continue
-            bounty = row.get("bounty")
-            amount = None
-            network = None
-            if isinstance(bounty, dict):
-                amount = bounty.get("amount_display")
-                if amount is None and bounty.get("amount_atomic") is not None:
-                    try:
-                        amount = f"{int(bounty['amount_atomic']) / 1_000_000:.2f}"
-                    except (TypeError, ValueError):
-                        amount = None
-                network = bounty.get("network")
+            bounty = row.get("bounty") if isinstance(row.get("bounty"), dict) else {}
+            amount = bounty.get("amount_display")
+            atomic = bounty.get("amount_atomic", row.get("bounty_amount"))
+            if amount is None and atomic is not None:
+                try:
+                    amount = f"{int(atomic) / 1_000_000:.6f}".rstrip("0").rstrip(".")
+                except (TypeError, ValueError):
+                    amount = None
+            network = bounty.get("network") or row.get("bounty_network")
+            escrow = row.get("escrow") if isinstance(row.get("escrow"), dict) else {}
+            payment = row.get("payment") if isinstance(row.get("payment"), dict) else {}
+            escrow_status = escrow.get("status")
+            payment_status = payment.get("status") or row.get("payment_status")
+            verified_raw = payment.get("verified", row.get("payment_verified", False))
+            payment_verified = verified_raw is True or verified_raw == 1
             leads.append(PaidTaskLead(
                 task_id=task_id,
                 title=title[:300],
@@ -129,7 +157,10 @@ class BasedAgentsPublicTasks:
                 bounty_usdc=str(amount) if amount is not None else None,
                 network=str(network) if network is not None else None,
                 status="open",
-                claimable=bool(row.get("claimable", True)),
+                claimable=row.get("claimable") is True,
+                payment_verified=payment_verified,
+                payment_status=str(payment_status) if payment_status is not None else None,
+                escrow_status=str(escrow_status) if escrow_status is not None else None,
                 required_capabilities=tuple(
                     str(item)[:80] for item in row.get("required_capabilities", [])
                     if isinstance(item, str)
