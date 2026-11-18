@@ -130,3 +130,11 @@ This status distinguishes local prototype code from the future open economy. A c
 - A blocked occurrence remains due and can be retried after the agent budget is replenished by a reconciled-receipt allocation. The scheduler does not invent earnings or credit the budget itself.
 - Added tests for duplicate polling, daily caps, insufficient budget and later replenishment, policy allowlists, interval/timezone validation, lifecycle controls and idempotency.
 - This is a local simulated scheduler component, not hosted always-on scheduling and not a live payment executor. No vendor is contacted and no real expense is paid.
+
+
+## Supervisor integration for recurring simulated expenses
+
+- The local supervisor now accepts an optional `financial_scheduler` callback and invokes it once per bounded worker cycle before worker lanes. Pass an initialized `AgentExpenseScheduler.run_due` callback from trusted application wiring to share the supervisor's polling lifecycle.
+- Scheduler output is validated, logged, and isolated: an exception or malformed result increments the supervisor error count but does not prevent built-in or model-backed worker lanes from running.
+- The hook is deliberately opt-in. The default CLI does not instantiate financial identity, owner-signed policy or spending stores because no owner-approved policy provisioning/configuration exists in the supervisor startup path. No empty/default policy is created and no expense schedule runs unless trusted code explicitly supplies the callback.
+- Tests cover repeated bounded polling, malformed result rejection and exception isolation. This is local simulation only; it does not enable vendor payments, external signing, transfers, production Worker/D1 changes or hosted scheduler uptime.
