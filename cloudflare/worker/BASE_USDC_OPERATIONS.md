@@ -90,3 +90,17 @@ The code supports a separate Base Sepolia indexer configuration for controlled t
 7. Confirm the Base-mainnet checkout route still returns unavailable when `BASE_CHAIN_ID=84532`. Never point the testnet worker at production D1 or production signer material.
 
 No testnet contract has been deployed and no wallet transaction has been submitted. The CI suite is a local deterministic simulation, not a live Base Sepolia rehearsal.
+
+
+## Provisioned Base Sepolia test ledger
+
+A dedicated Cloudflare D1 database named `aae-base-sepolia-test` has been provisioned for testnet-only integration. It is separate from the production/private `aae-private-ai-economy` database.
+
+- The Base USDC invoice, payment-event, indexer-state, quarantine and agent-revenue tables were created in the test database.
+- The indexer incident-latch columns (`halted_at`, `halt_reason`) were applied.
+- The payment-event chain constraint permits only Base mainnet (8453) and Base Sepolia (84532); a direct schema test accepted 84532 and rejected chain ID 1.
+- No production database was modified by this provisioning step.
+- No testnet deployment block or contract address is recorded yet, so the indexer cursor has intentionally not been initialized and scanning is not enabled.
+- The test database has no live Worker binding yet. Do not bind it to the production Worker or activate scheduled scanning until a separately deployed test Worker has been reviewed and its test-only configuration is complete.
+
+This database provisioning and schema validation are not a live payment test. A separately controlled deployer, dedicated test invoice signer, funded buyer wallet, test USDC, and explicit wallet transaction are still required for an on-chain purchase and download rehearsal.
