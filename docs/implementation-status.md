@@ -104,3 +104,11 @@ This status distinguishes local prototype code from the future open economy. A c
 - Receipt registration, confirmation and reconciliation are idempotent; source-reference reuse with changed terms is rejected. Agent budget allocation now checks the ledger's own reconciled receipt record and verifies agent, currency and net amount instead of trusting a caller-supplied `settlement_state` string.
 - Added `tests/test_settlement.py` and updated allocation tests.
 - This remains a **simulated-only** state machine. The confirmation method currently accepts caller-supplied observations; it is not connected to a provider signature verifier, blockchain finality verifier, webhook authentication, legal entity verification or real funds. Never treat this state as proof of a live payment.
+
+
+## Owner-signed financial policy provisioning
+
+- Added `src/economy/financial_policy.py`: stores versioned Ed25519-signed financial policies for an enrolled agent, requires the active human/organization signer to be the agent's recorded operator, and uses the participant registry's current public key.
+- Policies define exact asset currency, per-transaction and daily limits, and non-wildcard allowlisted destinations. Versions are monotonic; key rotation or participant suspension invalidates the policy until re-signed.
+- Added tests for valid and invalid signatures, operator mismatch, inactive owners, policy versioning, key rotation and unsafe limits/destinations.
+- This provisions policy data only. It does not reserve balances, enforce daily spend counters, sign transactions, or execute transfers. The next layer must bind policy verification to a spend executor and durable budget reservations before any live integration.
