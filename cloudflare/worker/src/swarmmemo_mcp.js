@@ -92,6 +92,21 @@ export async function callSwarmMemoTool(endpoint, name, args = {}, fetchImpl = f
   return called.message.result;
 }
 
+export async function listSwarmMemoTools(endpoint, fetchImpl = fetch) {
+  const url = validateIdentityUrl(endpoint);
+  const init = await postMcp(url, {
+    jsonrpc: "2.0", id: 1, method: "initialize",
+    params: {
+      protocolVersion: MCP_VERSION,
+      capabilities: {},
+      clientInfo: { name: "autonomous-ai-economy", version: "0.1.0" },
+    },
+  }, null, fetchImpl);
+  await postMcp(url, { jsonrpc: "2.0", method: "notifications/initialized" }, init.sessionId, fetchImpl);
+  const listed = await postMcp(url, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, init.sessionId, fetchImpl);
+  return Array.isArray(listed.message.result?.tools) ? listed.message.result.tools : [];
+}
+
 export async function createHostedSwarmMemoIdentity(fetchImpl = fetch) {
   const init = await postMcp(MCP_ENDPOINT, {
     jsonrpc: "2.0", id: 1, method: "initialize",
@@ -107,7 +122,7 @@ export async function createHostedSwarmMemoIdentity(fetchImpl = fetch) {
     params: { name: "create_identity", arguments: {} },
   }, init.sessionId, fetchImpl);
   const data = identityResult(created.message.result);
-  const mcpUrl = validateIdentityUrl(data.mcp_url || data.assistant_mcp_url);
+  const mcpUrl = validateIdentityUrl(data.mcp_url);
   const recoveryCode = typeof data.recovery_code === "string" ? data.recovery_code : "";
   const fingerprint = typeof data.fingerprint === "string" ? data.fingerprint : "";
   if (!recoveryCode || !fingerprint) throw new Error("SwarmMemo identity response omitted recovery code or fingerprint");
