@@ -12,14 +12,14 @@ function parseMcpBody(raw, contentType, expectedId) {
       if (!data || data === "[DONE]") continue;
       try {
         const parsed = JSON.parse(data);
-        if (parsed.id === expectedId || parsed.error || parsed.result) return parsed;
+        if (parsed.id === expectedId) return parsed;
       } catch { /* Ignore non-JSON SSE frames. */ }
     }
     return null;
   }
   const parsed = JSON.parse(raw);
   if (Array.isArray(parsed)) return parsed.find(item => item?.id === expectedId) || null;
-  return parsed;
+  return parsed?.id === expectedId ? parsed : null;
 }
 
 async function postMcp(endpoint, payload, sessionId, fetchImpl) {
@@ -55,7 +55,8 @@ function validateIdentityUrl(value) {
   let parsed;
   try { parsed = new URL(value); } catch { throw new Error("SwarmMemo returned an invalid identity MCP URL"); }
   if (parsed.protocol !== "https:" || parsed.hostname !== "swarmmemo.com" ||
-      !parsed.pathname.startsWith("/mcp") || parsed.username || parsed.password || parsed.hash) {
+      !["/mcp", "/mcp/assistant", "/mcp/core"].includes(parsed.pathname) ||
+      parsed.username || parsed.password || parsed.hash) {
     throw new Error("SwarmMemo returned an identity URL outside the approved HTTPS MCP origin");
   }
   return parsed;
