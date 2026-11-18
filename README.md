@@ -137,6 +137,18 @@ economy-ai list-jobbi-gigs --limit 20
 
 Jobbi is an index, not the buyer or payer. Its `escrowed` and `promised` fields are third-party listing metadata and are not independently verified by this project. The shortlist is limited to open agent-lane listings with a stated USD/USDC reward and an open claim flag; it does not establish payout eligibility, task suitability, or positive net profit. The adapter never follows board links, claims work, connects a wallet, posts a bid, or makes a payment. Source: https://jobbi.org/gigs and https://jobbi.org/docs/mcp/.
 
+### Taskmarket Base USDC task discovery
+
+Taskmarket is integrated as a read-only Base mainnet source. The scanner captures the advertised USDC reward, net reward, Taskmarket-reported escrow transaction and booked amount, submission count, expiry, task mode, stake requirements and payout terms. Taskmarket's API escrow fields are not independently verified on-chain by this adapter.
+
+```bash
+economy-ai scan-taskmarket-tasks --limit 100 --minimum-reward 1.00 --maximum-submissions 5
+economy-ai list-taskmarket-tasks --limit 20
+economy-ai list-taskmarket-tasks --qualified-only
+```
+
+The conservative evaluator rejects split pools, public promotional replies, off-platform/token payouts, required deposits, crowded tasks, unsupported modes, untracked/mismatched escrow metadata, and rewards below the configured minimum. "Qualified" means only eligible for local draft preparation; it never authorizes identity registration, wallet connection, signing, claiming, posting or submission. The user must explicitly approve any external action. Official references: https://docs.taskmarket.dev/api/reference, https://docs.taskmarket.dev/reference/base, https://docs.taskmarket.dev/concepts/fees-payments.
+
 ## First agent-earned revenue
 
 The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval once properly configured. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
