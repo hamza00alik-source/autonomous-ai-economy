@@ -57,15 +57,15 @@ def _journal(db):
     )
 
 
-def _policy(db, version=1):
+def _policy(db, version=1, per_transaction_limit=1000, daily_spend_limit=5000):
     db.execute(
         "INSERT INTO financial_policies "
         "(policy_id,version,owner_id,agent_id,signer_id,currency,per_transaction_limit_minor,"
         "daily_spend_limit_minor,allowed_destinations_json,canonical_payload,signature_base64url,"
         "signer_key_fingerprint,status,created_at,updated_at) "
-        "VALUES ('policy-01',?,'owner-01','agent-01','operator-01','USD',1000,5000,'[\"provider:exact\"]',"
+        "VALUES ('policy-01',?,'owner-01','agent-01','operator-01','USD',?,?, '[\"provider:exact\"]',"
         "'{}','signature','fingerprint','active','now','now')",
-        (version,),
+        (version, per_transaction_limit, daily_spend_limit),
     )
 
 
@@ -248,14 +248,23 @@ def test_cloud_reservations_enforce_agent_budget_and_daily_policy_limit():
     db = _database()
     _participants(db)
     _accounts(db)
-    _policy(db)
+    _policy(db, per_transaction_limit=4000)
     _fund_agent(db)
     _unpause(db)
     _reservation(db, "reservation-a", 3000)
     with pytest.raises(sqlite3.IntegrityError, match="daily spend limit"):
         _reservation(db, "reservation-b", 2500)
+
+    underfunded = _database()
+    _participants(underfunded)
+    _accounts(underfunded)
+    _policy(underfunded, per_transaction_limit=4000)
+    _fund_agent(underfunded)
+    underfunded.execute("UPDATE financial_journal_postings SET amount_minor=4000 WHERE transaction_id='allocation-01'")
+    _unpause(underfunded)
+    _reservation(underfunded, "reservation-c", 3000)
     with pytest.raises(sqlite3.IntegrityError, match="insufficient available agent budget"):
-        _reservation(db, "reservation-c", 8000)
+        _reservation(underfunded, "reservation-d", 2500)
 
 
 def test_cloud_recurring_occurrences_are_policy_bound_and_idempotent():
