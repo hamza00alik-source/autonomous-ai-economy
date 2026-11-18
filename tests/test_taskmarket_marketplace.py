@@ -34,7 +34,7 @@ class TaskmarketMarketplaceTests(unittest.TestCase):
         seen = {}
         def fetch(url, timeout):
             seen["url"] = url
-            return json.dumps({"tasks": [task(), task("chainId"=4217)]}).encode()
+            return json.dumps({"tasks": [task(), task(chainId=4217)]}).encode()
         provider = TaskmarketPublicTasks(fetcher=fetch)
         leads = provider.search(limit=10)
         self.assertEqual(len(leads), 1)
