@@ -9,6 +9,8 @@ from .ai_runtime import CloudflareWorkersAI, InferenceBudget, runtime_status
 from .ai_product_agent import AIProductCopyAgent
 from .ai_task_worker import queue_product_copy_task
 from .task_store import TaskStore
+from .basedagents_marketplace import BasedAgentsPublicTasks
+from .basedagents_opportunities import BasedAgentsOpportunityScanner, PaidOpportunityStore
 
 
 def main() -> int:
@@ -30,9 +32,34 @@ def main() -> int:
     queue = sub.add_parser("queue-copy", help="queue a product-copy task for the always-on AI supervisor")
     queue.add_argument("--facts-file", type=Path, required=True)
 
+    scan = sub.add_parser("scan-paid-tasks", help="discover and rank public BasedAgents tasks; never claims work")
+    scan.add_argument("--limit", type=int, default=50)
+    scan.add_argument("--minimum-bounty", type=float, default=0.10)
+    scan.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
+
+    leads = sub.add_parser("list-paid-tasks", help="list locally stored opportunities awaiting review")
+    leads.add_argument("--limit", type=int, default=20)
+    leads.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
+
     args = parser.parse_args()
     if args.command == "status":
         print(json.dumps(runtime_status(args.data_dir), indent=2))
+        return 0
+
+    if args.command == "scan-paid-tasks":
+        db_path = args.db or (args.data_dir / "paid-opportunities.sqlite3")
+        store = PaidOpportunityStore(db_path)
+        scanner = BasedAgentsOpportunityScanner(
+            store, provider=BasedAgentsPublicTasks(),
+            minimum_bounty_usdc=args.minimum_bounty,
+        )
+        print(json.dumps(scanner.scan_once(limit=args.limit), indent=2))
+        return 0
+
+    if args.command == "list-paid-tasks":
+        db_path = args.db or (args.data_dir / "paid-opportunities.sqlite3")
+        store = PaidOpportunityStore(db_path)
+        print(json.dumps(store.list_review_required(limit=args.limit), indent=2))
         return 0
 
     if args.command == "queue-copy":
