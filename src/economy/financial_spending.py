@@ -268,6 +268,49 @@ class AgentSpending:
             db.commit()
         return self.get(reservation_id)
 
+    def budget_summary(self, agent_id: str, currency: str = "USD") -> dict[str, int | str]:
+        """Report cleared simulated budget, active reservations and today's policy usage."""
+        if not isinstance(agent_id, str) or not agent_id.strip():
+            raise FinancialSpendingError("agent_id is required")
+        if not isinstance(currency, str) or len(currency) != 3 or not currency.isascii() or not currency.isalpha():
+            raise FinancialSpendingError("currency must be a three-letter code")
+        currency = currency.upper()
+        now = self._now()
+        now_text = now.isoformat()
+        day = now.date().isoformat()
+        with sqlite3.connect(self.path) as db:
+            reserved = db.execute(
+                """SELECT COALESCE(SUM(amount_minor),0) FROM agent_expense_reservations
+                   WHERE agent_id=? AND currency=? AND status='reserved' AND expires_at>?""",
+                (agent_id, currency, now_text),
+            ).fetchone()[0]
+            daily_used = db.execute(
+                """SELECT COALESCE(SUM(amount_minor),0) FROM agent_expense_reservations
+                   WHERE agent_id=? AND currency=? AND spend_day=? AND status IN ('reserved','settled')
+                   AND (status='settled' OR expires_at>?)""",
+                (agent_id, currency, day, now_text),
+            ).fetchone()[0]
+        balance = self.ledger.balance_minor(f"agent-budget:{agent_id}", currency)
+        available = max(0, int(balance) - int(reserved))
+        policy_limit = None
+        try:
+            policies = self.policies.list_for_agent(agent_id)
+            active = [p for p in policies if p.get("currently_authorized")]
+            if active:
+                policy_limit = int(active[0]["policy"]["daily_spend_limit_minor"])
+        except (AttributeError, TypeError, ValueError):
+            policy_limit = None
+        daily_remaining = max(0, policy_limit - int(daily_used)) if policy_limit is not None else -1
+        return {
+            "agent_id": agent_id, "currency": currency,
+            "cleared_simulated_budget_minor": int(balance),
+            "active_reservations_minor": int(reserved),
+            "available_simulated_budget_minor": available,
+            "daily_used_minor": int(daily_used),
+            "daily_limit_minor": policy_limit if policy_limit is not None else -1,
+            "daily_remaining_minor": daily_remaining,
+        }
+
     def get(self, reservation_id: str) -> dict[str, Any] | None:
         with sqlite3.connect(self.path) as db:
             db.row_factory = sqlite3.Row
