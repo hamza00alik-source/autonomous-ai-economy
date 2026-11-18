@@ -65,8 +65,8 @@ test("schedule status changes accept only explicit lifecycle states", async () =
 
 test("cloud scheduler fails closed when no explicit owner unpause exists", async () => {
   const calls=[];
-  const db={prepare(sql){calls.push(sql);return {bind(){return {first:async()=>null};}};}};
+  const db={prepare(sql){calls.push(sql);return {bind(){return {first:async()=>null};}};},async batch(){return [];}};
   const result=await runDueCloudExpenseSchedules(db,"owner-01",{now:"2026-11-19T00:00:00.000Z"});
-  assert.deepEqual(result,{settled:0,blocked:0,skipped:0,paused:true});
-  assert.equal(calls.length,1);
+  assert.deepEqual(result,{settled:0,blocked:0,skipped:0,expired:0,paused:true});
+  assert.equal(calls.length,3);
 });
