@@ -1,6 +1,8 @@
 import unittest
 
-from economy.basedagents_claim_readiness import evaluate_claim_readiness
+from economy.basedagents_claim_readiness import (
+    evaluate_claim_readiness, evaluate_claim_readiness_with_chain_verifier,
+)
 
 
 class BasedAgentsClaimReadinessTests(unittest.TestCase):
@@ -28,6 +30,28 @@ class BasedAgentsClaimReadinessTests(unittest.TestCase):
             "wallet_network": "eip155:8453",
         }
 
+    def test_chain_verifier_result_is_required_for_owner_review(self):
+        class Verifier:
+            def verify(self, task, payment):
+                return {"verified": True, "status": "verified_base_usdc_deposit"}
+        readiness, evidence = evaluate_claim_readiness_with_chain_verifier(
+            self.task, self.agent, self.task["payment"], Verifier()
+        )
+        self.assertEqual(readiness.state, "ready_for_owner_review")
+        self.assertTrue(evidence["verified"])
+        self.assertFalse(readiness.claim_allowed)
+
+    def test_failed_chain_verifier_keeps_readiness_blocked(self):
+        class Verifier:
+            def verify(self, task, payment):
+                return {"verified": False, "status": "blocked", "reason": "bad_receipt"}
+        readiness, evidence = evaluate_claim_readiness_with_chain_verifier(
+            self.task, self.agent, self.task["payment"], Verifier()
+        )
+        self.assertEqual(readiness.state, "blocked")
+        self.assertIn("escrow_deposit_not_independently_verified", readiness.reasons)
+        self.assertFalse(evidence["verified"])
+
     def test_requires_every_gate_and_still_never_authorizes_claim(self):
         result = evaluate_claim_readiness(
             self.task, self.agent, escrow_verified=True
@@ -40,15 +64,23 @@ class BasedAgentsClaimReadinessTests(unittest.TestCase):
         self.assertEqual(result.state, "blocked")
         self.assertIn("escrow_deposit_not_independently_verified", result.reasons)
 
-    def test_unfunded_or_unverified_registry_payment_blocks(self):
+    def test_pending_unverified_payment_flags_do_not_override_funded_chain_proof(self):
+        task = {
+            **self.task,
+            "payment": {"verified": False, "status": "pending"},
+        }
+        result = evaluate_claim_readiness(task, self.agent, escrow_verified=True)
+        self.assertEqual(result.state, "ready_for_owner_review")
+        self.assertFalse(result.claim_allowed)
+
+    def test_unfunded_escrow_still_blocks_even_with_registry_payment_flags(self):
         task = {
             **self.task,
             "escrow": {"status": "funding"},
-            "payment": {"verified": False},
+            "payment": {"verified": True},
         }
         result = evaluate_claim_readiness(task, self.agent, escrow_verified=True)
         self.assertIn("escrow_not_funded", result.reasons)
-        self.assertIn("payment_not_verified_by_registry", result.reasons)
         self.assertIn("escrow_deposit_transaction_missing", result.reasons)
 
     def test_missing_identity_wallet_and_claimability_fail_closed(self):
