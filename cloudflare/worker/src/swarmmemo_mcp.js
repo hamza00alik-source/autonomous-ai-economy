@@ -27,7 +27,10 @@ async function postMcp(endpoint, payload, sessionId, fetchImpl) {
     accept: "application/json, text/event-stream",
     "content-type": "application/json",
   };
-  if (sessionId) headers["mcp-session-id"] = sessionId;
+  if (sessionId) {
+    headers["mcp-session-id"] = sessionId;
+    headers["mcp-protocol-version"] = MCP_VERSION;
+  }
   const response = await fetchImpl(endpoint, {
     method: "POST",
     headers,
