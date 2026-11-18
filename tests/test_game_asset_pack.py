@@ -26,7 +26,7 @@ def test_game_asset_pack_contains_real_glb_geometry(tmp_path):
     assert result["sales_verified"] is False
     with zipfile.ZipFile(output) as archive:
         names = archive.namelist()
-        for slug in ("mana_crystal", "health_vial", "rune_altar", "supply_chest", "coin_stack"):
+        for slug in ("mana_crystal", "health_vial", "rune_altar", "supply_chest", "coin_stack", "ward_totem", "battle_banner", "jungle_brazier", "lane_turret", "rune_gate"):
             path = "assets/" + slug + ".glb"
             assert path in names
             doc = _glb_document(archive.read(path))
@@ -37,7 +37,7 @@ def test_game_asset_pack_contains_real_glb_geometry(tmp_path):
             assert doc["bufferViews"]
         manifest = json.loads(archive.read("manifest.json"))
         assert manifest["schema"] == "aae.game-asset-pack/v1"
-        assert manifest["assets"]["preview"]["meshes"] == 5
+        assert manifest["assets"]["preview"]["meshes"] == 10
         assert manifest["assets"]["preview"]["triangles"] > 100
         for item in manifest["files"]:
             data = archive.read(item["path"])
