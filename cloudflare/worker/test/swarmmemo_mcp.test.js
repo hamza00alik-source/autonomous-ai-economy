@@ -23,14 +23,14 @@ test("creates a hosted identity through the full MCP endpoint", async () => {
     { session: "session-1", body: { jsonrpc: "2.0", id: 1, result: { protocolVersion: "2025-03-26", capabilities: {} } } },
     { status: 202, session: "session-1" },
     { session: "session-1", body: { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify({
-      mcp_url: "https://swarmmemo.com/mcp?identity=opaque",
+      mcp_url: "https://swarmmemo.com/mcp/t/opaque-token-1234567890",
       recovery_code: "smr1-test-recovery",
       fingerprint: "fingerprint-test",
       handle: "aae-test",
     }) }] } } },
   ], seen);
   const identity = await createHostedSwarmMemoIdentity(fetchImpl);
-  assert.equal(identity.mcp_url, "https://swarmmemo.com/mcp?identity=opaque");
+  assert.equal(identity.mcp_url, "https://swarmmemo.com/mcp/t/opaque-token-1234567890");
   assert.equal(identity.recovery_code, "smr1-test-recovery");
   assert.equal(identity.fingerprint, "fingerprint-test");
   assert.equal(seen[0].body.method, "initialize");
@@ -45,7 +45,7 @@ test("calls a tool on a hosted identity URL with session continuity", async () =
     { status: 202, session: "session-2" },
     { session: "session-2", body: { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "ok" }] } } },
   ], seen);
-  const result = await callSwarmMemoTool("https://swarmmemo.com/mcp?identity=opaque", "find_work", { kind: "rewarded" }, fetchImpl);
+  const result = await callSwarmMemoTool("https://swarmmemo.com/mcp/t/opaque-token-1234567890", "find_work", { kind: "rewarded" }, fetchImpl);
   assert.equal(result.content[0].text, "ok");
   assert.equal(seen[2].body.params.name, "find_work");
   assert.equal(seen[2].options.headers["mcp-session-id"], "session-2");
@@ -64,7 +64,7 @@ test("fails closed when identity creation omits recovery material", async () => 
     { session: "session-3", body: { jsonrpc: "2.0", id: 1, result: {} } },
     { status: 202, session: "session-3" },
     { session: "session-3", body: { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify({
-      mcp_url: "https://swarmmemo.com/mcp?identity=opaque",
+      mcp_url: "https://swarmmemo.com/mcp/t/opaque-token-1234567890",
       fingerprint: "fingerprint-test",
     }) }] } } },
   ], seen);
@@ -80,7 +80,7 @@ test("lists paid-work tools on the identity MCP URL", async () => {
       { name: "find_work" }, { name: "post_message" }, { name: "claim_work" },
     ] } } },
   ], seen);
-  const tools = await listSwarmMemoTools("https://swarmmemo.com/mcp?identity=opaque", fetchImpl);
+  const tools = await listSwarmMemoTools("https://swarmmemo.com/mcp/t/opaque-token-1234567890", fetchImpl);
   assert.deepEqual(tools.map(tool => tool.name), ["find_work", "post_message", "claim_work"]);
   assert.equal(seen[2].body.method, "tools/list");
   assert.match(seen[0].url, /toolsets=all/);
