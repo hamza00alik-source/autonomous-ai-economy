@@ -1,11 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { encodeAbiParameters, encodeEventTopics } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   BASE_MAINNET_CHAIN_ID,
   BASE_USDC_ADDRESS,
   signBaseUsdcInvoice,
   recoverBaseUsdcInvoiceSigner,
+  BASE_USDC_CHECKOUT_ABI,
+  decodeBaseUsdcPaymentLog,
 } from "../src/base-usdc.js";
 
 const TEST_ONLY_PRIVATE_KEY = "0x0123456789012345678901234567890123456789012345678901234567890123";
@@ -72,4 +75,93 @@ test("Base invoice signer rejects wrong chain, invalid addresses, expired deadli
 
 test("native Base USDC contract constant matches Circle's canonical Base token", () => {
   assert.equal(BASE_USDC_ADDRESS.toLowerCase(), "0x833589fc6ed6b6e08f4c7c32d4f71b54bda02913");
+});
+
+
+test("Base OrderPaid decoder accepts only the exact invoice, merchant, token and contract", () => {
+  const orderIdHash = "0x" + "ab".repeat(32);
+  const buyer = "0x3333333333333333333333333333333333333333";
+  const amount = 5_000_000n;
+  const topics = encodeEventTopics({
+    abi: BASE_USDC_CHECKOUT_ABI,
+    eventName: "OrderPaid",
+    args: {
+      orderId: orderIdHash,
+      buyer,
+      merchant,
+    },
+  });
+  const data = encodeAbiParameters(
+    [{ type: "uint256", name: "amount" }, { type: "address", name: "token" }],
+    [amount, BASE_USDC_ADDRESS],
+  );
+  const log = {
+    address: contract,
+    topics,
+    data,
+    transactionHash: "0x" + "cd".repeat(32),
+    blockHash: "0x" + "ef".repeat(32),
+    blockNumber: 123456n,
+    logIndex: 2,
+    removed: false,
+  };
+  const verified = decodeBaseUsdcPaymentLog(log, {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    contractAddress: contract,
+    merchantAddress: merchant,
+    tokenAddress: BASE_USDC_ADDRESS,
+    orderIdHash,
+    amountMinor: "5000000",
+  });
+  assert.equal(verified.buyerAddress.toLowerCase(), buyer.toLowerCase());
+  assert.equal(verified.amountMinor, "5000000");
+  assert.equal(verified.transactionHash, log.transactionHash);
+  assert.equal(verified.blockNumber, "123456");
+  assert.equal(verified.logIndex, 2);
+
+  assert.throws(() => decodeBaseUsdcPaymentLog(log, {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    contractAddress: contract,
+    merchantAddress: merchant,
+    tokenAddress: BASE_USDC_ADDRESS,
+    orderIdHash,
+    amountMinor: "4999999",
+  }), /amount does not exactly match/);
+  assert.throws(() => decodeBaseUsdcPaymentLog({ ...log, address: merchant }, {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    contractAddress: contract,
+    merchantAddress: merchant,
+    tokenAddress: BASE_USDC_ADDRESS,
+    orderIdHash,
+    amountMinor: "5000000",
+  }), /emitter/);
+  assert.throws(() => decodeBaseUsdcPaymentLog(log, {
+    chainId: 1,
+    contractAddress: contract,
+    merchantAddress: merchant,
+    tokenAddress: BASE_USDC_ADDRESS,
+    orderIdHash,
+    amountMinor: "5000000",
+  }), /chain ID/);
+});
+
+test("Base OrderPaid decoder rejects removed logs and malformed coordinates", () => {
+  const base = {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    contractAddress: contract,
+    merchantAddress: merchant,
+    tokenAddress: BASE_USDC_ADDRESS,
+    orderIdHash: "0x" + "ab".repeat(32),
+    amountMinor: "5000000",
+  };
+  assert.throws(() => decodeBaseUsdcPaymentLog({ removed: true }, base), /removed or malformed/);
+  assert.throws(() => decodeBaseUsdcPaymentLog({
+    address: contract,
+    transactionHash: "bad",
+    blockHash: "0x" + "ef".repeat(32),
+    blockNumber: 1n,
+    logIndex: 0,
+    data: "0x",
+    topics: [],
+  }, base), /canonical transaction/);
 });
