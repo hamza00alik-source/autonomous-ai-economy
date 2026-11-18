@@ -540,11 +540,11 @@ async function createBaseUsdcStoreCheckout(request, env) {
   });
 
   const inserted = await env.DB.prepare(
-    "INSERT OR IGNORE INTO base_usdc_invoices (order_id,order_id_hash,product_id,agent_id,amount_minor,gross_amount_minor,merchant_address,invoice_signature,invoice_deadline,buyer_token_hash,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?)"
+    "INSERT OR IGNORE INTO base_usdc_invoices (order_id,order_id_hash,product_id,agent_id,amount_minor,gross_amount_minor,merchant_address,invoice_signature,invoice_deadline,buyer_token_hash,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?,?)"
   ).bind(
     orderId, invoice.orderIdHash, STORE_PRODUCT_ID, STORE_AGENT_ID,
     amountMinor, grossAmountMinor, env.BASE_MERCHANT_ADDRESS,
-    invoice.signature, deadline, buyerTokenHash, new Date().toISOString(),
+    invoice.signature, deadline, buyerTokenHash, new Date().toISOString(), new Date().toISOString(),
   ).run();
   if (inserted.meta?.changes !== 1) {
     return json({ error: "could not reserve a unique Base USDC invoice" }, 409);
