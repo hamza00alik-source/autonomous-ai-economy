@@ -656,3 +656,33 @@ test("owner dashboard shell is served without exposing owner data and has restri
   assert.equal(response.headers.get("referrer-policy"), "no-referrer");
   assert.equal(await response.text(), "<html>owner ui</html>");
 });
+
+
+test("cloud financial owner endpoints require bearer authentication before touching D1", async () => {
+  let touched=false;
+  const env={AAE_QUEUE_TOKEN:"owner-secret-token",AAE_OWNER_ID:"owner-01",DB:{prepare(){touched=true;throw new Error("must not query");}}};
+  for(const [url,method] of [
+    ["/v1/owner/financial-controls","GET"],
+    ["/v1/owner/financial-controls/emergency-pause","POST"],
+    ["/v1/owner/financial-controls/schedules","POST"]
+  ]){
+    const response=await worker.fetch(new Request("https://worker.example"+url,{method}),env);
+    assert.equal(response.status,401);
+  }
+  assert.equal(touched,false);
+});
+
+test("cloud financial controls fail closed until owner identity is provisioned", async () => {
+  const response=await worker.fetch(new Request("https://worker.example/v1/owner/financial-controls",{
+    headers:{authorization:"Bearer owner-secret-token"}
+  }),{AAE_QUEUE_TOKEN:"owner-secret-token",DB:{prepare(){throw new Error("must not query without owner identity");}}});
+  assert.equal(response.status,503);
+});
+
+test("cloud financial mutation endpoints reject cross-origin requests", async () => {
+  const response=await worker.fetch(new Request("https://worker.example/v1/owner/financial-controls/emergency-pause",{
+    method:"POST",headers:{authorization:"Bearer owner-secret-token",origin:"https://attacker.example","content-type":"application/json"},
+    body:JSON.stringify({paused:true})
+  }),{AAE_QUEUE_TOKEN:"owner-secret-token",AAE_OWNER_ID:"owner-01",DB:{prepare(){throw new Error("must not query cross-origin request");}}});
+  assert.equal(response.status,403);
+});
