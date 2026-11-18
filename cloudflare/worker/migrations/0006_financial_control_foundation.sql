@@ -245,3 +245,45 @@ BEFORE DELETE ON financial_audit_events
 BEGIN
   SELECT RAISE(ABORT, 'financial audit events are append-only');
 END;
+
+-- Signed policy content is immutable. Only an active version may transition
+-- once to superseded or revoked; a new version must be strictly monotonic.
+CREATE TRIGGER IF NOT EXISTS trg_financial_policy_monotonic_version
+BEFORE INSERT ON financial_policies
+WHEN EXISTS (
+  SELECT 1 FROM financial_policies p
+  WHERE p.policy_id = NEW.policy_id
+    AND p.owner_id = NEW.owner_id
+    AND p.agent_id = NEW.agent_id
+    AND p.version >= NEW.version
+)
+BEGIN
+  SELECT RAISE(ABORT, 'financial policy version must increase monotonically');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_policy_immutable_content
+BEFORE UPDATE ON financial_policies
+WHEN OLD.status != 'active'
+  OR NEW.status NOT IN ('superseded','revoked')
+  OR NEW.policy_id != OLD.policy_id
+  OR NEW.version != OLD.version
+  OR NEW.owner_id != OLD.owner_id
+  OR NEW.agent_id != OLD.agent_id
+  OR NEW.signer_id != OLD.signer_id
+  OR NEW.currency != OLD.currency
+  OR NEW.per_transaction_limit_minor != OLD.per_transaction_limit_minor
+  OR NEW.daily_spend_limit_minor != OLD.daily_spend_limit_minor
+  OR NEW.allowed_destinations_json != OLD.allowed_destinations_json
+  OR NEW.canonical_payload != OLD.canonical_payload
+  OR NEW.signature_base64url != OLD.signature_base64url
+  OR NEW.signer_key_fingerprint != OLD.signer_key_fingerprint
+  OR NEW.created_at != OLD.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'signed financial policy content is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_policy_no_delete
+BEFORE DELETE ON financial_policies
+BEGIN
+  SELECT RAISE(ABORT, 'signed financial policies cannot be deleted');
+END;
