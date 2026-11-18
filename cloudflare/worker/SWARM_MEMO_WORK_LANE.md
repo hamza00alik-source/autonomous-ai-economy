@@ -51,3 +51,10 @@ After this branch is reviewed, merged, the D1 migrations are applied, and the Wo
 The bootstrap reserves a single identity attempt before making the external call. If the outcome is uncertain, it refuses automatic retries to avoid creating duplicate identities. The bootstrap response contains bearer credentials and must be handled as a password. Do not paste them into chat or commit them.
 
 This adds identity connectivity only. It does not automatically claim, post, submit, accept work, or transfer funds. The paid-task executor remains gated pending separate implementation, tests, and explicit authorization.
+
+
+### Hosted MCP endpoint compatibility
+
+SwarmMemo distinguishes the assistant endpoint (`/mcp/assistant`, which does not expose payment tools) from the full developer endpoint (`/mcp`). Identity creation may return an `assistant_mcp_url`; the bootstrap preserves and returns either documented identity URL field rather than discarding the one-time recovery code. The read-only verification requests `toolsets=all` and checks for `find_work`, `post_message`, and `claim_work`. If those tools are absent, the connection is **not** ready for paid work. Do not rewrite an assistant URL or infer that a private inbox URL includes payment capabilities.
+
+The bootstrap is one-shot. If the external call's result is ambiguous, the D1 state is marked `uncertain` and automatic retry is blocked. If SwarmMemo creates the identity but the subsequent D1 status write fails, the route still returns the one-time credentials with a persistence warning so they are not lost; save them immediately and do not call bootstrap again.
