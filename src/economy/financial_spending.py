@@ -296,7 +296,7 @@ class AgentSpending:
         try:
             policies = self.policies.list_for_agent(agent_id)
             active = [p for p in policies if p.get("currently_authorized")]
-            if active:
+            if len(active) == 1:
                 policy_limit = int(active[0]["policy"]["daily_spend_limit_minor"])
         except (AttributeError, TypeError, ValueError):
             policy_limit = None
