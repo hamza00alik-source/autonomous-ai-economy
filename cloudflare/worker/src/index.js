@@ -703,14 +703,14 @@ async function status(env) {
     estimated_neurons_reserved: budget?.reserved_neurons || 0,
     daily_safety_budget_neurons: DAILY_NEURON_BUDGET,
     tasks: counts.results || [],
-    public_payment_actions_enabled: publicCheckoutEnabled(env),
-    private_invoice_api_configured: Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET),
-    public_checkout_enabled: publicCheckoutEnabled(env),
+    public_payment_actions_enabled: baseUsdcCheckoutEnabled(env),
+    private_invoice_api_configured: Boolean(env.BASE_INVOICE_SIGNER_PRIVATE_KEY && env.BASE_INVOICE_SIGNER_ADDRESS),
+    public_checkout_enabled: baseUsdcCheckoutEnabled(env),
     protected_delivery_storage_available: Boolean(env.ASSETS),
-    automatic_delivery_enabled: publicCheckoutEnabled(env) && Boolean(env.ASSETS),
+    automatic_delivery_enabled: baseUsdcCheckoutEnabled(env) && Boolean(env.ASSETS),
     outbound_payouts_enabled: false,
     public_registration_enabled: false,
-    note: "Private product-copy worker. Public checkout and buyer delivery remain disabled until the owner enables the gated storefront; outbound transfers are disabled.",
+    note: "Base USDC checkout and automatic delivery remain disabled unless the contract, RPC, dedicated signer, D1, legal-review and owner-approval gates are all satisfied. Outbound transfers are disabled.",
   });
 }
 
@@ -803,7 +803,7 @@ export default {
       return json({ error: "direct product file access is disabled" }, 404);
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      if (!publicCheckoutEnabled(env)) return json({ error: "storefront is not published" }, 404);
+      if (!baseUsdcCheckoutEnabled(env)) return json({ error: "storefront is not published" }, 404);
       const page = await env.ASSETS.fetch(request);
       const headers = new Headers(page.headers);
       headers.set("content-security-policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' https://mainnet.base.org; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
