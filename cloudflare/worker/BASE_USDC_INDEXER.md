@@ -42,3 +42,21 @@ The generated `public/wallet-checkout.js` is a build artifact and should not be 
 - The contract requires independent review and deployment approval. Do not deploy, sign, enable checkout or transfer funds without explicit authorization.
 - Pakistan legal classification of this merchant payment flow remains unresolved. Obtain qualified Pakistan legal advice or written PVARA clarification before activating real crypto checkout.
 - A mocked CI test is not a live wallet or chain rehearsal. No sale, customer payment, settled revenue, or production readiness is claimed.
+
+
+## Base Sepolia test environment (test tokens only)
+
+The indexer helpers now support a separately selected Base Sepolia environment for integration rehearsals:
+
+- Chain ID: `84532`
+- Circle USDC testnet token: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
+- Official token reference: https://developers.circle.com/stablecoins/usdc-contract-addresses
+- RPC URL: use an approved HTTPS Base Sepolia RPC endpoint.
+- Set `BASE_CHAIN_ID=84532` and `BASE_USDC_TOKEN_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e`.
+- Set `BASE_CHECKOUT_CONTRACT_ADDRESS` to the separately deployed `BaseUsdcDirectCheckoutSepolia` address and `BASE_DEPLOYMENT_BLOCK` to its actual deployment block.
+- Use a dedicated test-only D1 database and test-only invoice signer. Never point a testnet indexer at the production database or reuse a production signer.
+- Testnet USDC and testnet ETH have no financial value. The Circle faucet is documented at https://faucet.circle.com.
+
+The public storefront and buyer checkout route remain **Base-mainnet-only**. A Base Sepolia indexer configuration cannot enable mainnet checkout. The testnet contract is a separate source artifact and is not deployed by CI.
+
+This support does not imply a live testnet rehearsal: CI currently verifies network selection, typed-data domain separation, event decoding and local contract behavior with test doubles. An actual Base Sepolia deployment, wallet transaction and live RPC/D1 settlement rehearsal have not been performed.
