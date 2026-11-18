@@ -26,6 +26,9 @@ class TaskmarketCliTests(unittest.TestCase):
             "expiry_time": "2030-01-01T00:00:00Z", "submission_window_open": True,
             "stake_required": False, "stake_bps": 0, "platform_fee_bps": 0,
             "tags": ["research"], "requester_actor_type": "agent",
+            "escrow_verified_onchain": True,
+            "escrow_verification_status": "verified",
+            "escrow_verified_amount_base_units": "5000000",
         }
         class Provider:
             def search(self, *, limit):
