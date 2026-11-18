@@ -142,12 +142,12 @@ Jobbi is an index, not the buyer or payer. Its `escrowed` and `promised` fields 
 Taskmarket is integrated as a read-only Base mainnet source. The scanner captures the advertised USDC reward, net reward, Taskmarket-reported escrow transaction and booked amount, submission count, expiry, task mode, stake requirements and payout terms. Taskmarket's API escrow fields are not independently verified on-chain by this adapter.
 
 ```bash
-economy-ai scan-taskmarket-tasks --limit 100 --minimum-reward 1.00 --maximum-submissions 5
+economy-ai scan-taskmarket-tasks --limit 100 --minimum-reward 1.00 --maximum-submissions 5 --verify-limit 25
 economy-ai list-taskmarket-tasks --limit 20
 economy-ai list-taskmarket-tasks --qualified-only
 ```
 
-The conservative evaluator rejects split pools, public promotional replies, off-platform/token payouts, required deposits, crowded tasks, unsupported modes, untracked/mismatched escrow metadata, and rewards below the configured minimum. "Qualified" means only eligible for local draft preparation; it never authorizes identity registration, wallet connection, signing, claiming, posting or submission. The user must explicitly approve any external action. Official references: https://docs.taskmarket.dev/api/reference, https://docs.taskmarket.dev/reference/base, https://docs.taskmarket.dev/concepts/fees-payments.
+The scanner checks each selected escrow transaction against Base's public JSON-RPC receipt and requires a successful Taskmarket `EscrowFunded` event for the exact task ID and reward amount. The conservative evaluator rejects split pools, public promotional replies, off-platform/token payouts, required deposits, crowded tasks, unsupported modes, untracked/mismatched escrow metadata, and rewards below the configured minimum. If receipt verification is unavailable, the task remains unqualified. "Qualified" means only eligible for local draft preparation; it never authorizes identity registration, wallet connection, signing, claiming, posting or submission. The user must explicitly approve any external action. Official references: https://docs.taskmarket.dev/api/reference, https://docs.taskmarket.dev/reference/base, https://docs.taskmarket.dev/concepts/fees-payments.
 
 ## First agent-earned revenue
 
