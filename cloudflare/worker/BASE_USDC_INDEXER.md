@@ -33,6 +33,7 @@ The generated `public/wallet-checkout.js` is a build artifact and should not be 
 ## Security and production blockers
 
 - Public checkout, indexer, legal-review and crypto-enablement gates remain disabled unless separately configured and approved.
+- Migration `0007_base_usdc_reorg_halt.sql` adds the persistent incident latch columns to the indexer state.
 - No deployed contract address, live Base RPC, production invoice signer, or real transaction has been verified in this task.
 - The dedicated invoice signer key is security-critical and must not be the merchant wallet key. It has not been provisioned.
 - The contract requires independent review and deployment approval. Do not deploy, sign, enable checkout or transfer funds without explicit authorization.
