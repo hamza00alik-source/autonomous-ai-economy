@@ -4,19 +4,17 @@ from pathlib import Path
 import pytest
 
 
-MIGRATION = (
-    Path(__file__).resolve().parents[1]
-    / "cloudflare"
-    / "worker"
-    / "migrations"
-    / "0006_financial_control_foundation.sql"
-)
+MIGRATIONS = [
+    Path(__file__).resolve().parents[1] / "cloudflare" / "worker" / "migrations" / name
+    for name in ("0006_financial_control_foundation.sql", "0007_financial_control_enforcement.sql")
+]
 
 
 def _database():
     connection = sqlite3.connect(":memory:")
     connection.execute("PRAGMA foreign_keys = ON")
-    connection.executescript(MIGRATION.read_text(encoding="utf-8"))
+    for migration in MIGRATIONS:
+        connection.executescript(migration.read_text(encoding="utf-8"))
     return connection
 
 
@@ -188,4 +186,96 @@ def test_audit_events_are_owner_scoped_and_append_only():
             "INSERT INTO financial_audit_events "
             "(event_id,owner_id,actor_id,event_type,target_type,target_id,details_json,created_at) "
             "VALUES ('audit-02','owner-01','unknown-actor','policy.created','policy','policy-01','{}','now')"
+        )
+
+
+def _fund_agent(db):
+    db.execute(
+        "INSERT INTO financial_journal_transactions "
+        "(transaction_id,owner_id,idempotency_key,payload_hash,source_type,source_reference,currency,status,description,created_at) "
+        "VALUES ('allocation-01','owner-01','allocation-idem-01','hash','allocation','receipt-01','USD','posted','fund agent','2026-11-19T00:00:00.000Z')"
+    )
+    db.executemany(
+        "INSERT INTO financial_journal_postings "
+        "(transaction_id,line_number,account_id,direction,amount_minor,currency,created_at) VALUES ('allocation-01',?,?,?,?,?,?)",
+        [
+            (1, "expense-account", "debit", 10000, "USD", "2026-11-19T00:00:00.000Z"),
+            (2, "agent-account", "credit", 10000, "USD", "2026-11-19T00:00:00.000Z"),
+        ],
+    )
+
+
+def _unpause(db):
+    db.execute(
+        "INSERT INTO financial_control_state(owner_id,emergency_paused,pause_reason,changed_at) "
+        "VALUES ('owner-01',0,'owner explicitly enabled cloud spending','2026-11-19T00:00:00.000Z')"
+    )
+
+
+def _reservation(db, reservation_id="reservation-01", amount=1000, destination="provider:exact", created_at="2026-11-19T00:00:00.000Z"):
+    db.execute(
+        "INSERT INTO financial_budget_reservations "
+        "(reservation_id,owner_id,agent_id,policy_id,policy_version,idempotency_key,destination,currency,amount_minor,status,expires_at,created_at,updated_at) "
+        "VALUES (?, 'owner-01','agent-01','policy-01',1,?,?, 'USD',?,'reserved','2026-11-19T01:00:00.000Z',?,?)",
+        (reservation_id, "idem-" + reservation_id, destination, amount, created_at, created_at),
+    )
+
+
+def test_cloud_reservations_fail_closed_without_explicit_owner_unpause():
+    db = _database()
+    _participants(db)
+    _accounts(db)
+    _policy(db)
+    _fund_agent(db)
+    with pytest.raises(sqlite3.IntegrityError, match="pause"):
+        _reservation(db)
+
+
+def test_cloud_reservations_enforce_signed_destination_and_per_transaction_limit():
+    db = _database()
+    _participants(db)
+    _accounts(db)
+    _policy(db)
+    _fund_agent(db)
+    _unpause(db)
+    with pytest.raises(sqlite3.IntegrityError, match="authorization"):
+        _reservation(db, destination="provider:other")
+    with pytest.raises(sqlite3.IntegrityError, match="authorization"):
+        _reservation(db, amount=1001)
+
+
+def test_cloud_reservations_enforce_agent_budget_and_daily_policy_limit():
+    db = _database()
+    _participants(db)
+    _accounts(db)
+    _policy(db)
+    _fund_agent(db)
+    _unpause(db)
+    _reservation(db, "reservation-a", 3000)
+    with pytest.raises(sqlite3.IntegrityError, match="daily spend limit"):
+        _reservation(db, "reservation-b", 2500)
+    with pytest.raises(sqlite3.IntegrityError, match="insufficient available agent budget"):
+        _reservation(db, "reservation-c", 8000)
+
+
+def test_cloud_recurring_occurrences_are_policy_bound_and_idempotent():
+    db = _database()
+    _participants(db)
+    _accounts(db)
+    _policy(db)
+    db.execute(
+        "INSERT INTO financial_expense_schedules "
+        "(schedule_id,owner_id,agent_id,policy_id,policy_version,destination,currency,amount_minor,interval_seconds,next_due_at,status,created_at,updated_at) "
+        "VALUES ('schedule-01','owner-01','agent-01','policy-01',1,'provider:exact','USD',500,3600,'2026-11-19T01:00:00Z','active','now','now')"
+    )
+    db.execute(
+        "INSERT INTO financial_expense_occurrences "
+        "(occurrence_id,schedule_id,owner_id,agent_id,policy_id,policy_version,due_at,idempotency_key,status,created_at,updated_at) "
+        "VALUES ('occurrence-01','schedule-01','owner-01','agent-01','policy-01',1,'2026-11-19T01:00:00Z','occurrence-idem-01','claimed','now','now')"
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(
+            "INSERT INTO financial_expense_occurrences "
+            "(occurrence_id,schedule_id,owner_id,agent_id,policy_id,policy_version,due_at,idempotency_key,status,created_at,updated_at) "
+            "VALUES ('occurrence-02','schedule-01','owner-01','agent-01','policy-01',1,'2026-11-19T01:00:00Z','occurrence-idem-02','claimed','now','now')"
         )
