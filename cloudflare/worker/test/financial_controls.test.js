@@ -1,5 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+function base64url(bytes) {
+  let binary="";
+  for(const byte of bytes) binary+=String.fromCharCode(byte);
+  return btoa(binary).replace(/=/g,"").replace(/\\+/g,"-").replace(/\\//g,"_");
+}
+
 import {
   getCloudFinancialControls, setCloudEmergencyPause, reserveCloudAgentBudget,
   settleCloudAgentExpense, createCloudExpenseSchedule, setCloudExpenseScheduleStatus,
