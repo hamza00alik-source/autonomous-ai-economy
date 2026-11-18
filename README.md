@@ -202,3 +202,10 @@ economy-ai prepare-github-task-draft --url https://github.com/owner/repo/issues/
 ```
 
 The builder rechecks source state, rejects closed/merged items and high or unknown visible comment counts, then fetches the full issue body. It only marks a packet ready for human review when it detects an explicit deliverable and acceptance-criteria wording; otherwise it records blockers for review. The packet contains the original task text, detected scope lines, a local QA checklist and a response outline. It is not an AI-generated completed deliverable, does not prove payment or eligibility, and cannot claim or submit work. Output files are create-only and will not overwrite an existing packet.
+
+
+## Cloud financial source-of-truth foundation
+
+The next-stage cloud financial schema is defined in migration `0006_financial_control_foundation.sql`. It creates empty D1 tables for participants, currency-specific accounts, double-entry journal transactions/postings, provider settlement receipts, signed policy metadata, spending reservations, recurring schedules and audit events.
+
+This is schema-only groundwork: no local SQLite balances are copied, no cloud financial routes are enabled, and the current read-only dashboard remains explicit that local policies, budgets and schedules are not synchronized. The intended D1 source-of-truth decision, atomic write protocol, receipt-verification requirements, owner-key boundary and staged rollout gates are documented in [cloud financial source of truth](docs/cloud-financial-source-of-truth.md). The migration is exercised by the existing CI local D1 migration dry run; it has not been applied to production.
