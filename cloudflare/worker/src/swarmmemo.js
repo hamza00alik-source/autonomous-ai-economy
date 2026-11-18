@@ -1,7 +1,6 @@
 const FEED_URL = "https://swarmmemo.com/api/works?kind=rewarded&limit=10";
 const MAX_FEED_BYTES = 1_000_000;
 const MAX_TASK_TEXT = 24_000;
-const MAX_FEED_PAGES = 5;
 
 function safeString(value, max = 500) {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -53,13 +52,13 @@ export function normalizeSwarmMemoFeed(payload) {
       requester: safeString(row.requester?.handle || row.requester || row.requester_handle || row.requester_author || row.author, 120),
       task_text: taskText,
       request_truncated: request.truncated === true ? 1 : 0,
+      simulated: row.simulated === true ? 1 : 0,
       reward_json: JSON.stringify(reward),
       requester_record_json: requesterRecord ? JSON.stringify(requesterRecord).slice(0, 16_000) : null,
       deadline: normalizeDeadline(row.deadline || row.deadline_at),
       board_state: safeString(row.state || "open", 40).toLowerCase(),
-      eligible: (typeof row.claimable === "boolean" ? row.claimable
-        : typeof row.eligible === "boolean" ? row.eligible
-        : row.eligibility === "open") ? 1 : 0,
+      eligible: row.simulated !== true && row.state === "open"
+        && (row.eligibility === "open" || row.claimable === true || row.eligible === true) ? 1 : 0,
       eligibility_reason: safeString(row.eligible_reason || row.eligibility, 500) || null,
     }];
   });
@@ -90,38 +89,24 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
   const now = new Date().toISOString();
   try {
     const previous = await env.DB.prepare(
-      "SELECT since_cursor FROM swarmmemo_poll_state WHERE source='rewarded'"
+      "SELECT since_cursor,page_cursor FROM swarmmemo_poll_state WHERE source='rewarded'"
     ).first();
-    const firstUrl = new URL(FEED_URL);
-    if (previous?.since_cursor) firstUrl.searchParams.set("since", previous.since_cursor);
-    const feedRows = [];
-    let pollCursor = previous?.since_cursor || null;
-    let pageCursor = null;
-    let unchanged = false;
-
-    for (let page = 0; page < MAX_FEED_PAGES; page += 1) {
-      const url = new URL(firstUrl);
-      if (pageCursor) url.searchParams.set("cursor", pageCursor);
-      const response = await fetchImpl(url.toString(), {
-        method: "GET",
-        headers: { accept: "application/json", "user-agent": "AutonomousAIEconomy/0.1" },
-        signal: AbortSignal.timeout(12_000),
-      });
-      const payload = await readJsonLimited(response);
-      pollCursor = feedCursor(payload) || pollCursor;
-      if (feedUnchanged(payload)) {
-        unchanged = true;
-        break;
-      }
-      const rows = workRows(payload);
-      if (!rows) throw new Error("SwarmMemo feed schema did not contain a works array");
-      feedRows.push(...rows);
-      const hasMore = payload?.data?.has_more === true || payload?.has_more === true;
-      pageCursor = nextPageCursor(payload);
-      if (!hasMore || !pageCursor) break;
-    }
-
-    const normalized = normalizeSwarmMemoFeed({ works: feedRows });
+    const url = new URL(FEED_URL);
+    if (previous?.since_cursor) url.searchParams.set("since", previous.since_cursor);
+    if (previous?.page_cursor) url.searchParams.set("cursor", previous.page_cursor);
+    const response = await fetchImpl(url.toString(), {
+      method: "GET",
+      headers: { accept: "application/json", "user-agent": "AutonomousAIEconomy/0.1" },
+      signal: AbortSignal.timeout(12_000),
+    });
+    const payload = await readJsonLimited(response);
+    const pollCursor = feedCursor(payload) || previous?.since_cursor || null;
+    const unchanged = feedUnchanged(payload);
+    const rows = unchanged ? [] : workRows(payload);
+    if (!unchanged && !rows) throw new Error("SwarmMemo feed schema did not contain a works array");
+    const normalized = normalizeSwarmMemoFeed({ works: rows || [] });
+    const hasMore = payload?.data?.has_more === true || payload?.has_more === true;
+    const pageCursor = hasMore ? nextPageCursor(payload) : null;
     const tasks = [];
     for (const preview of normalized) {
       try {
@@ -139,27 +124,27 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
 
     const statements = tasks.map((task) => env.DB.prepare(
       `INSERT INTO swarmmemo_work_items
-       (task_id,title,room,requester,task_text,request_truncated,reward_json,requester_record_json,deadline,
+       (task_id,title,room,requester,task_text,request_truncated,simulated,reward_json,requester_record_json,deadline,
         board_state,eligible,eligibility_reason,first_seen_at,last_seen_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(task_id) DO UPDATE SET
         title=excluded.title,room=excluded.room,requester=excluded.requester,
-        task_text=excluded.task_text,request_truncated=excluded.request_truncated,
+        task_text=excluded.task_text,request_truncated=excluded.request_truncated,simulated=excluded.simulated,
         reward_json=excluded.reward_json,requester_record_json=excluded.requester_record_json,
         deadline=excluded.deadline,board_state=excluded.board_state,eligible=excluded.eligible,
         eligibility_reason=excluded.eligibility_reason,last_seen_at=excluded.last_seen_at,
         updated_at=excluded.updated_at`
     ).bind(task.task_id, task.title, task.room, task.requester, task.task_text,
-      task.request_truncated, task.reward_json, task.requester_record_json, task.deadline,
+      task.request_truncated, task.simulated, task.reward_json, task.requester_record_json, task.deadline,
       task.board_state, task.eligible, task.eligibility_reason, now, now, now));
     if (statements.length) await env.DB.batch(statements);
     await env.DB.prepare(
-      `INSERT INTO swarmmemo_poll_state (source,last_success_at,last_error,last_count,last_http_status,since_cursor,updated_at)
-       VALUES ('rewarded',?,NULL,?,?,?,?)
+      `INSERT INTO swarmmemo_poll_state (source,last_success_at,last_error,last_count,last_http_status,since_cursor,page_cursor,updated_at)
+       VALUES ('rewarded',?,NULL,?,?,?,?,?)
        ON CONFLICT(source) DO UPDATE SET last_success_at=excluded.last_success_at,
         last_error=NULL,last_count=excluded.last_count,last_http_status=excluded.last_http_status,
-        since_cursor=excluded.since_cursor,updated_at=excluded.updated_at`
-    ).bind(now, tasks.length, 200, pollCursor, now).run();
+        since_cursor=excluded.since_cursor,page_cursor=excluded.page_cursor,updated_at=excluded.updated_at`
+    ).bind(now, tasks.length, response.status, pollCursor, pageCursor, now).run();
     return { ok: true, unchanged, discovered: tasks.length, checked_at: now };
   } catch (error) {
     const message = safeString(error?.message || "SwarmMemo poll failed", 500);
@@ -176,7 +161,7 @@ export async function listSwarmMemoWork(env, limit = 50) {
   const bounded = Math.min(100, Math.max(1, Number(limit) || 50));
   const [rows, poll] = await Promise.all([
     env.DB.prepare(
-      `SELECT task_id,title,room,requester,task_text,request_truncated,reward_json,requester_record_json,
+      `SELECT task_id,title,room,requester,task_text,request_truncated,simulated,reward_json,requester_record_json,
         deadline,board_state,eligible,eligibility_reason,owner_approved,execution_state,
         result_message_id,last_error,first_seen_at,last_seen_at,updated_at
        FROM swarmmemo_work_items ORDER BY
@@ -208,7 +193,7 @@ export async function approveSwarmMemoTask(env, taskId) {
   const result = await env.DB.prepare(
     `UPDATE swarmmemo_work_items SET owner_approved=1,
       execution_state='approved_awaiting_executor',updated_at=?
-     WHERE task_id=? AND board_state='open' AND eligible=1 AND request_truncated=0
+     WHERE task_id=? AND board_state='open' AND eligible=1 AND simulated=0 AND request_truncated=0
        AND execution_state='awaiting_owner_approval'`
   ).bind(now, taskId).run();
   return { approved: result.meta?.changes === 1 };
