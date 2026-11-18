@@ -318,6 +318,7 @@ export async function fetchConfirmedBaseUsdcLogs({
     }
     events.push({
       blockTimestamp: Number(block.timestamp),
+      rawLog: log,
       orderIdHash: decoded.args.orderId,
       buyerAddress: decoded.args.buyer,
       merchantAddress: decoded.args.merchant,
@@ -467,5 +468,114 @@ export async function settleBaseUsdcInvoice({
     gross_amount_minor: invoice.gross_amount_minor,
     gross_currency: "USD",
     agent_credit_minor: null,
+  };
+}
+
+
+/**
+ * Scheduled D1-backed Base indexer. Disabled unless explicitly configured.
+ * It rewinds a recent window on a detected cursor reorg and revokes affected
+ * entitlements for manual review instead of silently trusting an orphaned log.
+ */
+export async function pollBaseUsdc(env, injectedClient = null) {
+  if (env.AAE_BASE_USDC_INDEXER_ENABLED !== "true") return { enabled: false };
+  if (!env.DB || typeof env.DB.prepare !== "function" || typeof env.DB.batch !== "function") {
+    throw new Error("D1 database is required for the Base indexer");
+  }
+  const contractAddress = assertAddress(env.BASE_CHECKOUT_CONTRACT_ADDRESS, "BASE_CHECKOUT_CONTRACT_ADDRESS");
+  const merchantAddress = assertAddress(env.BASE_MERCHANT_ADDRESS, "BASE_MERCHANT_ADDRESS");
+  const deploymentBlock = Number(env.BASE_DEPLOYMENT_BLOCK);
+  const confirmations = Number(env.BASE_CONFIRMATIONS);
+  const maxBlocks = Number(env.BASE_MAX_BLOCKS_PER_POLL || 500);
+  const reorgLookback = Number(env.BASE_REORG_LOOKBACK || 64);
+  if (!Number.isSafeInteger(deploymentBlock) || deploymentBlock < 0 ||
+      !Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 10000 ||
+      !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > 1000 ||
+      !Number.isSafeInteger(reorgLookback) || reorgLookback < 1 || reorgLookback > 1000) {
+    throw new Error("Base indexer block and confirmation settings are invalid");
+  }
+  const client = injectedClient || createBasePublicClient(env.BASE_RPC_URL);
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO base_usdc_indexer_state (id,next_block,last_block_hash,updated_at) VALUES (1,?,NULL,?)"
+  ).bind(deploymentBlock, now).run();
+  let cursor = await env.DB.prepare(
+    "SELECT next_block,last_block_hash FROM base_usdc_indexer_state WHERE id=1"
+  ).first();
+  if (!cursor || !Number.isSafeInteger(Number(cursor.next_block))) {
+    throw new Error("Base indexer cursor is missing or invalid");
+  }
+  let nextBlock = Number(cursor.next_block);
+
+  if (nextBlock > deploymentBlock && cursor.last_block_hash) {
+    const priorNumber = BigInt(nextBlock - 1);
+    const canonicalPrior = await client.getBlock({ blockNumber: priorNumber });
+    if (canonicalPrior.hash?.toLowerCase() !== String(cursor.last_block_hash).toLowerCase()) {
+      const rewindTo = Math.max(deploymentBlock, nextBlock - reorgLookback);
+      const rewindHash = rewindTo > deploymentBlock
+        ? (await client.getBlock({ blockNumber: BigInt(rewindTo - 1) })).hash
+        : null;
+      const reorgAt = new Date().toISOString();
+      await env.DB.batch([
+        env.DB.prepare(
+          "UPDATE base_usdc_payment_events SET transaction_status='orphaned' WHERE block_number>=? AND transaction_status='confirmed'"
+        ).bind(rewindTo),
+        env.DB.prepare(
+          "UPDATE base_usdc_invoices SET status='review',download_expires_at=?,updated_at=? WHERE status='settled' AND transaction_hash IN (SELECT transaction_hash FROM base_usdc_payment_events WHERE block_number>=? AND transaction_status='orphaned')"
+        ).bind(reorgAt, reorgAt, rewindTo),
+        env.DB.prepare(
+          "UPDATE base_usdc_agent_revenue_events SET status='refund_review',updated_at=? WHERE transaction_hash IN (SELECT transaction_hash FROM base_usdc_payment_events WHERE block_number>=? AND transaction_status='orphaned') AND status IN ('settled_pending_reconciliation','reconciled')"
+        ).bind(reorgAt, rewindTo),
+        env.DB.prepare(
+          "UPDATE base_usdc_indexer_state SET next_block=?,last_block_hash=?,updated_at=? WHERE id=1"
+        ).bind(rewindTo, rewindHash, reorgAt),
+      ]);
+      return { enabled: true, reorg_detected: true, rewound_to_block: rewindTo, manual_review_required: true };
+    }
+  }
+
+  const fromBlock = BigInt(nextBlock);
+  const toBlock = fromBlock + BigInt(maxBlocks) - 1n;
+  const scan = await fetchConfirmedBaseUsdcLogs({
+    client, contractAddress, fromBlock, toBlock, confirmations,
+    maxRange: maxBlocks,
+  });
+  if (scan.scannedToBlock === null) {
+    return { enabled: true, scanned: 0, settled: 0, quarantined: 0, waiting_for_confirmations: true };
+  }
+
+  let settled = 0;
+  let quarantined = 0;
+  for (const event of scan.events) {
+    const result = await settleBaseUsdcInvoice({
+      db: env.DB,
+      log: event.rawLog,
+      finality: event.finality,
+      blockTimestamp: event.blockTimestamp,
+      contractAddress,
+      merchantAddress,
+    });
+    if (result.status === "settled") settled += 1;
+    if (result.status === "quarantined") quarantined += 1;
+    if (result.status === "conflict") throw new Error("Base invoice settlement conflict; cursor was not advanced");
+  }
+
+  const checkpointNumber = BigInt(scan.scannedToBlock);
+  const checkpoint = await client.getBlock({ blockNumber: checkpointNumber });
+  if (typeof checkpoint.hash !== "string" || !/^0x[0-9a-f]{64}$/i.test(checkpoint.hash)) {
+    throw new Error("Base indexer checkpoint block hash is invalid");
+  }
+  await env.DB.prepare(
+    "UPDATE base_usdc_indexer_state SET next_block=?,last_block_hash=?,updated_at=? WHERE id=1"
+  ).bind(Number(checkpointNumber + 1n), checkpoint.hash, new Date().toISOString()).run();
+
+  return {
+    enabled: true,
+    scanned_from_block: nextBlock,
+    scanned_to_block: scan.scannedToBlock,
+    events_seen: scan.events.length,
+    settled,
+    quarantined,
+    head_block: scan.headBlock,
   };
 }
