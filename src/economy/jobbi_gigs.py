@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import json
 import sqlite3
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -126,6 +127,13 @@ class JobbiPublicGigs:
         return result
 
 
+def _positive_amount(value: str | None) -> bool:
+    try:
+        return Decimal(str(value)) > 0
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+
+
 class JobbiGigStore:
     """Persistent local shortlist. No task claims, wallet actions, or payments."""
 
@@ -165,7 +173,8 @@ class JobbiGigStore:
                       gig.payment_state, int(gig.claims_open), payload, now))
                 saved += 1
                 if (gig.claims_open and gig.currency in SUPPORTED_CURRENCIES
-                        and gig.reward_amount is not None and gig.payment_state in {"escrowed", "promised"}):
+                        and _positive_amount(gig.reward_amount)
+                        and gig.payment_state in {"escrowed", "promised"}):
                     review += 1
         return {"saved": saved, "review_required": review, "claims": 0, "payments": 0}
 
@@ -177,7 +186,8 @@ class JobbiGigStore:
             rows = db.execute("""
                 SELECT payload_json,discovered_at FROM jobbi_gigs
                 WHERE claims_open=1 AND currency IN ('USD','USDC')
-                  AND reward_amount IS NOT NULL AND payment_state IN ('escrowed','promised')
+                  AND reward_amount IS NOT NULL AND CAST(reward_amount AS REAL) > 0
+                  AND payment_state IN ('escrowed','promised')
                 ORDER BY CASE payment_state WHEN 'escrowed' THEN 0 ELSE 1 END,
                          discovered_at DESC LIMIT ?
             """, (limit,)).fetchall()
