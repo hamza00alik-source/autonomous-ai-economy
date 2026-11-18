@@ -1,4 +1,4 @@
-import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
+import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask, autoApproveSafeSwarmMemoTasks } from "./swarmmemo.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
@@ -779,6 +779,12 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env)]));
+    const swarmMemoCycle = async () => {
+      const poll = await pollSwarmMemo(env);
+      if (!poll.ok) return { poll, screening: { approved: 0, skipped: true } };
+      const screening = await autoApproveSafeSwarmMemoTasks(env);
+      return { poll, screening };
+    };
+    ctx.waitUntil(Promise.allSettled([processOne(env), swarmMemoCycle()]));
   },
 };
