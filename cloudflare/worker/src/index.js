@@ -1,4 +1,4 @@
-import { pollBaseUsdc } from "./base-usdc.js";
+import { pollBaseUsdc, signBaseUsdcInvoice, BASE_USDC_ADDRESS } from "./base-usdc.js";
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
@@ -487,6 +487,130 @@ async function createStoreCheckout(request, env) {
   }, 201);
 }
 
+
+function baseUsdcCheckoutEnabled(env) {
+  return env.AAE_BASE_USDC_CHECKOUT_ENABLED === "true" &&
+    env.AAE_CRYPTO_ENABLEMENT_APPROVED === "true" &&
+    env.AAE_BASE_USDC_LEGAL_REVIEW_APPROVED === "true" &&
+    Boolean(env.BASE_INVOICE_SIGNER_PRIVATE_KEY && env.BASE_INVOICE_SIGNER_ADDRESS &&
+      env.BASE_MERCHANT_ADDRESS && env.BASE_CHECKOUT_CONTRACT_ADDRESS && env.ASSETS);
+}
+
+async function createBaseUsdcStoreCheckout(request, env) {
+  if (!baseUsdcCheckoutEnabled(env)) {
+    return json({ error: "Base USDC checkout is not enabled or fully configured" }, 503);
+  }
+  if (!env.DB || !env.CHECKOUT_LIMITER) return json({ error: "checkout protection is not configured" }, 503);
+  const origin = request.headers.get("origin");
+  if (!origin || origin !== new URL(request.url).origin) {
+    return json({ error: "same-origin checkout requests only" }, 403);
+  }
+  const ip = request.headers.get("cf-connecting-ip") || "";
+  if (!ip) return json({ error: "request could not be verified" }, 400);
+  const limit = await env.CHECKOUT_LIMITER.limit({ key: "base-usdc-moba-objective-props:" + ip });
+  if (!limit.success) return json({ error: "too many checkout attempts; please wait one minute" }, 429);
+  if (!(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+    return json({ error: "application/json is required" }, 415);
+  }
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).length > 256) return json({ error: "request body too large" }, 413);
+  let body;
+  try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 0) {
+    return json({ error: "checkout does not accept customer-supplied prices or product IDs" }, 400);
+  }
+
+  const orderId = "base-moba-" + crypto.randomUUID();
+  const accessToken = randomHex(32);
+  const buyerTokenHash = await sha256(accessToken);
+  const deadline = Math.floor(Date.now() / 1000) + 30 * 60;
+  const amountMinor = 5_000_000;
+  const grossAmountMinor = 500;
+  const invoice = await signBaseUsdcInvoice({
+    privateKey: env.BASE_INVOICE_SIGNER_PRIVATE_KEY,
+    expectedSignerAddress: env.BASE_INVOICE_SIGNER_ADDRESS,
+    contractAddress: env.BASE_CHECKOUT_CONTRACT_ADDRESS,
+    merchantAddress: env.BASE_MERCHANT_ADDRESS,
+    orderId,
+    amountMinor,
+    deadline,
+  });
+
+  const inserted = await env.DB.prepare(
+    "INSERT OR IGNORE INTO base_usdc_invoices (order_id,order_id_hash,product_id,agent_id,amount_minor,gross_amount_minor,merchant_address,invoice_signature,invoice_deadline,buyer_token_hash,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?)"
+  ).bind(
+    orderId, invoice.orderIdHash, STORE_PRODUCT_ID, STORE_AGENT_ID,
+    amountMinor, grossAmountMinor, env.BASE_MERCHANT_ADDRESS,
+    invoice.signature, deadline, buyerTokenHash, new Date().toISOString(),
+  ).run();
+  if (inserted.meta?.changes !== 1) {
+    return json({ error: "could not reserve a unique Base USDC invoice" }, 409);
+  }
+
+  return json({
+    order_id: orderId,
+    order_id_hash: invoice.orderIdHash,
+    access_token: accessToken,
+    chain_id: 8453,
+    token_address: BASE_USDC_ADDRESS,
+    contract_address: env.BASE_CHECKOUT_CONTRACT_ADDRESS,
+    merchant_address: env.BASE_MERCHANT_ADDRESS,
+    amount_minor: String(amountMinor),
+    amount_usdc: "5.000000",
+    price_amount: STORE_PRODUCT_PRICE_USD,
+    price_currency: "usd",
+    deadline,
+    signature: invoice.signature,
+    status: "pending",
+    download_window_days: 7,
+    notice: "Payment is not complete until the Base indexer confirms the exact on-chain payment.",
+  }, 201);
+}
+
+async function getBaseUsdcStoreOrder(request, env, orderId) {
+  const row = await env.DB.prepare(
+    "SELECT order_id,product_id,status,download_expires_at,buyer_token_hash FROM base_usdc_invoices WHERE order_id=?"
+  ).bind(orderId).first();
+  if (!row || !await authorizeBuyer(request, row)) return json({ error: "order not found" }, 404);
+  const expiry = row.download_expires_at ? Date.parse(row.download_expires_at) : 0;
+  const downloadAvailable = row.product_id === STORE_PRODUCT_ID &&
+    row.status === "settled" && Number.isFinite(expiry) && expiry > Date.now();
+  return json({
+    order_id: row.order_id,
+    status: row.status,
+    download_available: downloadAvailable,
+    download_expires_at: downloadAvailable ? row.download_expires_at : null,
+  });
+}
+
+async function downloadBaseUsdcStoreProduct(request, env, orderId) {
+  if (!env.ASSETS || !env.DB) return json({ error: "delivery storage is not configured" }, 503);
+  const row = await env.DB.prepare(
+    "SELECT order_id,product_id,status,download_expires_at,buyer_token_hash FROM base_usdc_invoices WHERE order_id=?"
+  ).bind(orderId).first();
+  if (!row || !await authorizeBuyer(request, row)) return json({ error: "order not found" }, 404);
+  const expiry = row.download_expires_at ? Date.parse(row.download_expires_at) : 0;
+  if (row.product_id !== STORE_PRODUCT_ID || row.status !== "settled" ||
+      !Number.isFinite(expiry) || expiry <= Date.now()) {
+    return json({ error: "download is locked until full Base USDC payment is confirmed and access is active" }, 403);
+  }
+  const assetUrl = new URL(STORE_DOWNLOAD_PATH, request.url);
+  const asset = await env.ASSETS.fetch(new Request(assetUrl, { method: "GET" }));
+  if (!asset.ok) return json({ error: "product file is not available yet" }, 503);
+  await env.DB.prepare(
+    "UPDATE base_usdc_invoices SET download_count=download_count+1 WHERE order_id=? AND status='settled'"
+  ).bind(orderId).run();
+  const headers = new Headers({
+    "content-type": "application/zip",
+    "content-disposition": 'attachment; filename="moba-objective-props.zip"',
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+  });
+  const length = asset.headers.get("content-length");
+  if (length) headers.set("content-length", length);
+  return new Response(asset.body, { status: 200, headers });
+}
+
 async function getStoreOrder(request, env, orderId) {
   const row = await env.DB.prepare(
     "SELECT order_id,product_id,status,download_expires_at,buyer_token_hash FROM crypto_payment_invoices WHERE order_id=?"
@@ -643,6 +767,17 @@ export default {
     }
     if (url.pathname === "/v1/payments/nowpayments/ipn" && request.method === "POST") {
       return nowPaymentsIPN(request, env);
+    }
+    if (url.pathname === "/v1/store/base-usdc/checkout" && request.method === "POST") {
+      return createBaseUsdcStoreCheckout(request, env);
+    }
+    const baseUsdcDownloadMatch = url.pathname.match(/^\/v1\/store\/base-usdc\/orders\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\/download$/);
+    if (baseUsdcDownloadMatch && request.method === "GET") {
+      return downloadBaseUsdcStoreProduct(request, env, baseUsdcDownloadMatch[1]);
+    }
+    const baseUsdcOrderMatch = url.pathname.match(/^\/v1\/store\/base-usdc\/orders\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})$/);
+    if (baseUsdcOrderMatch && request.method === "GET") {
+      return getBaseUsdcStoreOrder(request, env, baseUsdcOrderMatch[1]);
     }
     if (url.pathname === "/v1/store/checkout" && request.method === "POST") {
       return createStoreCheckout(request, env);
