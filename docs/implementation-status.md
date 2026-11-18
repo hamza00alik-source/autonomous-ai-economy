@@ -138,3 +138,12 @@ This status distinguishes local prototype code from the future open economy. A c
 - Scheduler output is validated, logged, and isolated: an exception or malformed result increments the supervisor error count but does not prevent built-in or model-backed worker lanes from running.
 - The hook is deliberately opt-in. The default CLI does not instantiate financial identity, owner-signed policy or spending stores because no owner-approved policy provisioning/configuration exists in the supervisor startup path. No empty/default policy is created and no expense schedule runs unless trusted code explicitly supplies the callback.
 - Tests cover repeated bounded polling, malformed result rejection and exception isolation. This is local simulation only; it does not enable vendor payments, external signing, transfers, production Worker/D1 changes or hosted scheduler uptime.
+
+
+## Explicit supervisor startup wiring for simulated expenses
+
+- `economy-supervisor` now exposes `--enable-simulated-financial-scheduler`. Without this flag, no financial registry, policy, ledger, spending or schedule stores are initialized and the scheduler callback remains absent.
+- With the flag, the supervisor wires the existing local `ParticipantRegistry`, `FinancialPolicyStore`, `DoubleEntryLedger`, `AgentSpending` and `AgentExpenseScheduler` under the selected data directory, then polls due occurrences on each worker cycle.
+- Startup creates storage schemas only; it does not enroll participants, create/sign a policy, add budget, create a schedule, or make a payment. Existing schedules can execute only if their current owner-signed policy and allocated simulated budget authorize them.
+- The flag is explicitly simulation-only. It does not connect to providers, wallets, chains, bank rails or production Worker/D1. It is not enabled by default.
+- A test verifies that the opt-in callback initializes clean stores, returns zero activity, and does not create any financial policy automatically.
