@@ -336,7 +336,7 @@ def build_game_asset_pack(output: str | Path) -> dict:
         data=_glb([(name,parts,(0,0,0))])
         summaries[slug]=_read_glb_summary(data)
         files.append((f"assets/{slug}.glb",data))
-        objects.append((name,parts,((index % 5 - 2)*2.6,0,(index // 5 - 0.5)*3.2)))
+        objects.append((name,parts,((index % 5 - 2)*2.8,0,(index // 5 - 0.5)*5.0)))
     preview=_glb(objects)
     summaries["preview"]=_read_glb_summary(preview)
     files.append(("preview.glb",preview))
@@ -352,7 +352,7 @@ def build_game_asset_pack(output: str | Path) -> dict:
         "ambient_light_color = Color(0.45, 0.52, 0.68, 1)",
         "ambient_light_energy = 0.75","",
         '[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]',
-        "size = Vector2(24, 16)","",
+        "size = Vector2(24, 22)","",
         '[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]',
         "albedo_color = Color(0.06, 0.08, 0.12, 1)",
         "roughness = 0.92","",
@@ -364,8 +364,8 @@ def build_game_asset_pack(output: str | Path) -> dict:
         "light_energy = 1.6",
         "shadow_enabled = true","",
         '[node name="Camera3D" type="Camera3D" parent="."]',
-        "position = Vector3(0, 9.2, 21.5)",
-        "rotation_degrees = Vector3(-18, 0, 0)",
+        "position = Vector3(0, 12.5, 23.0)",
+        "rotation_degrees = Vector3(-28, 0, 0)",
         "current = true","",
         '[node name="Floor" type="MeshInstance3D" parent="."]',
         "position = Vector3(0, -0.04, 0)",
@@ -374,9 +374,9 @@ def build_game_asset_pack(output: str | Path) -> dict:
     ])
     for i,(slug,name,_) in enumerate(_ASSETS,1):
         node_name="".join(part.title() for part in slug.split("_"))
-        x=((i-1) % 5 - 2)*2.6
+        x=((i-1) % 5 - 2)*2.8
         scene_lines.extend([f'[node name="{node_name}" parent="." instance=ExtResource("{i}")]',
-                           f"position = Vector3({x:.2f}, 0, {(i-1)//5*3.2-1.6:.2f})",""])
+                           f"position = Vector3({x:.2f}, 0, {(i-1)//5*5.0-2.5:.2f})",""])
     files.append(("godot/MOBAObjectiveProps.tscn",("\n".join(scene_lines)+"\n").encode("utf-8")))
     project_config="""config_version=5
 
