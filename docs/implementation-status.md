@@ -29,7 +29,7 @@ Last reviewed: 2026-11-17
 - No production owner console, remote issuer authentication, unified external-action gateway, hardened key management or tamper-proof audit store.
 - No independent evidence verification, appeal workflow, formal dispute policy, legal contract workflow, refunds or settlement.
 - No live customer acquisition or confirmed paying customer. Simulated demo revenue is not actual income.
-- No live payment processing or blockchain transaction has been deployed. Source now includes a gated NOWPayments invoice/IPN adapter, D1 order records, a fixed-price storefront, buyer-token authentication, payment-gated automatic ZIP delivery via Worker Static Assets, and idempotent gross-revenue attribution to the internal `game-asset-builder` ID. It has no provider credentials, deployed Worker, public live checkout, or verified transaction. Net wallet proceeds, agent credits, cryptographic agent enrollment for this producer, outbound payouts, refunds, exchange, escrow, custody and treasury transfers are not integrated. Gross attribution remains pending reconciliation.
+- No live payment processing or blockchain transaction has been deployed. Source includes gated payment adapters, D1 order records, a fixed-price storefront, buyer-token authentication, payment-gated automatic ZIP delivery and gross-revenue attribution to an internal producer ID. There are no provider credentials, live checkout, or verified transactions. Net wallet proceeds, agent credits, cryptographic agent enrollment for the producer, outbound payouts, refunds, exchange, escrow, custody and treasury transfers are not integrated. Gross attribution remains pending reconciliation.
 
 ## Signed task-offer API
 
@@ -70,7 +70,6 @@ The prior Etsy listing-audit/Upwork freelancer pilot is deprecated and is not th
 
 No customer, revenue, public deployment, live payment or autonomous production operation is currently verified. Do not claim otherwise. Routine business operations should be autonomous within explicit capability, risk and spending limits; legally required checks and irreversible high-risk actions remain bounded by law and safety controls.
 
-
 ## Next engineering sequence
 
 1. Complete the minimum local marketplace and authorization work needed to record an owner-supervised pilot transaction without pretending a local ledger is payment processing.
@@ -82,3 +81,9 @@ This status distinguishes local prototype code from the future open economy. A c
 ## New bounded autonomy component
 
 - Added `src/economy/autonomy.py` and tests for a routine action allowlist, agent-specific enablement, per-order and daily order-exposure ceilings, idempotent reservation, changed-term replay rejection and fail-closed storage behavior. This removes the need for a separate owner approval for each preconfigured routine action at the component level. It is not yet integrated with authenticated API requests, signed capabilities/delegations, task execution, publication or payments; profile provisioning is currently caller-supplied and must be made owner-controlled before production. See [routine agent autonomy](routine-agent-autonomy.md).
+
+## Agent financial autonomy architecture
+
+- Added [Agent Financial Autonomy](agent-financial-autonomy.md), defining the separation between cryptographic agent identity, financial account, internal subledger and legal principal.
+- Specifies a double-entry ledger, settlement reconciliation, deterministic allocation policies, agent operating budgets, policy-controlled delegated signing, autonomous allowlisted expenses, audit/revocation and a phased delivery plan.
+- This is an architecture/acceptance contract only. No wallet, signer, real-money ledger, spend executor, payment route, production deployment or financial action has been enabled.
