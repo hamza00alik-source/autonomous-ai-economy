@@ -87,3 +87,11 @@ This status distinguishes local prototype code from the future open economy. A c
 - Added [Agent Financial Autonomy](agent-financial-autonomy.md), defining the separation between cryptographic agent identity, financial account, internal subledger and legal principal.
 - Specifies a double-entry ledger, settlement reconciliation, deterministic allocation policies, agent operating budgets, policy-controlled delegated signing, autonomous allowlisted expenses, audit/revocation and a phased delivery plan.
 - This is an architecture/acceptance contract only. No wallet, signer, real-money ledger, spend executor, payment route, production deployment or financial action has been enabled.
+
+
+## Simulated financial journal and allocation
+
+- Added `src/economy/financial_ledger.py`: SQLite-backed, atomic double-entry journal; each posting must balance by currency, uses integer minor units, and is idempotent with changed-term replay rejection.
+- Added `src/economy/allocation.py`: deterministic largest-remainder allocation from a simulated reconciled receipt into configured agent/treasury subaccounts, conserving every minor unit and rejecting insufficient cleared treasury balance.
+- Added focused tests for journal invariants and allocation conservation, replay safety, pending-receipt rejection and simulated-only behavior.
+- These modules are isolated local prototypes. They are not connected to payment adapters, the Cloudflare Worker/D1, authenticated participant identities, signed owner policies, live balances or a transaction executor. Settlement state and allocation policy are trusted caller inputs in this prototype and must not be treated as production authorization.
