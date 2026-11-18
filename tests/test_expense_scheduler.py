@@ -145,6 +145,14 @@ class ExpenseSchedulerTests(unittest.TestCase):
         with self.assertRaisesRegex(ExpenseScheduleError, "changed terms"):
             self.create(amount_minor=201)
 
+    def test_immediate_schedule_creation_is_idempotent_without_explicit_start(self):
+        args = {"agent_id": "agent", "policy_id": "ops", "destination": "service:compute",
+                "currency": "USD", "amount_minor": 100, "interval_seconds": 3600,
+                "idempotency_key": "immediate-schedule"}
+        first = self.scheduler.create(**args)
+        retry = self.scheduler.create(**args)
+        self.assertEqual(first["schedule_id"], retry["schedule_id"])
+
     def test_policy_supersession_blocks_existing_recurring_schedule(self):
         schedule = self.create()
         payload = self.policies.payload(
