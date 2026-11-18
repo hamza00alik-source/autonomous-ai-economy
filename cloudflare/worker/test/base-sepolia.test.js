@@ -246,3 +246,60 @@ test("Base Sepolia finalized payment event settles only into its testnet ledger"
   assert.equal(db.revenue.status, "settled_pending_reconciliation");
   assert.equal(result.agent_credit_minor, null);
 });
+
+test("Base Sepolia checkpoint mismatch persistently halts and revokes testnet delivery", async () => {
+  const cursor = { next_block: 200, last_block_hash: "0x" + "11".repeat(32), halted_at: null, halt_reason: null };
+  const invoices = [{ status: "settled", download_expires_at: "future" }];
+  const revenues = [{ status: "settled_pending_reconciliation" }];
+  const db = {
+    prepare(sql) {
+      return {
+        values: [],
+        bind(...values) { this.values = values; return this; },
+        async first() { return sql.includes("SELECT next_block,last_block_hash") ? { ...cursor } : null; },
+        async run() { return { meta: { changes: 0 } }; },
+        sql,
+      };
+    },
+    async batch(statements) {
+      for (const statement of statements) {
+        if (statement.sql.startsWith("UPDATE base_usdc_invoices SET status='review'")) {
+          for (const invoice of invoices) { invoice.status = "review"; invoice.download_expires_at = statement.values[0]; }
+        }
+        if (statement.sql.startsWith("UPDATE base_usdc_agent_revenue_events")) {
+          for (const revenue of revenues) revenue.status = "refund_review";
+        }
+        if (statement.sql.startsWith("UPDATE base_usdc_indexer_state SET halted_at")) {
+          cursor.halted_at = statement.values[0];
+          cursor.halt_reason = statement.values[1];
+        }
+      }
+      return [];
+    },
+  };
+  const env = {
+    AAE_BASE_USDC_INDEXER_ENABLED: "true",
+    BASE_CHAIN_ID: String(BASE_SEPOLIA_CHAIN_ID),
+    BASE_USDC_TOKEN_ADDRESS: BASE_SEPOLIA_USDC_ADDRESS,
+    BASE_CHECKOUT_CONTRACT_ADDRESS: contract,
+    BASE_MERCHANT_ADDRESS: merchant,
+    BASE_DEPLOYMENT_BLOCK: "100",
+    BASE_CONFIRMATIONS: "6",
+    DB: db,
+  };
+  let rpcCalls = 0;
+  const first = await pollBaseUsdc(env, {
+    async getBlock() { rpcCalls += 1; return { hash: "0x" + "22".repeat(32) }; },
+  });
+  assert.equal(first.reorg_detected, true);
+  assert.equal(first.halted, true);
+  assert.equal(cursor.halt_reason, "checkpoint_hash_mismatch");
+  assert.equal(invoices[0].status, "review");
+  assert.equal(revenues[0].status, "refund_review");
+  const before = rpcCalls;
+  const second = await pollBaseUsdc(env, {
+    async getBlock() { rpcCalls += 1; throw new Error("must remain halted"); },
+  });
+  assert.equal(second.halted, true);
+  assert.equal(rpcCalls, before, "persistent halt must prevent all subsequent RPC scans");
+});
