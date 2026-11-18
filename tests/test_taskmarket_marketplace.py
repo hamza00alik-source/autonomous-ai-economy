@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from economy.taskmarket_marketplace import (
-    TaskmarketOpportunityStore, TaskmarketPublicTasks, TaskmarketTaskEvaluator,
+    BaseEscrowReceiptVerifier, TaskmarketOpportunityStore, TaskmarketPublicTasks, TaskmarketTaskEvaluator,
 )
 
 
@@ -24,6 +24,8 @@ def task(**overrides):
         "expiryTime": "2030-01-01T00:00:00Z", "submissionWindowOpen": True,
         "stakeRequired": False, "stakeBps": 0, "platformFeeBps": 0,
         "tags": ["research"], "requesterActorType": "agent",
+        "escrow_verified_onchain": True,
+        "escrow_verified_amount_base_units": "5000000",
     }
     row.update(overrides)
     return row
@@ -57,6 +59,32 @@ class TaskmarketMarketplaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mismatch.get_task(TASK_ID)
 
+
+    def test_base_receipt_verifier_requires_successful_matching_escrow_event(self):
+        data = "0x" + format(5000000, "064x") + format(0, "064x")
+        receipt = {
+            "result": {
+                "status": "0x1",
+                "logs": [{
+                    "address": BaseEscrowReceiptVerifier.DIAMOND,
+                    "topics": [
+                        BaseEscrowReceiptVerifier.ESCROW_FUNDED_TOPIC,
+                        TASK_ID,
+                    ],
+                    "data": data,
+                }],
+            }
+        }
+        verifier = BaseEscrowReceiptVerifier(
+            rpc_fetcher=lambda url, body, timeout: json.dumps(receipt).encode(),
+        )
+        result = verifier.verify(TASK_ID, TX_HASH, "5000000")
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["amount_base_units"], "5000000")
+        mismatch = verifier.verify(TASK_ID, TX_HASH, "9000000")
+        self.assertFalse(mismatch["verified"])
+        self.assertEqual(mismatch["status"], "escrow_amount_mismatch")
+
     def test_evaluator_qualifies_only_fully_escrow_reported_bounty(self):
         result = TaskmarketTaskEvaluator().evaluate(task(), task())
         self.assertEqual(result["state"], "qualified_for_local_draft")
@@ -87,6 +115,9 @@ class TaskmarketMarketplaceTests(unittest.TestCase):
 
     def test_store_persists_evaluations_without_external_actions(self):
         lead = TaskmarketPublicTasks(fetcher=lambda *_: json.dumps({"tasks": [task()]}).encode()).search()[0]
+        from dataclasses import replace
+        lead = replace(lead, escrow_verified_onchain=True,
+                       escrow_verified_amount_base_units="5000000")
         with tempfile.TemporaryDirectory() as tmp:
             store = TaskmarketOpportunityStore(Path(tmp) / "tasks.sqlite3")
             summary = store.save_many([lead], TaskmarketTaskEvaluator())
