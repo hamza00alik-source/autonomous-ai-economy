@@ -4,10 +4,16 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
+    "build:wallet": "esbuild src/wallet-checkout.js --bundle --format=iife --platform=browser --target=es2022 --outfile=public/wallet-checkout.js",
+    "build": "npm run build:wallet",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "npm run build:wallet && wrangler deploy"
+  },
+  "dependencies": {
+    "viem": "^2.38.5"
   },
   "devDependencies": {
+    "esbuild": "^0.25.12",
     "wrangler": "^4.45.0"
   }
 }

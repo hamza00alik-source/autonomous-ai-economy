@@ -1,3 +1,4 @@
+import { pollBaseUsdc, signBaseUsdcInvoice, BASE_USDC_ADDRESS } from "./base-usdc.js";
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
@@ -486,6 +487,152 @@ async function createStoreCheckout(request, env) {
   }, 201);
 }
 
+
+function baseUsdcCheckoutEnabled(env) {
+  let rpc;
+  try { rpc = new URL(env.BASE_RPC_URL); } catch { return false; }
+  const deploymentBlock = Number(env.BASE_DEPLOYMENT_BLOCK);
+  const confirmations = Number(env.BASE_CONFIRMATIONS);
+  const configValid = rpc.protocol === "https:" &&
+    Number(env.BASE_CHAIN_ID || 8453) === 8453 &&
+    Number.isSafeInteger(deploymentBlock) && deploymentBlock >= 0 &&
+    Number.isSafeInteger(confirmations) && confirmations >= 1 && confirmations <= 10000;
+  return configValid &&
+    env.AAE_BASE_USDC_CHECKOUT_ENABLED === "true" &&
+    env.AAE_BASE_USDC_INDEXER_ENABLED === "true" &&
+    env.AAE_CRYPTO_ENABLEMENT_APPROVED === "true" &&
+    env.AAE_BASE_USDC_LEGAL_REVIEW_APPROVED === "true" &&
+    Boolean(env.BASE_INVOICE_SIGNER_PRIVATE_KEY && env.BASE_INVOICE_SIGNER_ADDRESS &&
+      env.BASE_MERCHANT_ADDRESS && env.BASE_CHECKOUT_CONTRACT_ADDRESS && env.ASSETS && env.DB);
+}
+
+async function createBaseUsdcStoreCheckout(request, env) {
+  if (!baseUsdcCheckoutEnabled(env)) {
+    return json({ error: "Base USDC checkout is not enabled or fully configured" }, 503);
+  }
+  if (!env.DB || !env.CHECKOUT_LIMITER) return json({ error: "checkout protection is not configured" }, 503);
+  let indexerState;
+  try {
+    indexerState = await env.DB.prepare(
+      "SELECT halted_at FROM base_usdc_indexer_state WHERE id=1"
+    ).first();
+  } catch {
+    return json({ error: "Base indexer health could not be verified; checkout is paused" }, 503);
+  }
+  if (!indexerState || indexerState.halted_at) {
+    return json({ error: "Base indexer is not healthy or requires manual review; new checkouts are paused" }, 503);
+  }
+  const origin = request.headers.get("origin");
+  if (!origin || origin !== new URL(request.url).origin) {
+    return json({ error: "same-origin checkout requests only" }, 403);
+  }
+  const ip = request.headers.get("cf-connecting-ip") || "";
+  if (!ip) return json({ error: "request could not be verified" }, 400);
+  const limit = await env.CHECKOUT_LIMITER.limit({ key: "base-usdc-moba-objective-props:" + ip });
+  if (!limit.success) return json({ error: "too many checkout attempts; please wait one minute" }, 429);
+  if (!(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+    return json({ error: "application/json is required" }, 415);
+  }
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).length > 256) return json({ error: "request body too large" }, 413);
+  let body;
+  try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 0) {
+    return json({ error: "checkout does not accept customer-supplied prices or product IDs" }, 400);
+  }
+
+  const orderId = "base-moba-" + crypto.randomUUID();
+  const accessToken = randomHex(32);
+  const buyerTokenHash = await sha256(accessToken);
+  const deadline = Math.floor(Date.now() / 1000) + 30 * 60;
+  const amountMinor = 5_000_000;
+  const grossAmountMinor = 500;
+  const invoice = await signBaseUsdcInvoice({
+    privateKey: env.BASE_INVOICE_SIGNER_PRIVATE_KEY,
+    expectedSignerAddress: env.BASE_INVOICE_SIGNER_ADDRESS,
+    contractAddress: env.BASE_CHECKOUT_CONTRACT_ADDRESS,
+    merchantAddress: env.BASE_MERCHANT_ADDRESS,
+    orderId,
+    amountMinor,
+    deadline,
+  });
+
+  const inserted = await env.DB.prepare(
+    "INSERT OR IGNORE INTO base_usdc_invoices (order_id,order_id_hash,product_id,agent_id,amount_minor,gross_amount_minor,merchant_address,invoice_signature,invoice_deadline,buyer_token_hash,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,'pending',?,?)"
+  ).bind(
+    orderId, invoice.orderIdHash, STORE_PRODUCT_ID, STORE_AGENT_ID,
+    amountMinor, grossAmountMinor, env.BASE_MERCHANT_ADDRESS,
+    invoice.signature, deadline, buyerTokenHash, new Date().toISOString(), new Date().toISOString(),
+  ).run();
+  if (inserted.meta?.changes !== 1) {
+    return json({ error: "could not reserve a unique Base USDC invoice" }, 409);
+  }
+
+  return json({
+    order_id: orderId,
+    order_id_hash: invoice.orderIdHash,
+    access_token: accessToken,
+    chain_id: 8453,
+    token_address: BASE_USDC_ADDRESS,
+    contract_address: env.BASE_CHECKOUT_CONTRACT_ADDRESS,
+    merchant_address: env.BASE_MERCHANT_ADDRESS,
+    invoice_signer_address: invoice.invoiceSignerAddress,
+    amount_minor: String(amountMinor),
+    amount_usdc: "5.000000",
+    price_amount: STORE_PRODUCT_PRICE_USD,
+    price_currency: "usd",
+    deadline,
+    signature: invoice.signature,
+    status: "pending",
+    download_window_days: 7,
+    notice: "Payment is not complete until the Base indexer confirms the exact on-chain payment.",
+  }, 201);
+}
+
+async function getBaseUsdcStoreOrder(request, env, orderId) {
+  const row = await env.DB.prepare(
+    "SELECT order_id,product_id,status,download_expires_at,buyer_token_hash FROM base_usdc_invoices WHERE order_id=?"
+  ).bind(orderId).first();
+  if (!row || !await authorizeBuyer(request, row)) return json({ error: "order not found" }, 404);
+  const expiry = row.download_expires_at ? Date.parse(row.download_expires_at) : 0;
+  const downloadAvailable = row.product_id === STORE_PRODUCT_ID &&
+    row.status === "settled" && Number.isFinite(expiry) && expiry > Date.now();
+  return json({
+    order_id: row.order_id,
+    status: row.status,
+    download_available: downloadAvailable,
+    download_expires_at: downloadAvailable ? row.download_expires_at : null,
+  });
+}
+
+async function downloadBaseUsdcStoreProduct(request, env, orderId) {
+  if (!env.ASSETS || !env.DB) return json({ error: "delivery storage is not configured" }, 503);
+  const row = await env.DB.prepare(
+    "SELECT order_id,product_id,status,download_expires_at,buyer_token_hash FROM base_usdc_invoices WHERE order_id=?"
+  ).bind(orderId).first();
+  if (!row || !await authorizeBuyer(request, row)) return json({ error: "order not found" }, 404);
+  const expiry = row.download_expires_at ? Date.parse(row.download_expires_at) : 0;
+  if (row.product_id !== STORE_PRODUCT_ID || row.status !== "settled" ||
+      !Number.isFinite(expiry) || expiry <= Date.now()) {
+    return json({ error: "download is locked until full Base USDC payment is confirmed and access is active" }, 403);
+  }
+  const assetUrl = new URL(STORE_DOWNLOAD_PATH, request.url);
+  const asset = await env.ASSETS.fetch(new Request(assetUrl, { method: "GET" }));
+  if (!asset.ok) return json({ error: "product file is not available yet" }, 503);
+  await env.DB.prepare(
+    "UPDATE base_usdc_invoices SET download_count=download_count+1 WHERE order_id=? AND status='settled'"
+  ).bind(orderId).run();
+  const headers = new Headers({
+    "content-type": "application/zip",
+    "content-disposition": 'attachment; filename="moba-objective-props.zip"',
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+  });
+  const length = asset.headers.get("content-length");
+  if (length) headers.set("content-length", length);
+  return new Response(asset.body, { status: 200, headers });
+}
+
 async function getStoreOrder(request, env, orderId) {
   const row = await env.DB.prepare(
     "SELECT order_id,product_id,status,download_expires_at,buyer_token_hash FROM crypto_payment_invoices WHERE order_id=?"
@@ -563,20 +710,45 @@ async function status(env) {
   const day = new Date().toISOString().slice(0, 10);
   const budget = await env.DB.prepare("SELECT reserved_neurons FROM ai_daily_budget WHERE utc_day=?").bind(day).first();
   const counts = await env.DB.prepare("SELECT status,COUNT(*) AS total FROM ai_tasks GROUP BY status").all();
+  let baseIndexer = { enabled: env.AAE_BASE_USDC_INDEXER_ENABLED === "true", state: "not_initialized" };
+  try {
+    const indexerState = await env.DB.prepare(
+      "SELECT next_block,halted_at,halt_reason,updated_at FROM base_usdc_indexer_state WHERE id=1"
+    ).first();
+    if (indexerState) {
+      baseIndexer = {
+        enabled: env.AAE_BASE_USDC_INDEXER_ENABLED === "true",
+        state: indexerState.halted_at ? "halted" : "running",
+        next_block: indexerState.next_block,
+        halted_at: indexerState.halted_at || null,
+        halt_reason: indexerState.halt_reason || null,
+        updated_at: indexerState.updated_at || null,
+        manual_review_required: Boolean(indexerState.halted_at),
+      };
+    }
+  } catch {
+    baseIndexer = {
+      enabled: env.AAE_BASE_USDC_INDEXER_ENABLED === "true",
+      state: "unavailable",
+      manual_review_required: true,
+    };
+  }
+  const baseCheckoutReady = baseUsdcCheckoutEnabled(env) && baseIndexer.state === "running";
   return json({
     model: MODEL_ID,
     utc_day: day,
     estimated_neurons_reserved: budget?.reserved_neurons || 0,
     daily_safety_budget_neurons: DAILY_NEURON_BUDGET,
     tasks: counts.results || [],
-    public_payment_actions_enabled: publicCheckoutEnabled(env),
-    private_invoice_api_configured: Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET),
-    public_checkout_enabled: publicCheckoutEnabled(env),
+    public_payment_actions_enabled: baseCheckoutReady,
+    private_invoice_api_configured: Boolean(env.BASE_INVOICE_SIGNER_PRIVATE_KEY && env.BASE_INVOICE_SIGNER_ADDRESS),
+    public_checkout_enabled: baseCheckoutReady,
     protected_delivery_storage_available: Boolean(env.ASSETS),
-    automatic_delivery_enabled: publicCheckoutEnabled(env) && Boolean(env.ASSETS),
+    automatic_delivery_enabled: baseCheckoutReady && Boolean(env.ASSETS),
+    base_usdc_indexer: baseIndexer,
     outbound_payouts_enabled: false,
     public_registration_enabled: false,
-    note: "Private product-copy worker. Public checkout and buyer delivery remain disabled until the owner enables the gated storefront; outbound transfers are disabled.",
+    note: "Base USDC checkout and automatic delivery remain disabled unless the contract, RPC, dedicated signer, D1, legal-review and owner-approval gates are all satisfied. Outbound transfers are disabled.",
   });
 }
 
@@ -643,6 +815,17 @@ export default {
     if (url.pathname === "/v1/payments/nowpayments/ipn" && request.method === "POST") {
       return nowPaymentsIPN(request, env);
     }
+    if (url.pathname === "/v1/store/base-usdc/checkout" && request.method === "POST") {
+      return createBaseUsdcStoreCheckout(request, env);
+    }
+    const baseUsdcDownloadMatch = url.pathname.match(/^\/v1\/store\/base-usdc\/orders\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\/download$/);
+    if (baseUsdcDownloadMatch && request.method === "GET") {
+      return downloadBaseUsdcStoreProduct(request, env, baseUsdcDownloadMatch[1]);
+    }
+    const baseUsdcOrderMatch = url.pathname.match(/^\/v1\/store\/base-usdc\/orders\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})$/);
+    if (baseUsdcOrderMatch && request.method === "GET") {
+      return getBaseUsdcStoreOrder(request, env, baseUsdcOrderMatch[1]);
+    }
     if (url.pathname === "/v1/store/checkout" && request.method === "POST") {
       return createStoreCheckout(request, env);
     }
@@ -658,10 +841,19 @@ export default {
       return json({ error: "direct product file access is disabled" }, 404);
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      if (!publicCheckoutEnabled(env)) return json({ error: "storefront is not published" }, 404);
+      if (!baseUsdcCheckoutEnabled(env) || !env.DB) return json({ error: "storefront is not published" }, 404);
+      let indexerState;
+      try {
+        indexerState = await env.DB.prepare(
+          "SELECT halted_at FROM base_usdc_indexer_state WHERE id=1"
+        ).first();
+      } catch {
+        return json({ error: "storefront is not published" }, 404);
+      }
+      if (!indexerState || indexerState.halted_at) return json({ error: "storefront is not published" }, 404);
       const page = await env.ASSETS.fetch(request);
       const headers = new Headers(page.headers);
-      headers.set("content-security-policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+      headers.set("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self' https://mainnet.base.org; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
       headers.set("referrer-policy", "no-referrer");
       headers.set("x-content-type-options", "nosniff");
       headers.set("cache-control", "no-store");
@@ -779,6 +971,6 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env)]));
+    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env), pollBaseUsdc(env)]));
   },
 };
