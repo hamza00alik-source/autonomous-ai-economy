@@ -663,6 +663,7 @@ test("cloud financial owner endpoints require bearer authentication before touch
   const env={AAE_QUEUE_TOKEN:"owner-secret-token",AAE_OWNER_ID:"owner-01",DB:{prepare(){touched=true;throw new Error("must not query");}}};
   for(const [url,method] of [
     ["/v1/owner/financial-controls","GET"],
+    ["/v1/owner/financial-controls/policies","POST"],
     ["/v1/owner/financial-controls/emergency-pause","POST"],
     ["/v1/owner/financial-controls/schedules","POST"]
   ]){
