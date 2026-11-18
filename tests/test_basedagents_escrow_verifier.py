@@ -123,11 +123,13 @@ class BasedAgentsEscrowVerifierTests(unittest.TestCase):
         result = self.verifier(config=config).verify(task, payment)
         self.assertEqual(result["reason"], "escrow_not_enabled")
 
-    def test_unverified_registry_payment_blocks(self):
+    def test_active_payment_flags_do_not_override_funded_escrow_receipt(self):
         task, payment, *_ = fixtures()
+        # The API clears active payment columns after the escrow deposit settles.
         payment["verified"] = False
+        payment["status"] = "pending"
         result = self.verifier().verify(task, payment)
-        self.assertEqual(result["reason"], "registry_payment_not_verified")
+        self.assertTrue(result["verified"])
 
     def test_rpc_url_allowlist(self):
         with self.assertRaises(ValueError):
