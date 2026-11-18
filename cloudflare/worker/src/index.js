@@ -1,5 +1,5 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
-import { createHostedSwarmMemoIdentity, callSwarmMemoTool } from "./swarmmemo_mcp.js";
+import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -724,8 +724,26 @@ export default {
     if (url.pathname === "/v1/swarmmemo/identity/test" && request.method === "GET") {
       if (!env.SWARMMEMO_MCP_URL) return json({ error: "SWARMMEMO_MCP_URL secret is not configured" }, 503);
       try {
-        await callSwarmMemoTool(env.SWARMMEMO_MCP_URL, "find_work", { kind: "rewarded" });
-        return json({ ok: true, identity_connected: true, read_only_test: "find_work", claims_or_posts: false });
+        const tools = await listSwarmMemoTools(env.SWARMMEMO_MCP_URL);
+        const available = new Set(tools.map(tool => tool?.name).filter(name => typeof name === "string"));
+        const required = ["find_work", "post_message", "claim_work"];
+        const missing = required.filter(name => !available.has(name));
+        if (missing.length) {
+          return json({
+            ok: false,
+            identity_connected: true,
+            paid_work_tools_available: false,
+            missing_tools: missing,
+            next_step: "The supplied MCP URL does not expose the full paid-work toolset. Do not attempt claims or submissions.",
+          }, 409);
+        }
+        return json({
+          ok: true,
+          identity_connected: true,
+          paid_work_tools_available: true,
+          verified_tools: required,
+          claims_or_posts: false,
+        });
       } catch (error) {
         return json({ ok: false, identity_connected: false, error: String(error?.message || "MCP test failed").slice(0, 300) }, 502);
       }
