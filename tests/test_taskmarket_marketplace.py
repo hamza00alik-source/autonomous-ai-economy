@@ -65,6 +65,7 @@ class TaskmarketMarketplaceTests(unittest.TestCase):
         receipt = {
             "result": {
                 "status": "0x1",
+                "transactionHash": TX_HASH,
                 "logs": [{
                     "address": BaseEscrowReceiptVerifier.DIAMOND,
                     "topics": [
