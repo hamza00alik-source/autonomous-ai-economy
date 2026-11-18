@@ -104,10 +104,35 @@ def supervise(
     return {"cycles": cycles, "completed": completed, "idle": idle, "errors": errors}
 
 
+
+ 
+def _build_simulated_financial_scheduler(data_dir: Path) -> Callable[[], dict[str, int]]:
+    """Build the explicitly opt-in local scheduler; never provisions a policy."""
+    from .expense_scheduler import AgentExpenseScheduler
+    from .financial_ledger import DoubleEntryLedger
+    from .financial_policy import FinancialPolicyStore
+    from .financial_spending import AgentSpending
+    from .identity import ParticipantRegistry
+
+    registry = ParticipantRegistry(data_dir / "participants.sqlite3")
+    policies = FinancialPolicyStore(registry, data_dir / "financial-policies.sqlite3")
+    ledger = DoubleEntryLedger(data_dir / "financial-ledger.sqlite3")
+    spending = AgentSpending(ledger, policies, data_dir / "financial-spending.sqlite3")
+    scheduler = AgentExpenseScheduler(spending, data_dir / "financial-expense-schedules.sqlite3")
+    LOG.warning(
+        "SIMULATED FINANCIAL SCHEDULER ENABLED: local journal only; "
+        "no provider calls, wallet signing, transfers or live payments"
+    )
+    return scheduler.run_due
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the local autonomous economy worker supervisor")
     parser.add_argument("--data-dir", type=Path, default=Path("./data"))
     parser.add_argument("--poll-seconds", type=float, default=2.0)
+    parser.add_argument(
+        "--enable-simulated-financial-scheduler", action="store_true",
+        help="opt in to local simulated recurring expenses; never makes real payments",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     stop = threading.Event()
@@ -127,10 +152,15 @@ def main() -> int:
         bool(__import__("os").environ.get("CLOUDFLARE_ACCOUNT_ID")
              and __import__("os").environ.get("CLOUDFLARE_API_TOKEN")),
     )
+    financial_scheduler = (
+        _build_simulated_financial_scheduler(args.data_dir)
+        if args.enable_simulated_financial_scheduler else None
+    )
     try:
         stats = supervise(
             store, agreements=agreements, poll_seconds=args.poll_seconds,
             stop_event=stop, ai_worker=run_ai_once,
+            financial_scheduler=financial_scheduler,
         )
     except ValueError as exc:
         parser.error(str(exc))
