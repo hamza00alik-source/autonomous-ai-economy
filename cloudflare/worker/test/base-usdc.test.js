@@ -466,11 +466,23 @@ test("scheduled Base indexer is dormant unless its explicit enablement gate is t
 });
 
 
-test("scheduled Base indexer detects cursor reorg, rewinds and revokes affected settlements", async () => {
-  const cursor = { next_block: 200, last_block_hash: "0x" + "11".repeat(32) };
-  const invoice = { status: "settled", transaction_hash: "0x" + "aa".repeat(32), download_expires_at: "later" };
-  const revenue = { status: "settled_pending_reconciliation" };
-  const events = [{ block_number: 150, transaction_hash: invoice.transaction_hash, transaction_status: "confirmed" }];
+test("scheduled Base indexer fail-closes all settlements on any checkpoint reorg mismatch", async () => {
+  const cursor = {
+    next_block: 200,
+    last_block_hash: "0x" + "11".repeat(32),
+    halted_at: null,
+    halt_reason: null,
+  };
+  // Include a settlement older than the old 64-block rewind window. It must
+  // also lose delivery access because mismatch depth is unknowable.
+  const invoices = [
+    { status: "settled", transaction_hash: "0x" + "aa".repeat(32), download_expires_at: "later" },
+    { status: "settled", transaction_hash: "0x" + "bb".repeat(32), download_expires_at: "later" },
+  ];
+  const revenues = [
+    { status: "settled_pending_reconciliation" },
+    { status: "reconciled" },
+  ];
   const statements = [];
   const db = {
     prepare(sql) {
@@ -478,68 +490,68 @@ test("scheduled Base indexer detects cursor reorg, rewinds and revokes affected 
         values: [],
         bind(...values) { this.values = values; return this; },
         async first() {
-          if (sql.includes("SELECT next_block,last_block_hash")) return { ...cursor };
+          if (sql.includes("SELECT next_block,last_block_hash,halted_at,halt_reason")) return { ...cursor };
           return null;
         },
         async run() {
           statements.push(sql);
           if (sql.startsWith("INSERT OR IGNORE INTO base_usdc_indexer_state")) return { meta: { changes: 0 } };
-          if (sql.startsWith("UPDATE base_usdc_payment_events")) {
-            const [rewind] = this.values;
-            for (const event of events) if (event.block_number >= rewind) event.transaction_status = "orphaned";
-          }
-          if (sql.startsWith("UPDATE base_usdc_invoices")) {
-            const [expiry, updated, rewind] = this.values;
-            if (invoice.status === "settled" && events.some(e => e.block_number >= rewind && e.transaction_status === "orphaned")) {
-              invoice.status = "review";
-              invoice.download_expires_at = expiry;
-              invoice.updated_at = updated;
+          if (sql.startsWith("UPDATE base_usdc_invoices SET status='review'")) {
+            const [expiry, updated] = this.values;
+            for (const invoice of invoices) if (invoice.status === "settled") {
+              invoice.status = "review"; invoice.download_expires_at = expiry; invoice.updated_at = updated;
             }
           }
           if (sql.startsWith("UPDATE base_usdc_agent_revenue_events")) {
-            const [updated, rewind] = this.values;
-            if (events.some(e => e.block_number >= rewind && e.transaction_status === "orphaned")) {
-              revenue.status = "refund_review";
-              revenue.updated_at = updated;
+            const [updated] = this.values;
+            for (const revenue of revenues) if (["settled_pending_reconciliation", "reconciled"].includes(revenue.status)) {
+              revenue.status = "refund_review"; revenue.updated_at = updated;
             }
           }
-          if (sql.startsWith("UPDATE base_usdc_indexer_state")) {
-            const [next, hash] = this.values;
-            cursor.next_block = next;
-            cursor.last_block_hash = hash;
+          if (sql.startsWith("UPDATE base_usdc_indexer_state SET halted_at")) {
+            const [haltedAt, reason] = this.values;
+            cursor.halted_at = haltedAt; cursor.halt_reason = reason;
           }
           return { meta: { changes: 1 } };
         }
       };
     },
     async batch(items) {
-      const result = [];
-      for (const item of items) result.push(await item.run());
-      return result;
+      const results = [];
+      for (const item of items) results.push(await item.run());
+      return results;
     }
   };
   const client = {
     async getBlock({ blockNumber }) {
-      if (blockNumber === 199n) return { hash: "0x" + "22".repeat(32) };
-      if (blockNumber === 135n) return { hash: "0x" + "33".repeat(32) };
-      throw new Error("unexpected block request");
+      assert.equal(blockNumber, 199n);
+      return { hash: "0x" + "22".repeat(32) };
     }
   };
-  const result = await pollBaseUsdc({
+  const env = {
     AAE_BASE_USDC_INDEXER_ENABLED: "true",
     BASE_CHECKOUT_CONTRACT_ADDRESS: contract,
     BASE_MERCHANT_ADDRESS: merchant,
     BASE_DEPLOYMENT_BLOCK: "100",
     BASE_CONFIRMATIONS: "6",
-    BASE_REORG_LOOKBACK: "64",
     DB: db,
-  }, client);
+  };
+  const result = await pollBaseUsdc(env, client);
   assert.equal(result.reorg_detected, true);
-  assert.equal(result.rewound_to_block, 136);
+  assert.equal(result.halted, true);
+  assert.equal(result.automatic_scanning_stopped, true);
   assert.equal(result.manual_review_required, true);
-  assert.equal(cursor.next_block, 136);
-  assert.equal(cursor.last_block_hash, "0x" + "33".repeat(32));
-  assert.equal(events[0].transaction_status, "orphaned");
-  assert.equal(invoice.status, "review");
-  assert.equal(revenue.status, "refund_review");
+  assert.equal(cursor.next_block, 200, "cursor must not guess a rewind depth");
+  assert.equal(cursor.halt_reason, "checkpoint_hash_mismatch");
+  assert.ok(cursor.halted_at);
+  assert.deepEqual(invoices.map(row => row.status), ["review", "review"]);
+  assert.deepEqual(revenues.map(row => row.status), ["refund_review", "refund_review"]);
+
+  let rpcCalls = 0;
+  const haltedAgain = await pollBaseUsdc(env, {
+    async getBlock() { rpcCalls += 1; throw new Error("must not scan while halted"); }
+  });
+  assert.equal(haltedAgain.halted, true);
+  assert.equal(haltedAgain.halt_reason, "checkpoint_hash_mismatch");
+  assert.equal(rpcCalls, 0);
 });
