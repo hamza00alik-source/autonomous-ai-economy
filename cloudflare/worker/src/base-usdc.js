@@ -499,38 +499,54 @@ export async function pollBaseUsdc(env, injectedClient = null) {
   await env.DB.prepare(
     "INSERT OR IGNORE INTO base_usdc_indexer_state (id,next_block,last_block_hash,updated_at) VALUES (1,?,NULL,?)"
   ).bind(deploymentBlock, now).run();
-  let cursor = await env.DB.prepare(
-    "SELECT next_block,last_block_hash FROM base_usdc_indexer_state WHERE id=1"
+  const cursor = await env.DB.prepare(
+    "SELECT next_block,last_block_hash,halted_at,halt_reason FROM base_usdc_indexer_state WHERE id=1"
   ).first();
   if (!cursor || !Number.isSafeInteger(Number(cursor.next_block))) {
     throw new Error("Base indexer cursor is missing or invalid");
   }
-  let nextBlock = Number(cursor.next_block);
+  if (cursor.halted_at) {
+    return {
+      enabled: true,
+      halted: true,
+      halted_at: cursor.halted_at,
+      halt_reason: cursor.halt_reason || "manual_review_required",
+      manual_review_required: true,
+      scanned: 0,
+    };
+  }
+  const nextBlock = Number(cursor.next_block);
 
   if (nextBlock > deploymentBlock && cursor.last_block_hash) {
     const priorNumber = BigInt(nextBlock - 1);
     const canonicalPrior = await client.getBlock({ blockNumber: priorNumber });
     if (canonicalPrior.hash?.toLowerCase() !== String(cursor.last_block_hash).toLowerCase()) {
-      const rewindTo = Math.max(deploymentBlock, nextBlock - reorgLookback);
-      const rewindHash = rewindTo > deploymentBlock
-        ? (await client.getBlock({ blockNumber: BigInt(rewindTo - 1) })).hash
-        : null;
-      const reorgAt = new Date().toISOString();
+      // A cursor mismatch does not reveal how deep the reorg is. Never guess a
+      // safe rewind depth: freeze all settlement-derived access and require
+      // operator reconciliation before any further automatic indexing.
+      const incidentAt = new Date().toISOString();
+      const reason = "checkpoint_hash_mismatch";
       await env.DB.batch([
         env.DB.prepare(
-          "UPDATE base_usdc_payment_events SET transaction_status='orphaned' WHERE block_number>=? AND transaction_status='confirmed'"
-        ).bind(rewindTo),
+          "UPDATE base_usdc_invoices SET status='review',download_expires_at=?,updated_at=? WHERE status='settled'"
+        ).bind(incidentAt, incidentAt),
         env.DB.prepare(
-          "UPDATE base_usdc_invoices SET status='review',download_expires_at=?,updated_at=? WHERE status='settled' AND transaction_hash IN (SELECT transaction_hash FROM base_usdc_payment_events WHERE block_number>=? AND transaction_status='orphaned')"
-        ).bind(reorgAt, reorgAt, rewindTo),
+          "UPDATE base_usdc_agent_revenue_events SET status='refund_review',updated_at=? WHERE status IN ('settled_pending_reconciliation','reconciled')"
+        ).bind(incidentAt, incidentAt),
         env.DB.prepare(
-          "UPDATE base_usdc_agent_revenue_events SET status='refund_review',updated_at=? WHERE transaction_hash IN (SELECT transaction_hash FROM base_usdc_payment_events WHERE block_number>=? AND transaction_status='orphaned') AND status IN ('settled_pending_reconciliation','reconciled')"
-        ).bind(reorgAt, rewindTo),
-        env.DB.prepare(
-          "UPDATE base_usdc_indexer_state SET next_block=?,last_block_hash=?,updated_at=? WHERE id=1"
-        ).bind(rewindTo, rewindHash, reorgAt),
+          "UPDATE base_usdc_indexer_state SET halted_at=?,halt_reason=?,updated_at=? WHERE id=1 AND halted_at IS NULL"
+        ).bind(incidentAt, reason, incidentAt),
       ]);
-      return { enabled: true, reorg_detected: true, rewound_to_block: rewindTo, manual_review_required: true };
+      console.error("AAE Base indexer halted: checkpoint hash mismatch; all prior settlements require manual reconciliation.");
+      return {
+        enabled: true,
+        halted: true,
+        reorg_detected: true,
+        manual_review_required: true,
+        halted_at: incidentAt,
+        halt_reason: reason,
+        automatic_scanning_stopped: true,
+      };
     }
   }
 
