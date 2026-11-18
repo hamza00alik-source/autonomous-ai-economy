@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac, createHash } from "node:crypto";
+import { BASE_USDC_ADDRESS, recoverBaseUsdcInvoiceSigner } from "../src/base-usdc.js";
 import worker, { validFacts, validateDraft, estimateNeurons, extractModelText, constantTimeEqual, DAILY_NEURON_BUDGET,
   verifyNowPaymentsSignature, paymentStatusFromWebhook } from "../src/index.js";
 
@@ -558,4 +559,138 @@ test("storefront stays unpublished unless owner explicitly enables live crypto c
   assert.equal(visible.status, 200);
   assert.match(visible.headers.get("content-security-policy"), /default-src 'self'/);
   assert.equal(await visible.text(), "<html>private storefront</html>");
+});
+
+
+class FakeBaseCheckoutStatement {
+  constructor(db, sql) { this.db = db; this.sql = sql; this.values = []; }
+  bind(...values) { this.values = values; return this; }
+  async run() {
+    if (this.sql.startsWith("INSERT OR IGNORE INTO base_usdc_invoices")) {
+      const [order_id, order_id_hash, product_id, agent_id, amount_minor, gross_amount_minor,
+        merchant_address, invoice_signature, invoice_deadline, buyer_token_hash, created_at] = this.values;
+      if (this.db.rows.has(order_id)) return { meta: { changes: 0 } };
+      this.db.rows.set(order_id, {
+        order_id, order_id_hash, product_id, agent_id, amount_minor, gross_amount_minor,
+        merchant_address, invoice_signature, invoice_deadline, buyer_token_hash,
+        status: "pending", created_at, download_count: 0
+      });
+      return { meta: { changes: 1 } };
+    }
+    if (this.sql.startsWith("UPDATE base_usdc_invoices SET download_count")) {
+      const [order_id] = this.values;
+      const row = this.db.rows.get(order_id);
+      if (row) row.download_count += 1;
+      return { meta: { changes: row ? 1 : 0 } };
+    }
+    return { meta: { changes: 0 } };
+  }
+  async first() {
+    if (this.sql.includes("FROM base_usdc_invoices WHERE order_id=?")) {
+      return this.db.rows.get(this.values[0]) || null;
+    }
+    return null;
+  }
+}
+function fakeBaseCheckoutDb() {
+  return {
+    rows: new Map(),
+    prepare(sql) { return new FakeBaseCheckoutStatement(this, sql); }
+  };
+}
+
+const TEST_BASE_SIGNER_KEY = "0x0123456789012345678901234567890123456789012345678901234567890123";
+const TEST_BASE_SIGNER_ADDRESS = "0x" + "0000000000000000000000000000000000000000";
+
+test("Base USDC checkout remains disabled without legal, signer and indexer gates", async () => {
+  const response = await worker.fetch(new Request("https://worker.example/v1/store/base-usdc/checkout", {
+    method: "POST",
+    headers: { origin: "https://worker.example", "content-type": "application/json", "cf-connecting-ip": "203.0.113.11" },
+    body: "{}"
+  }), {});
+  assert.equal(response.status, 503);
+});
+
+test("Base USDC checkout creates a server-priced signed invoice only when all gates are configured", async () => {
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const signerAddress = privateKeyToAccount(TEST_BASE_SIGNER_KEY).address;
+  const db = fakeBaseCheckoutDb();
+  const response = await worker.fetch(new Request("https://worker.example/v1/store/base-usdc/checkout", {
+    method: "POST",
+    headers: {
+      origin: "https://worker.example",
+      "content-type": "application/json",
+      "cf-connecting-ip": "203.0.113.11"
+    },
+    body: "{}"
+  }), {
+    AAE_BASE_USDC_CHECKOUT_ENABLED: "true",
+    AAE_BASE_USDC_INDEXER_ENABLED: "true",
+    AAE_CRYPTO_ENABLEMENT_APPROVED: "true",
+    AAE_BASE_USDC_LEGAL_REVIEW_APPROVED: "true",
+    BASE_RPC_URL: "https://base.example/rpc",
+    BASE_DEPLOYMENT_BLOCK: "100",
+    BASE_CONFIRMATIONS: "6",
+    BASE_INVOICE_SIGNER_PRIVATE_KEY: TEST_BASE_SIGNER_KEY,
+    BASE_INVOICE_SIGNER_ADDRESS: signerAddress,
+    BASE_MERCHANT_ADDRESS: "0x1111111111111111111111111111111111111111",
+    BASE_CHECKOUT_CONTRACT_ADDRESS: "0x2222222222222222222222222222222222222222",
+    CHECKOUT_LIMITER: { limit: async () => ({ success: true }) },
+    ASSETS: { fetch: async () => new Response("asset") },
+    DB: db
+  });
+  assert.equal(response.status, 201);
+  const data = await response.json();
+  assert.equal(data.chain_id, 8453);
+  assert.equal(data.token_address.toLowerCase(), BASE_USDC_ADDRESS.toLowerCase());
+  assert.equal(data.amount_minor, "5000000");
+  assert.equal(data.amount_usdc, "5.000000");
+  assert.match(data.order_id, /^base-moba-/);
+  assert.match(data.access_token, /^[a-f0-9]{64}$/);
+  const saved = db.rows.get(data.order_id);
+  assert.ok(saved);
+  assert.equal(saved.buyer_token_hash, createHash("sha256").update(data.access_token).digest("hex"));
+  assert.notEqual(saved.buyer_token_hash, data.access_token);
+  const recovered = await recoverBaseUsdcInvoiceSigner({
+    orderIdHash: data.order_id_hash,
+    amountMinor: data.amount_minor,
+    deadline: data.deadline,
+    merchantAddress: data.merchant_address,
+    contractAddress: data.contract_address,
+    signature: data.signature
+  });
+  assert.equal(recovered.toLowerCase(), signerAddress.toLowerCase());
+});
+
+test("Base USDC checkout rejects buyer-supplied price or product and cross-origin requests", async () => {
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const signerAddress = privateKeyToAccount(TEST_BASE_SIGNER_KEY).address;
+  const env = {
+    AAE_BASE_USDC_CHECKOUT_ENABLED: "true",
+    AAE_BASE_USDC_INDEXER_ENABLED: "true",
+    AAE_CRYPTO_ENABLEMENT_APPROVED: "true",
+    AAE_BASE_USDC_LEGAL_REVIEW_APPROVED: "true",
+    BASE_RPC_URL: "https://base.example/rpc",
+    BASE_DEPLOYMENT_BLOCK: "100",
+    BASE_CONFIRMATIONS: "6",
+    BASE_INVOICE_SIGNER_PRIVATE_KEY: TEST_BASE_SIGNER_KEY,
+    BASE_INVOICE_SIGNER_ADDRESS: signerAddress,
+    BASE_MERCHANT_ADDRESS: "0x1111111111111111111111111111111111111111",
+    BASE_CHECKOUT_CONTRACT_ADDRESS: "0x2222222222222222222222222222222222222222",
+    CHECKOUT_LIMITER: { limit: async () => ({ success: true }) },
+    ASSETS: { fetch: async () => new Response("asset") },
+    DB: fakeBaseCheckoutDb()
+  };
+  const custom = await worker.fetch(new Request("https://worker.example/v1/store/base-usdc/checkout", {
+    method: "POST",
+    headers: { origin: "https://worker.example", "content-type": "application/json", "cf-connecting-ip": "203.0.113.11" },
+    body: JSON.stringify({ price: "0.01" })
+  }), env);
+  assert.equal(custom.status, 400);
+  const cross = await worker.fetch(new Request("https://worker.example/v1/store/base-usdc/checkout", {
+    method: "POST",
+    headers: { origin: "https://evil.example", "content-type": "application/json", "cf-connecting-ip": "203.0.113.11" },
+    body: "{}"
+  }), env);
+  assert.equal(cross.status, 403);
 });
