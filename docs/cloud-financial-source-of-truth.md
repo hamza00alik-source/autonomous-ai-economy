@@ -18,14 +18,20 @@ Migration `0006_financial_control_foundation.sql` is an additive schema foundati
 
 | Area | Tables | Purpose |
 |---|---|---|
-| Participants and accounts | `financial_participants`, `financial_accounts` | Owner/operator/agent status, public verification keys, currency-specific accounts |
+| Participants and accounts | `financial_participants`, `financial_accounts` | Owner/operator/agent status with explicit owner-to-operator-to-agent binding, public verification keys, currency-specific accounts |
 | Double-entry journal | `financial_journal_transactions`, `financial_journal_postings` | Immutable posted transactions and integer minor-unit debit/credit lines |
 | Receipts | `financial_settlement_receipts` | Provider-scoped unique receipt reference, expected gross/fee, evidence metadata and reconciliation lifecycle |
-| Authorization | `financial_policies` | Versioned canonical policy payload, owner signature and public-key fingerprint; private keys are never stored |
+| Authorization | `financial_policies` | Versioned canonical policy payload, operator signer ID, owner signature and public-key fingerprint; private keys are never stored |
 | Spending | `financial_budget_reservations`, `financial_expense_schedules` | Idempotent reservations, policy-version pinning and bounded recurring schedules |
 | Audit | `financial_audit_events` | Append-oriented record of owner/agent financial-control changes |
 
-The schema uses integer minor units, exact three-letter uppercase currency codes, foreign keys, unique idempotency/source references, constrained lifecycle states, and bounded schedule intervals. Database triggers reject updates/deletes to posted journal transactions, postings and audit events, and reject posting currency mismatches. These constraints are necessary but not sufficient: Worker code must still validate participant types, signatures, destination allowlists, policy state, balances and posting totals. The database does not independently prove that every transaction's posting group balances.
+The schema uses integer minor units, exact three-letter uppercase currency codes, foreign keys, unique idempotency/source references, constrained lifecycle states, and bounded schedule intervals. Each agent is bound to an owner and an operator; each operator is bound to an owner. Signed policy versions record the exact operator signer. Database triggers reject updates/deletes to posted journal transactions, postings and audit events, and reject posting currency mismatches. These constraints are necessary but not sufficient: Worker code must still validate participant types, signatures, destination allowlists, policy state, balances and posting totals. The database does not independently prove that every transaction's posting group balances.
+
+## Policy signature verification foundation
+
+`cloudflare/worker/src/financial_policy_auth.js` now provides a fail-closed Ed25519 verifier for canonical policy payloads. It checks the exact policy schema, safe integer limits, non-wildcard exact destination allowlists, owner/operator/agent active status and relationship, public-key fingerprint, signature encoding, and the signature over canonical JSON bytes. Its D1 loader cross-checks the signed payload against stored columns and the joined participant records. The private key is never accepted by the verifier or stored in D1. Tests cover valid signatures, altered payloads, wrong/suspended signers, owner-agent mismatch, malformed policies and D1 loading.
+
+This verifier is currently a tested service module, not an exposed API or an active financial write path. No participant or policy rows are seeded, and no remote owner signing workflow exists yet.
 
 ## Required transaction protocol before enabling writes
 
