@@ -698,6 +698,29 @@ async function status(env) {
   const day = new Date().toISOString().slice(0, 10);
   const budget = await env.DB.prepare("SELECT reserved_neurons FROM ai_daily_budget WHERE utc_day=?").bind(day).first();
   const counts = await env.DB.prepare("SELECT status,COUNT(*) AS total FROM ai_tasks GROUP BY status").all();
+  let baseIndexer = { enabled: env.AAE_BASE_USDC_INDEXER_ENABLED === "true", state: "not_initialized" };
+  try {
+    const indexerState = await env.DB.prepare(
+      "SELECT next_block,halted_at,halt_reason,updated_at FROM base_usdc_indexer_state WHERE id=1"
+    ).first();
+    if (indexerState) {
+      baseIndexer = {
+        enabled: env.AAE_BASE_USDC_INDEXER_ENABLED === "true",
+        state: indexerState.halted_at ? "halted" : "running",
+        next_block: indexerState.next_block,
+        halted_at: indexerState.halted_at || null,
+        halt_reason: indexerState.halt_reason || null,
+        updated_at: indexerState.updated_at || null,
+        manual_review_required: Boolean(indexerState.halted_at),
+      };
+    }
+  } catch {
+    baseIndexer = {
+      enabled: env.AAE_BASE_USDC_INDEXER_ENABLED === "true",
+      state: "unavailable",
+      manual_review_required: true,
+    };
+  }
   return json({
     model: MODEL_ID,
     utc_day: day,
@@ -709,6 +732,7 @@ async function status(env) {
     public_checkout_enabled: baseUsdcCheckoutEnabled(env),
     protected_delivery_storage_available: Boolean(env.ASSETS),
     automatic_delivery_enabled: baseUsdcCheckoutEnabled(env) && Boolean(env.ASSETS),
+    base_usdc_indexer: baseIndexer,
     outbound_payouts_enabled: false,
     public_registration_enabled: false,
     note: "Base USDC checkout and automatic delivery remain disabled unless the contract, RPC, dedicated signer, D1, legal-review and owner-approval gates are all satisfied. Outbound transfers are disabled.",
