@@ -88,7 +88,7 @@ class GitHubSourceBoardVerifier:
             if not isinstance(payload, dict) or not isinstance(payload.get("state"), str):
                 raise ValueError("unexpected GitHub issue schema")
             is_pr = isinstance(payload.get("pull_request"), dict) or kind == "pull"
-            merged = payload.get("pull_request", {}).get("merged") is True if isinstance(payload.get("pull_request"), dict) else False
+            merged = payload.get("merged") is True if kind == "pull" else False
             state = payload["state"].lower()
             comments = payload.get("comments")
             comments = max(0, int(comments)) if comments is not None else None
