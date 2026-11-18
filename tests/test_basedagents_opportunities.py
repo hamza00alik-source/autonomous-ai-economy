@@ -33,6 +33,10 @@ class BasedAgentsOpportunityTests(unittest.TestCase):
         self.assertEqual(rows[0]["external_task_id"], "task-1")
         self.assertFalse(rows[0]["payload"]["payment_verified"])
 
+    def test_usdc_display_suffix_is_accepted_by_bounty_filter(self):
+        result = self.store.save(self.lead(bounty_usdc="5.00 USDC"))
+        self.assertEqual(result["state"], "review_required")
+
     def test_unpaid_unsupported_or_unclaimable_task_rejected(self):
         for lead in (
             self.lead(task_id="free", bounty_usdc=None),
