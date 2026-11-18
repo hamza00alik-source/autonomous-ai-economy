@@ -107,20 +107,16 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
     const normalized = normalizeSwarmMemoFeed({ works: rows || [] });
     const hasMore = payload?.data?.has_more === true || payload?.has_more === true;
     const pageCursor = hasMore ? nextPageCursor(payload) : null;
-    const tasks = [];
-    for (const preview of normalized) {
+    const tasks = await Promise.all(normalized.map(async (preview) => {
       try {
         const fullWork = await fetchFullWork(preview.task_id, fetchImpl);
         const fullRows = normalizeSwarmMemoFeed({ works: [fullWork] });
-        if (fullRows.length && fullRows[0].request_truncated === 0) {
-          tasks.push(fullRows[0]);
-          continue;
-        }
+        if (fullRows.length && fullRows[0].request_truncated === 0) return fullRows[0];
       } catch {
         // Keep the bounded feed preview, but mark it truncated so it cannot be approved.
       }
-      tasks.push(preview);
-    }
+      return preview;
+    }));
 
     const statements = tasks.map((task) => env.DB.prepare(
       `INSERT INTO swarmmemo_work_items
