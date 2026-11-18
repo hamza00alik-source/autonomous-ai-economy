@@ -62,7 +62,23 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
 <section class="panel"><h2>Worker status</h2><div id="workerStatus" class="muted">Loading…</div><p class="muted" id="workerNote"></p></section>
 <section class="panel"><h2>Agent revenue attribution</h2><p class="muted">Only provider-settled events recorded in Cloudflare D1 appear here. Pending reconciliation is not spendable agent income.</p><div class="tablewrap"><table><thead><tr><th>Agent</th><th>Sales</th><th>Gross USD</th><th>Awaiting reconciliation</th><th>Credited to agent</th></tr></thead><tbody id="revenueRows"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></section>
 <section class="panel"><h2>Recent AI tasks</h2><div class="tablewrap"><table><thead><tr><th>Task</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead><tbody id="taskRows"><tr><td colspan="4">Loading…</td></tr></tbody></table></div></section>
-<section class="panel"><h2>Financial controls status</h2><div class="notice">The owner-signed financial policies, budget reservations and recurring expense scheduler currently live in the local Python SQLite subsystem. They are not synchronized to Cloudflare D1, so this dashboard does not display or control those balances or schedules. No real transfers or payments can be initiated here.</div></section>
+<section class="panel">
+<h2>Cloud financial controls</h2>
+<p class="muted">Cloud D1 controls are separate from the local simulated SQLite subsystem. Emergency pause blocks new reservations and scheduled expense settlement.</p>
+<div class="row"><span id="financialState" class="status offline">Checking cloud controls…</span><button id="emergencyPause" class="secondary" disabled>Pause spending</button></div>
+<div id="financialMessage" class="muted" role="status" aria-live="polite"></div>
+<div class="notice" id="financialNotice">Cloud financial controls remain unavailable until the owner identity and signed policies are provisioned. No provider transfers or real payments are connected.</div>
+<h2 style="margin-top:20px">Recurring expense schedules</h2>
+<div class="tablewrap"><table><thead><tr><th>Agent</th><th>Destination</th><th>Amount</th><th>Interval</th><th>Next due</th><th>Status</th><th>Control</th></tr></thead><tbody id="scheduleRows"><tr><td colspan="7">Not loaded</td></tr></tbody></table></div>
+<form id="scheduleForm" class="hidden" style="margin-top:16px;display:grid;gap:9px">
+<label class="muted">Agent ID<input id="scheduleAgent" required maxlength="80" placeholder="agent identifier"></label>
+<label class="muted">Exact approved destination<input id="scheduleDestination" required maxlength="256" placeholder="provider:account:identifier"></label>
+<div class="row"><label class="muted" style="flex:1">Currency<input id="scheduleCurrency" required value="USD" maxlength="3"></label><label class="muted" style="flex:1">Amount (minor units)<input id="scheduleAmount" type="number" required min="1" step="1" placeholder="e.g. 500"></label></div>
+<label class="muted">Interval (seconds; 3600–2678400)<input id="scheduleInterval" type="number" required min="3600" max="2678400" step="1" value="86400"></label>
+<label class="muted">First due time<input id="scheduleDue" type="datetime-local" required></label>
+<button type="submit">Create signed-policy schedule</button>
+</form>
+</section>
 </section>
 <footer>AAE prototype · Dashboard APIs are read-only. No checkout activation, policy signing, spending, publishing, wallet signing or fund transfers are available from this page. Disconnect clears the browser-tab token.</footer>
 </main>
@@ -89,10 +105,73 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    $("connection").textContent=connected?"Connected":"Disconnected";
    $("connection").classList.toggle("offline",!connected);
  }
+ let financialControls = null;
+ async function postJson(path,body) {
+   const response=await fetch(path,{method:"POST",headers:{...headers(),"content-type":"application/json"},body:JSON.stringify(body),cache:"no-store"});
+   const data=await response.json().catch(()=>({}));
+   if(!response.ok) throw new Error(data.error||"Request failed ("+response.status+")");
+   return data;
+ }
+ function renderSchedules(rows) {
+   const body=$("scheduleRows");body.replaceChildren();
+   if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.textContent="No recurring schedules configured.";tr.appendChild(td);body.appendChild(tr);return;}
+   for(const item of rows){
+     const tr=document.createElement("tr");
+     const values=[item.agent_id,item.destination,item.currency+" "+(Number(item.amount_minor)/100).toFixed(2),number(item.interval_seconds)+" sec",time(item.next_due_at),item.status];
+     for(const value of values){const td=document.createElement("td");td.textContent=String(value);tr.appendChild(td);}
+     const td=document.createElement("td");
+     if(item.status!=="cancelled"){
+       const btn=document.createElement("button");btn.className="secondary";btn.textContent=item.status==="paused"?"Resume":"Pause";
+       btn.addEventListener("click",async()=>{btn.disabled=true;try{await postJson("/v1/owner/financial-controls/schedules/"+encodeURIComponent(item.schedule_id)+"/status",{status:item.status==="paused"?"active":"paused"});await loadFinancialControls();}catch(e){$("financialMessage").textContent=e.message;}finally{btn.disabled=false;}});
+       td.appendChild(btn);
+       const cancel=document.createElement("button");cancel.className="secondary";cancel.style.marginLeft="6px";cancel.textContent="Cancel";
+       cancel.addEventListener("click",async()=>{cancel.disabled=true;try{await postJson("/v1/owner/financial-controls/schedules/"+encodeURIComponent(item.schedule_id)+"/status",{status:"cancelled"});await loadFinancialControls();}catch(e){$("financialMessage").textContent=e.message;}finally{cancel.disabled=false;}});
+       td.appendChild(cancel);
+     } else td.textContent="—";
+     tr.appendChild(td);body.appendChild(tr);
+   }
+ }
+ async function loadFinancialControls() {
+   try {
+     financialControls=await get("/v1/owner/financial-controls");
+     const paused=financialControls.emergency_paused;
+     $("financialState").textContent=paused?"Emergency pause active":"Cloud spending enabled";
+     $("financialState").classList.toggle("offline",paused);
+     $("emergencyPause").textContent=paused?"Resume simulated spending":"Emergency pause";
+     $("emergencyPause").disabled=false;
+     $("financialNotice").textContent="Cloud D1 is the source of truth. Reservations and recurring expenses are simulated journal entries only; provider transfers and live payments are disabled.";
+     $("scheduleForm").classList.remove("hidden");
+     renderSchedules(financialControls.schedules||[]);
+   } catch(error) {
+     financialControls=null;
+     $("financialState").textContent="Cloud controls unavailable";
+     $("financialState").classList.add("offline");
+     $("emergencyPause").disabled=true;
+     $("scheduleForm").classList.add("hidden");
+     $("financialNotice").textContent=error.message+" Cloud controls stay fail-closed; local SQLite balances are not mirrored here.";
+     renderSchedules([]);
+   }
+ }
+ $("emergencyPause").addEventListener("click",async()=>{
+   if(!financialControls)return;
+   const paused=!financialControls.emergency_paused;
+   $("emergencyPause").disabled=true;
+   try{await postJson("/v1/owner/financial-controls/emergency-pause",{paused,reason:paused?"Owner emergency pause":"Owner resumed simulated spending"});await loadFinancialControls();$("financialMessage").textContent=paused?"Emergency pause is active.":"Simulated cloud spending resumed.";}
+   catch(error){$("financialMessage").textContent=error.message;}
+   finally{$("emergencyPause").disabled=false;}
+ });
+ $("scheduleForm").addEventListener("submit",async event=>{
+   event.preventDefault();
+   const due=$("scheduleDue").value;
+   const payload={agent_id:$("scheduleAgent").value.trim(),destination:$("scheduleDestination").value.trim(),currency:$("scheduleCurrency").value.trim().toUpperCase(),amount_minor:Number($("scheduleAmount").value),interval_seconds:Number($("scheduleInterval").value),next_due_at:new Date(due).toISOString()};
+   try{await postJson("/v1/owner/financial-controls/schedules",payload);$("financialMessage").textContent="Schedule created under the active signed policy.";event.target.reset();$("scheduleCurrency").value="USD";$("scheduleInterval").value="86400";await loadFinancialControls();}
+   catch(error){$("financialMessage").textContent=error.message;}
+ });
  async function refresh() {
    $("refresh").disabled=true;
    try {
      const [overview,tasks]=await Promise.all([get("/v1/owner/overview"),get("/v1/owner/tasks")]);
+     await loadFinancialControls();
      const counts=Object.fromEntries((overview.tasks||[]).map(row=>[row.status,row.total]));
      $("queued").textContent=number(counts.queued);
      $("running").textContent=number(counts.running);
