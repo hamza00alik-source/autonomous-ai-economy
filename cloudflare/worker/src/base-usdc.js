@@ -312,7 +312,12 @@ export async function fetchConfirmedBaseUsdcLogs({
     const finality = verifyBaseUsdcFinality({
       log, receipt, block, headBlock, confirmations,
     });
+    if (typeof block.timestamp !== "bigint" || block.timestamp <= 0n ||
+        block.timestamp > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("canonical block timestamp is missing or unsafe");
+    }
     events.push({
+      blockTimestamp: Number(block.timestamp),
       orderIdHash: decoded.args.orderId,
       buyerAddress: decoded.args.buyer,
       merchantAddress: decoded.args.merchant,
