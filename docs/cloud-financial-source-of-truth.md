@@ -71,3 +71,25 @@ A receipt may move to `confirmed` only after a provider-specific verifier valida
 6. Only after explicit owner approval and legal/provider clearance consider any live settlement or transfer integration.
 
 No production deployment, migration application, live checkout, payment provider call, wallet signing, transfer, or money movement is part of this change.
+
+
+## Cloud policy-enforced controls implementation
+
+The cloud service layer now includes `cloudflare/worker/src/financial_controls.js`:
+
+- `getCloudFinancialControls` returns owner-scoped budgets, reservations, schedules and occurrence history. Available balances are calculated from posted agent-operating journal credits minus debits and active reservations; no local SQLite balances are copied.
+- `reserveCloudAgentBudget` re-verifies the active Ed25519-signed policy, owner/operator/agent relationship, currency, exact destination and per-transaction cap before attempting an idempotent reservation. D1 triggers independently enforce the emergency-pause state, daily cap and available budget under concurrent requests.
+- `settleCloudAgentExpense` re-verifies the policy and posts the debit, expense credit, audit event and reservation settlement in one D1 batch. This is an internal simulated accounting event only; it never contacts a provider or signs/broadcasts a transfer.
+- `createCloudExpenseSchedule` pins each recurring schedule to the exact signed policy version. Schedule pause/resume/cancel operations are owner-only and audited.
+- `runDueCloudExpenseSchedules` claims unique schedule occurrences, creates idempotent reservations, and settles only through the same policy-enforced journal path. Blocked occurrences remain retryable; due dates advance only after successful settlement.
+- Worker cron invokes this scheduler only when both `AAE_CLOUD_FINANCIAL_SCHEDULER_ENABLED=true` and `AAE_OWNER_ID` are configured. It is not enabled by default.
+
+Migration `0007_financial_control_enforcement.sql` adds owner emergency-pause state and unique recurring occurrence records. Database triggers enforce signed-policy row state, exact destination allowlists, per-transaction ceilings, daily reserved-plus-settled spending ceilings, active same-owner participants, available agent operating budget, and an explicit owner unpause before any reservation. Reservation settlement requires its matching expense journal transaction. A paused owner blocks both new reservations and journal settlement.
+
+Authenticated owner routes now expose `GET /v1/owner/financial-controls`, emergency pause/resume, and recurring schedule create/pause/resume/cancel. Mutation routes require the existing bearer authorization, same-origin JSON requests, bounded bodies, and an `AAE_OWNER_ID` binding. The mobile owner dashboard displays cloud agent budgets, durable reservations, recurring schedules, and an emergency pause control.
+
+## Provisioning and activation gate
+
+This is implemented code, not an activated cloud financial system. No cloud owner/operator/agent participants, public keys, signed policy rows, accounts or budgets are seeded. Consequently the owner controls API returns unavailable until a valid `AAE_OWNER_ID` is provisioned, and spending remains paused by default. A secure, reviewed owner enrollment and local-device policy-signing/provisioning workflow is still required before an owner can create signed cloud policies. The cron flag and owner binding have not been configured in production. The migration has not been applied to production D1, and the Worker/dashboard have not been deployed.
+
+The existing global bearer token remains the API gate in this prototype; before production activation, replace or formally bind it to an owner-specific credential, add rate limiting and audit/alerting for control mutations, and complete a security review. Do not treat the dashboard's simulated expense settlement as a real payment.
