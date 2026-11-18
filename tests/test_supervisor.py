@@ -202,3 +202,19 @@ def test_supervisor_rejects_malformed_financial_scheduler_result():
                       worker=lambda _store: None,
                       financial_scheduler=lambda: {"settled": True, "blocked": 0})
     assert stats == {"cycles": 1, "completed": 0, "idle": 0, "errors": 1}
+
+
+
+def test_opt_in_financial_scheduler_wiring_creates_no_default_policy(tmp_path):
+    from economy.supervisor import _build_simulated_financial_scheduler
+
+    callback = _build_simulated_financial_scheduler(tmp_path)
+    assert callback() == {"settled": 0, "blocked": 0}
+    assert (tmp_path / "participants.sqlite3").exists()
+    assert (tmp_path / "financial-policies.sqlite3").exists()
+    assert (tmp_path / "financial-ledger.sqlite3").exists()
+    assert (tmp_path / "financial-spending.sqlite3").exists()
+    assert (tmp_path / "financial-expense-schedules.sqlite3").exists()
+    import sqlite3
+    with sqlite3.connect(tmp_path / "financial-policies.sqlite3") as db:
+        assert db.execute("SELECT COUNT(*) FROM financial_policies").fetchone()[0] == 0
