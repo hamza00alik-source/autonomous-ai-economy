@@ -205,3 +205,38 @@ export function decodeBaseUsdcPaymentLog(log, expected) {
     blockHash: log.blockHash,
   };
 }
+
+
+/**
+ * Verifies an RPC-retrieved receipt and block against a decoded log and
+ * enforces the configured confirmation depth. The caller must fetch these
+ * values from its trusted Base RPC endpoint and persist only after this passes.
+ */
+export function verifyBaseUsdcFinality({ log, receipt, block, headBlock, confirmations }) {
+  if (!Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 10000) {
+    throw new Error("confirmation threshold must be between 1 and 10000");
+  }
+  if (!log || !receipt || !block || typeof headBlock !== "bigint") {
+    throw new Error("receipt, block and head block evidence are required");
+  }
+  if (receipt.status !== "success") throw new Error("payment transaction did not succeed");
+  if (receipt.transactionHash?.toLowerCase() !== log.transactionHash?.toLowerCase()) {
+    throw new Error("receipt transaction hash does not match the event");
+  }
+  if (receipt.blockHash?.toLowerCase() !== log.blockHash?.toLowerCase() ||
+      block.hash?.toLowerCase() !== log.blockHash?.toLowerCase()) {
+    throw new Error("event block is not canonical according to the RPC response");
+  }
+  if (receipt.blockNumber !== log.blockNumber || block.number !== log.blockNumber) {
+    throw new Error("receipt and event block numbers do not match");
+  }
+  const requiredHead = log.blockNumber + BigInt(confirmations) - 1n;
+  if (headBlock < requiredHead) throw new Error("payment has not reached the required confirmation depth");
+  return {
+    confirmed: true,
+    confirmations: Number(headBlock - log.blockNumber + 1n),
+    blockNumber: log.blockNumber.toString(),
+    blockHash: log.blockHash,
+    transactionHash: log.transactionHash,
+  };
+}
