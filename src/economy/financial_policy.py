@@ -127,13 +127,16 @@ class FinancialPolicyStore:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("BEGIN IMMEDIATE")
             existing = db.execute(
-                "SELECT policy_sha256 FROM financial_policies WHERE agent_id=? AND policy_id=? AND version=?",
+                "SELECT policy_sha256,status FROM financial_policies WHERE agent_id=? AND policy_id=? AND version=?",
                 (normalized["agent_id"], normalized["policy_id"], normalized["version"]),
             ).fetchone()
             if existing:
                 if existing[0] != digest:
                     db.rollback()
                     raise FinancialPolicyError("policy version already exists with different terms")
+                if existing[1] != "active":
+                    db.rollback()
+                    raise FinancialPolicyError("policy version must increase monotonically; superseded policy cannot be reactivated")
                 db.commit()
                 return self.get(normalized["agent_id"], normalized["policy_id"])
             latest = db.execute(
