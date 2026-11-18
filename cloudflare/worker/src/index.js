@@ -531,6 +531,31 @@ async function downloadStoreProduct(request, env, orderId) {
 }
 
 
+async function ownerOverview(env) {
+  const operational = await (await status(env)).json();
+  const agents = await env.DB.prepare(
+    "SELECT agent_id,COUNT(CASE WHEN status!='reversed' THEN 1 END) AS sales_count," +
+    "COALESCE(SUM(CASE WHEN status!='reversed' THEN gross_amount_minor ELSE 0 END),0) AS gross_settled_minor," +
+    "COALESCE(SUM(CASE WHEN status='settled_pending_reconciliation' THEN gross_amount_minor ELSE 0 END),0) AS awaiting_reconciliation_minor," +
+    "COALESCE(SUM(CASE WHEN status='reconciled' THEN net_amount_minor ELSE 0 END),0) AS reconciled_net_minor," +
+    "COALESCE(SUM(CASE WHEN status='reconciled' THEN agent_credit_minor ELSE 0 END),0) AS credited_to_agent_minor " +
+    "FROM agent_revenue_events GROUP BY agent_id ORDER BY agent_id"
+  ).all();
+  return json({ model: operational.model, utc_day: operational.utc_day,
+    estimated_neurons_reserved: operational.estimated_neurons_reserved,
+    daily_safety_budget_neurons: operational.daily_safety_budget_neurons,
+    tasks: operational.tasks, public_checkout_enabled: operational.public_checkout_enabled,
+    outbound_payouts_enabled: false, agents: agents.results || [],
+    note: "Read-only Cloudflare Worker overview. Revenue remains pending until provider receipts, fees, refunds and allocation are reconciled. Local SQLite financial policies, budgets and schedules are not synchronized to this dashboard."
+  });
+}
+
+async function ownerTasks(env) {
+  const rows = await env.DB.prepare(
+    "SELECT task_id,task_type,status,created_at,updated_at FROM ai_tasks ORDER BY created_at DESC,task_id DESC LIMIT 25"
+  ).all();
+  return json({ tasks: rows.results || [], limit: 25 });
+}
 async function agentRevenue(env, agentId) {
   const summary = await env.DB.prepare(
     "SELECT COUNT(*) AS sales_count,COALESCE(SUM(gross_amount_minor),0) AS gross_settled_minor,COALESCE(SUM(CASE WHEN status='settled_pending_reconciliation' THEN gross_amount_minor ELSE 0 END),0) AS awaiting_reconciliation_minor,COALESCE(SUM(CASE WHEN status='reconciled' THEN net_amount_minor ELSE 0 END),0) AS reconciled_net_minor,COALESCE(SUM(CASE WHEN status='reconciled' THEN agent_credit_minor ELSE 0 END),0) AS credited_to_agent_minor FROM agent_revenue_events WHERE agent_id=?"
@@ -639,6 +664,18 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") {
       return json({ service: "autonomous-ai-economy", status: "ready", public_registration: false });
+    }
+    if ((url.pathname === "/owner" || url.pathname === "/owner/") && request.method === "GET") {
+      if (!env.ASSETS) return json({ error: "owner dashboard assets are not configured" }, 503);
+      const assetUrl = new URL("/owner.html", url);
+      const page = await env.ASSETS.fetch(new Request(assetUrl, { method: "GET" }));
+      if (!page.ok) return json({ error: "owner dashboard asset is unavailable" }, 404);
+      const headers = new Headers(page.headers);
+      headers.set("content-security-policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+      headers.set("referrer-policy", "no-referrer");
+      headers.set("x-content-type-options", "nosniff");
+      headers.set("cache-control", "no-store");
+      return new Response(page.body, { status: 200, headers });
     }
     if (url.pathname === "/v1/payments/nowpayments/ipn" && request.method === "POST") {
       return nowPaymentsIPN(request, env);
@@ -756,6 +793,8 @@ export default {
       }
     }
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
+    if (url.pathname === "/v1/owner/overview" && request.method === "GET") return ownerOverview(env);
+    if (url.pathname === "/v1/owner/tasks" && request.method === "GET") return ownerTasks(env);
     if (url.pathname === "/v1/swarmmemo/work" && request.method === "GET") {
       const limit = Number(url.searchParams.get("limit") || 50);
       return json(await listSwarmMemoWork(env, limit));
