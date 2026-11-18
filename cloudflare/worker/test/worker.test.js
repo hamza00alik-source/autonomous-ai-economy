@@ -545,19 +545,28 @@ test("provider callback remains retryable when agent revenue attribution fails",
 });
 
 
-test("storefront stays unpublished unless owner explicitly enables live crypto checkout", async () => {
+test("Base USDC storefront stays unpublished until every live checkout gate is configured", async () => {
   const assets = { fetch: async () => new Response("<html>private storefront</html>") };
   const hidden = await worker.fetch(new Request("https://worker.example/"), { ASSETS: assets });
   assert.equal(hidden.status, 404);
   const visible = await worker.fetch(new Request("https://worker.example/"), {
     ASSETS: assets,
-    AAE_PUBLIC_CHECKOUT_ENABLED: "true",
+    DB: {},
+    BASE_RPC_URL: "https://base.example/rpc",
+    BASE_DEPLOYMENT_BLOCK: "100",
+    BASE_CONFIRMATIONS: "6",
+    BASE_INVOICE_SIGNER_PRIVATE_KEY: "test-only",
+    BASE_INVOICE_SIGNER_ADDRESS: "0x1111111111111111111111111111111111111111",
+    BASE_MERCHANT_ADDRESS: "0x2222222222222222222222222222222222222222",
+    BASE_CHECKOUT_CONTRACT_ADDRESS: "0x3333333333333333333333333333333333333333",
+    AAE_BASE_USDC_CHECKOUT_ENABLED: "true",
+    AAE_BASE_USDC_INDEXER_ENABLED: "true",
     AAE_CRYPTO_ENABLEMENT_APPROVED: "true",
-    NOWPAYMENTS_API_KEY: "api-test",
-    NOWPAYMENTS_IPN_SECRET: "ipn-test"
+    AAE_BASE_USDC_LEGAL_REVIEW_APPROVED: "true"
   });
   assert.equal(visible.status, 200);
   assert.match(visible.headers.get("content-security-policy"), /default-src 'self'/);
+  assert.match(visible.headers.get("content-security-policy"), /connect-src 'self' https:\/\/mainnet\.base\.org/);
   assert.equal(await visible.text(), "<html>private storefront</html>");
 });
 
