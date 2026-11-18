@@ -72,6 +72,23 @@ class DoubleEntryLedgerTests(unittest.TestCase):
                         ],
                     )
 
+    def test_malformed_direction_currency_and_integer_overflow_are_rejected(self):
+        bad_cases = [
+            ("USD", [{"account_id": "a", "direction": [], "amount_minor": 1},
+                     {"account_id": "b", "direction": "credit", "amount_minor": 1}]),
+            ("US€", [{"account_id": "a", "direction": "debit", "amount_minor": 1},
+                     {"account_id": "b", "direction": "credit", "amount_minor": 1}]),
+            ("USD", [{"account_id": "a", "direction": "debit", "amount_minor": 9_223_372_036_854_775_808},
+                     {"account_id": "b", "direction": "credit", "amount_minor": 9_223_372_036_854_775_808}]),
+        ]
+        for currency, lines in bad_cases:
+            with self.subTest(currency=currency, lines=lines):
+                with self.assertRaises(FinancialLedgerError):
+                    self.ledger.post(
+                        idempotency_key="malformed-" + str(len(lines)) + str(currency),
+                        description="bad", currency=currency, lines=lines,
+                    )
+
     def test_real_money_posting_is_rejected(self):
         with self.assertRaisesRegex(FinancialLedgerError, "disabled"):
             self.ledger.post(
