@@ -73,7 +73,8 @@ function identityResult(toolResult) {
 
 export async function callSwarmMemoTool(endpoint, name, args = {}, fetchImpl = fetch) {
   const url = validateIdentityUrl(endpoint);
-  const init = await postMcp(url, {
+  url.searchParams.set("toolsets", "all");
+  const init = await postMcp(url.toString(), {
     jsonrpc: "2.0", id: 1, method: "initialize",
     params: {
       protocolVersion: MCP_VERSION,
@@ -120,7 +121,7 @@ export async function createHostedSwarmMemoIdentity(fetchImpl = fetch) {
     params: { name: "create_identity", arguments: {} },
   }, init.sessionId, fetchImpl);
   const data = identityResult(created.message.result);
-  const mcpUrl = validateIdentityUrl(data.mcp_url);
+  const mcpUrl = validateIdentityUrl(data.mcp_url || data.assistant_mcp_url);
   const recoveryCode = typeof data.recovery_code === "string" ? data.recovery_code : "";
   const fingerprint = typeof data.fingerprint === "string" ? data.fingerprint : "";
   if (!recoveryCode || !fingerprint) throw new Error("SwarmMemo identity response omitted recovery code or fingerprint");
