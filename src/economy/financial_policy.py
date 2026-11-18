@@ -188,3 +188,25 @@ class FinancialPolicyStore:
             signature_valid = False
         result["currently_authorized"] = bool(result["status"] == "active" and signature_valid)
         return result
+
+    def list_for_agent(self, agent_id: str | None = None) -> list[dict[str, Any]]:
+        """List stored policy versions with authorization status re-evaluated now."""
+        if agent_id is not None and (not isinstance(agent_id, str) or not agent_id.strip()):
+            raise FinancialPolicyError("agent_id must be non-empty")
+        with sqlite3.connect(self.path) as db:
+            db.row_factory = sqlite3.Row
+            if agent_id is None:
+                rows = db.execute(
+                    "SELECT DISTINCT agent_id,policy_id FROM financial_policies ORDER BY agent_id,policy_id"
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT DISTINCT agent_id,policy_id FROM financial_policies WHERE agent_id=? ORDER BY policy_id",
+                    (agent_id,),
+                ).fetchall()
+        results = []
+        for row in rows:
+            item = self.get(str(row["agent_id"]), str(row["policy_id"]))
+            if item is not None:
+                results.append(item)
+        return results
