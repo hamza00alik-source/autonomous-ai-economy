@@ -30,6 +30,7 @@ The generated `public/wallet-checkout.js` is a build artifact and should not be 
 - On a mismatch, every settled invoice is moved to `review`, every download entitlement is revoked immediately, and all pending/reconciled revenue rows move to `refund_review`. The cursor is preserved for forensic reconciliation.
 - Subsequent scheduled runs remain halted without RPC scanning until a separately reviewed operator reconciliation/reset. There is no automatic unhalt.
 - The authenticated `/v1/status` endpoint reports indexer state, checkpoint height, halt timestamp and reason without exposing signing or queue secrets. This is a status surface, not an external paging/alerting integration.
+- New checkout invoice creation checks the persisted indexer state and returns `503` if the state row is missing or the incident latch is active. The public storefront is hidden under the same conditions, and authenticated status reports checkout as unavailable until the indexer is healthy again.
 - Unknown orders, expired invoices, wrong token, wrong merchant, amount mismatch, wrong emitter, failed receipt, duplicate order payment, or malformed logs are quarantined. They never unlock a download.
 
 ## Security and production blockers
