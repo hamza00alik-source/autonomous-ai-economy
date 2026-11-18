@@ -68,6 +68,9 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
 <div class="row"><span id="financialState" class="status offline">Checking cloud controls…</span><button id="emergencyPause" class="secondary" disabled>Pause spending</button></div>
 <div id="financialMessage" class="muted" role="status" aria-live="polite"></div>
 <div class="notice" id="financialNotice">Cloud financial controls remain unavailable until the owner identity and signed policies are provisioned. No provider transfers or real payments are connected.</div>
+<h2 style="margin-top:20px">Agent budgets and reservations</h2>
+<div class="tablewrap"><table><thead><tr><th>Agent</th><th>Currency</th><th>Allocated</th><th>Reserved</th><th>Available</th></tr></thead><tbody id="budgetRows"><tr><td colspan="5">Not loaded</td></tr></tbody></table></div>
+<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Reservation</th><th>Agent</th><th>Destination</th><th>Amount</th><th>Status</th><th>Expires</th></tr></thead><tbody id="reservationRows"><tr><td colspan="6">Not loaded</td></tr></tbody></table></div>
 <h2 style="margin-top:20px">Recurring expense schedules</h2>
 <div class="tablewrap"><table><thead><tr><th>Agent</th><th>Destination</th><th>Amount</th><th>Interval</th><th>Next due</th><th>Status</th><th>Control</th></tr></thead><tbody id="scheduleRows"><tr><td colspan="7">Not loaded</td></tr></tbody></table></div>
 <form id="scheduleForm" class="hidden" style="margin-top:16px;display:grid;gap:9px">
@@ -112,6 +115,16 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    if(!response.ok) throw new Error(data.error||"Request failed ("+response.status+")");
    return data;
  }
+ function renderBudgets(rows) {
+   const body=$("budgetRows");body.replaceChildren();
+   if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=5;td.textContent="No cloud agent budgets configured.";tr.appendChild(td);body.appendChild(tr);return;}
+   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.agent_id,item.currency,(Number(item.allocated_minor)/100).toFixed(2),(Number(item.reserved_minor)/100).toFixed(2),(Number(item.available_minor)/100).toFixed(2)]){const td=document.createElement("td");td.textContent=value;tr.appendChild(td);}body.appendChild(tr);}
+ }
+ function renderReservations(rows) {
+   const body=$("reservationRows");body.replaceChildren();
+   if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.textContent="No budget reservations recorded.";tr.appendChild(td);body.appendChild(tr);return;}
+   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.reservation_id,item.agent_id,item.destination,item.currency+" "+(Number(item.amount_minor)/100).toFixed(2),item.status,time(item.expires_at)]){const td=document.createElement("td");td.textContent=String(value);tr.appendChild(td);}body.appendChild(tr);}
+ }
  function renderSchedules(rows) {
    const body=$("scheduleRows");body.replaceChildren();
    if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.textContent="No recurring schedules configured.";tr.appendChild(td);body.appendChild(tr);return;}
@@ -141,6 +154,8 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      $("emergencyPause").disabled=false;
      $("financialNotice").textContent="Cloud D1 is the source of truth. Reservations and recurring expenses are simulated journal entries only; provider transfers and live payments are disabled.";
      $("scheduleForm").classList.remove("hidden");
+     renderBudgets(financialControls.budgets||[]);
+     renderReservations(financialControls.reservations||[]);
      renderSchedules(financialControls.schedules||[]);
    } catch(error) {
      financialControls=null;
@@ -149,6 +164,7 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      $("emergencyPause").disabled=true;
      $("scheduleForm").classList.add("hidden");
      $("financialNotice").textContent=error.message+" Cloud controls stay fail-closed; local SQLite balances are not mirrored here.";
+     renderBudgets([]);renderReservations([]);
      renderSchedules([]);
    }
  }
