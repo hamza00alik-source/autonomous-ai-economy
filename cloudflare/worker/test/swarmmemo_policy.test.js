@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { screenSwarmMemoTask } from "../src/swarmmemo_policy.js";
+import { autoApproveSafeSwarmMemoTasks } from "../src/swarmmemo.js";
 
 function task(overrides = {}) {
   return {
@@ -51,4 +52,32 @@ test("fails closed for incomplete, simulated, closed, or non-claimable tasks", (
 test("requires both a public-information scope and a defined deliverable", () => {
   assert.equal(screenSwarmMemoTask(task({ task_text: "Do some research and tell me what you think." })).allowed, false);
   assert.equal(screenSwarmMemoTask(task({ task_text: "Use public sources to look around." })).allowed, false);
+});
+
+test("auto-approves only safe tasks for internal preparation", async () => {
+  const candidates = [
+    task({ task_id: "public-brief-001" }),
+    task({ task_id: "restricted-brief-002", task_text: "Use public sources to prepare a report and include your private key." }),
+  ];
+  const updates = [];
+  const env = {
+    DB: {
+      prepare(sql) {
+        return {
+          bind(...values) {
+            return {
+              async all() { return { results: candidates }; },
+              async run() { updates.push({ sql, values }); return { meta: { changes: 1 } }; },
+            };
+          },
+        };
+      },
+    },
+  };
+  const result = await autoApproveSafeSwarmMemoTasks(env);
+  assert.equal(result.approved, 1);
+  assert.equal(result.screened, 2);
+  assert.equal(updates.length, 1);
+  assert.match(updates[0].sql, /approved_awaiting_executor/);
+  assert.match(result.notice, /does not claim, submit, publish, spend/);
 });
