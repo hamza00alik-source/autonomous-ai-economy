@@ -95,3 +95,12 @@ This status distinguishes local prototype code from the future open economy. A c
 - Added `src/economy/allocation.py`: deterministic largest-remainder allocation from a simulated reconciled receipt into configured agent/treasury subaccounts, conserving every minor unit and rejecting insufficient cleared treasury balance.
 - Added focused tests for journal invariants and allocation conservation, replay safety, pending-receipt rejection and simulated-only behavior.
 - These modules are isolated local prototypes. They are not connected to payment adapters, the Cloudflare Worker/D1, authenticated participant identities, signed owner policies, live balances or a transaction executor. Settlement state and allocation policy are trusted caller inputs in this prototype and must not be treated as production authorization.
+
+
+## Simulated settlement reconciliation
+
+- Added a local SQLite receipt state machine: `pending → confirmed → reconciled`.
+- A pending receipt does not create a treasury balance. Confirmation requires exact gross and fee matches against the registered expected terms; reconciliation posts the net amount and fee as a balanced journal transaction.
+- Receipt registration, confirmation and reconciliation are idempotent; source-reference reuse with changed terms is rejected. Agent budget allocation now checks the ledger's own reconciled receipt record and verifies agent, currency and net amount instead of trusting a caller-supplied `settlement_state` string.
+- Added `tests/test_settlement.py` and updated allocation tests.
+- This remains a **simulated-only** state machine. The confirmation method currently accepts caller-supplied observations; it is not connected to a provider signature verifier, blockchain finality verifier, webhook authentication, legal entity verification or real funds. Never treat this state as proof of a live payment.
