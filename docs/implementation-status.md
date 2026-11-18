@@ -112,3 +112,12 @@ This status distinguishes local prototype code from the future open economy. A c
 - Policies define exact asset currency, per-transaction and daily limits, and non-wildcard allowlisted destinations. Versions are monotonic; key rotation or participant suspension invalidates the policy until re-signed.
 - Added tests for valid and invalid signatures, operator mismatch, inactive owners, policy versioning, key rotation and unsafe limits/destinations.
 - This provisions policy data only. It does not reserve balances, enforce daily spend counters, sign transactions, or execute transfers. The next layer must bind policy verification to a spend executor and durable budget reservations before any live integration.
+
+
+## Policy-enforced simulated agent operating budgets
+
+- Added \`src/economy/financial_spending.py\`: durable, idempotent reservations against each agent's allocated budget; exact destination allowlists; currency binding; per-transaction and UTC-day spending ceilings; expiry/release; and journal-backed expense settlement.
+- The reservation service rechecks the current owner-signed policy and active agent/operator authorization at reservation and settlement time. Policy key rotation, suspension or supersession blocks further settlement.
+- Expense settlement debits the agent budget and credits a simulated operating-expense account exactly once. It does not send money to the named destination or invoke a provider.
+- Added tests for replay conflicts, reservation capacity, daily/per-transaction limits, allowlist/currency rejection, release, settlement idempotency, policy rotation/supersession and participant suspension.
+- This remains a local simulated accounting component. It does not create provider payment instructions, sign or broadcast transactions, connect a wallet, or establish that a real service was paid. Production execution still requires a separately reviewed payment executor, provider/legal eligibility, custody/key controls and explicit owner approval.
