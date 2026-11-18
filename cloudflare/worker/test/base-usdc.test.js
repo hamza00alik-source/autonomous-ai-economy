@@ -75,7 +75,7 @@ test("Base invoice signer rejects wrong chain, invalid addresses, expired deadli
 });
 
 test("native Base USDC contract constant matches Circle's canonical Base token", () => {
-  assert.equal(BASE_USDC_ADDRESS.toLowerCase(), "0x833589fc6ed6b6e08f4c7c32d4f71b54bda02913");
+  assert.equal(BASE_USDC_ADDRESS.toLowerCase(), "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
 });
 
 
