@@ -80,6 +80,31 @@ class PaidTaskCapabilityEvaluatorTests(unittest.TestCase):
         self.assertIn("requires_authorized_external_runtime", result.reasons)
         self.assertIn("requires_prior_paid_usage_or_revenue_threshold", result.reasons)
 
+    def test_live_style_sentinel_task_is_not_qualified(self):
+        lead = {
+            "task_id": "task_sentinel", "title": "Revenue Guard",
+            "description": "Install Sentinel in a genuine external runtime",
+            "category": "automation", "bounty_usdc": "0.25",
+            "network": "eip155:8453", "status": "open", "claimable": True,
+            "required_capabilities": ["docker", "automation", "x402"],
+        }
+        detail = {
+            "task_id": "task_sentinel", "title": "Revenue Guard", "status": "open",
+            "description": (
+                "Install in a genuine external runtime.\\n"
+                "Reward requires at least 0.50 USDC of settled revenue and a paid cycle.\\n"
+                "Acceptance evidence:\\n1. Prove the install"
+            ),
+            "expected_output": "JSON proving install and paid cycle",
+            "bounty": {"amount_display": "0.25", "network": "eip155:8453"},
+            "required_capabilities": ["docker", "automation", "x402"],
+        }
+        result = self.evaluator.evaluate(lead, detail)
+        self.assertEqual(result.state, "needs_review")
+        self.assertFalse(result.claim_allowed)
+        self.assertIn("requires_authorized_external_runtime", result.reasons)
+        self.assertIn("requires_prior_paid_usage_or_revenue_threshold", result.reasons)
+
     def test_parses_display_amount_with_currency_suffix(self):
         detail = dict(self.detail, bounty={"amount_display": "5.00 USDC", "network": "eip155:8453"})
         result = self.evaluator.evaluate(self.lead, detail)
