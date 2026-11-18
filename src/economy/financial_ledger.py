@@ -56,6 +56,20 @@ class DoubleEntryLedger:
                 );
                 CREATE INDEX IF NOT EXISTS financial_journal_lines_account
                     ON financial_journal_lines(account_id, transaction_id);
+                CREATE TABLE IF NOT EXISTS simulated_settlement_receipts (
+                    settlement_id TEXT PRIMARY KEY,
+                    source_reference TEXT NOT NULL UNIQUE,
+                    agent_id TEXT NOT NULL,
+                    currency TEXT NOT NULL,
+                    expected_gross_minor INTEGER NOT NULL CHECK (expected_gross_minor > 0),
+                    expected_fee_minor INTEGER NOT NULL CHECK (expected_fee_minor >= 0),
+                    status TEXT NOT NULL CHECK (status IN ('pending','confirmed','reconciled')),
+                    received_gross_minor INTEGER,
+                    received_fee_minor INTEGER,
+                    journal_transaction_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
             """)
 
     def _connect(self) -> sqlite3.Connection:
@@ -169,6 +183,156 @@ class DoubleEntryLedger:
                 (account_id, currency.upper()),
             ).fetchone()
         return int(row[0])
+
+
+    @staticmethod
+    def _valid_minor(value: object, *, allow_zero: bool = False) -> bool:
+        return (
+            isinstance(value, int) and not isinstance(value, bool)
+            and (value >= 0 if allow_zero else value > 0)
+            and value <= 9_223_372_036_854_775_807
+        )
+
+    def record_simulated_receipt(
+        self, *, source_reference: str, agent_id: str, currency: str,
+        expected_gross_minor: int, expected_fee_minor: int,
+    ) -> str:
+        """Register an expected receipt. This is explicitly not payment proof."""
+        if not source_reference.strip() or not agent_id.strip():
+            raise FinancialLedgerError("source_reference and agent_id are required")
+        if not isinstance(currency, str) or len(currency) != 3 or not currency.isascii() or not currency.isalpha():
+            raise FinancialLedgerError("currency must be a three-letter code")
+        if not self._valid_minor(expected_gross_minor) or not self._valid_minor(expected_fee_minor, allow_zero=True):
+            raise FinancialLedgerError("gross and fee must be valid minor-unit integers")
+        if expected_fee_minor >= expected_gross_minor:
+            raise FinancialLedgerError("fee must be smaller than gross receipt")
+        now = datetime.now(timezone.utc).isoformat()
+        settlement_id = str(uuid.uuid4())
+        db = self._connect()
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            existing = db.execute(
+                "SELECT settlement_id,agent_id,currency,expected_gross_minor,expected_fee_minor FROM simulated_settlement_receipts WHERE source_reference=?",
+                (source_reference,),
+            ).fetchone()
+            terms = (agent_id, currency.upper(), expected_gross_minor, expected_fee_minor)
+            if existing:
+                if tuple(existing[1:]) != terms:
+                    raise IdempotencyConflict("source reference reused with changed settlement terms")
+                db.commit()
+                return str(existing[0])
+            db.execute(
+                """INSERT INTO simulated_settlement_receipts
+                   (settlement_id,source_reference,agent_id,currency,expected_gross_minor,expected_fee_minor,status,created_at,updated_at)
+                   VALUES(?,?,?,?,?,?,'pending',?,?)""",
+                (settlement_id, source_reference, agent_id, currency.upper(),
+                 expected_gross_minor, expected_fee_minor, now, now),
+            )
+            db.commit()
+            return settlement_id
+        except sqlite3.Error as exc:
+            db.rollback()
+            raise FinancialLedgerError("receipt registration failed") from exc
+        finally:
+            db.close()
+
+    def confirm_simulated_receipt(
+        self, *, source_reference: str, received_gross_minor: int, received_fee_minor: int,
+    ) -> str:
+        """Record a matching simulated provider/chain observation."""
+        if not self._valid_minor(received_gross_minor) or not self._valid_minor(received_fee_minor, allow_zero=True):
+            raise FinancialLedgerError("received gross and fee must be valid minor-unit integers")
+        db = self._connect()
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                """SELECT settlement_id,status,expected_gross_minor,expected_fee_minor
+                   FROM simulated_settlement_receipts WHERE source_reference=?""",
+                (source_reference,),
+            ).fetchone()
+            if row is None:
+                raise FinancialLedgerError("unknown settlement receipt")
+            settlement_id, status, expected_gross, expected_fee = row
+            if received_gross_minor != expected_gross or received_fee_minor != expected_fee:
+                raise FinancialLedgerError("received gross or fee does not match expected settlement")
+            if status == "pending":
+                db.execute(
+                    """UPDATE simulated_settlement_receipts
+                       SET status='confirmed',received_gross_minor=?,received_fee_minor=?,updated_at=?
+                       WHERE settlement_id=? AND status='pending'""",
+                    (received_gross_minor, received_fee_minor,
+                     datetime.now(timezone.utc).isoformat(), settlement_id),
+                )
+            elif status not in {"confirmed", "reconciled"}:
+                raise FinancialLedgerError("receipt cannot be confirmed from its current state")
+            db.commit()
+            return str(settlement_id)
+        except sqlite3.Error as exc:
+            db.rollback()
+            raise FinancialLedgerError("receipt confirmation failed") from exc
+        finally:
+            db.close()
+
+    def reconcile_simulated_receipt(self, *, source_reference: str) -> str:
+        """Post the simulated net receipt exactly once after confirmation."""
+        db = self._connect()
+        try:
+            row = db.execute(
+                """SELECT settlement_id,agent_id,currency,expected_gross_minor,expected_fee_minor,
+                          status,journal_transaction_id
+                   FROM simulated_settlement_receipts WHERE source_reference=?""",
+                (source_reference,),
+            ).fetchone()
+        finally:
+            db.close()
+        if row is None:
+            raise FinancialLedgerError("unknown settlement receipt")
+        settlement_id, agent_id, currency, gross, fee, status, journal_id = row
+        if status == "reconciled" and journal_id:
+            return str(journal_id)
+        if status != "confirmed":
+            raise FinancialLedgerError("only confirmed receipts may be reconciled")
+        net = int(gross) - int(fee)
+        lines = [
+            {"account_id": "treasury:available", "direction": "debit",
+             "amount_minor": net, "reference": source_reference},
+        ]
+        if fee:
+            lines.append({"account_id": "payment-fees:expense", "direction": "debit",
+                          "amount_minor": int(fee), "reference": source_reference})
+        lines.append(
+            {"account_id": "external-clearing", "direction": "credit",
+             "amount_minor": int(gross), "reference": source_reference}
+        )
+        journal_id = self.post(
+            idempotency_key=f"settlement:{source_reference}",
+            description=f"Simulated reconciled receipt for {agent_id}",
+            currency=str(currency), lines=lines, simulated=True,
+        )
+        with self._connect() as db:
+            db.execute(
+                """UPDATE simulated_settlement_receipts
+                   SET status='reconciled',journal_transaction_id=?,updated_at=?
+                   WHERE settlement_id=? AND status='confirmed'""",
+                (journal_id, datetime.now(timezone.utc).isoformat(), settlement_id),
+            )
+        return journal_id
+
+    def simulated_receipt(self, source_reference: str) -> dict[str, object] | None:
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT settlement_id,source_reference,agent_id,currency,expected_gross_minor,
+                          expected_fee_minor,status,received_gross_minor,received_fee_minor,
+                          journal_transaction_id,created_at,updated_at
+                   FROM simulated_settlement_receipts WHERE source_reference=?""",
+                (source_reference,),
+            ).fetchone()
+        if row is None:
+            return None
+        keys = ("settlement_id","source_reference","agent_id","currency","gross_minor",
+                "fee_minor","status","received_gross_minor","received_fee_minor",
+                "journal_transaction_id","created_at","updated_at")
+        return dict(zip(keys, row))
 
     def find_by_idempotency(self, idempotency_key: str) -> dict[str, object] | None:
         with self._connect() as db:
