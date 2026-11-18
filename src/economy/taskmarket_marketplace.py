@@ -180,6 +180,97 @@ class TaskmarketPublicTasks:
         return payload
 
 
+class BaseEscrowReceiptVerifier:
+    """Verify Taskmarket EscrowFunded events against Base public JSON-RPC."""
+
+    RPC_URL = "https://mainnet.base.org"
+    DIAMOND = "0xddc6cc3e4d11c1f3527b867c7dad4ed9869c33f7"
+    ESCROW_FUNDED_TOPIC = "0x201d660f753914e19eddd41fa59c8765f90e47e94e92d03ea727a9280636ed79"
+
+    def __init__(self, *, timeout_seconds: float = 12, rpc_fetcher=None):
+        if not 1 <= timeout_seconds <= 30:
+            raise ValueError("timeout_seconds must be between 1 and 30")
+        self.timeout_seconds = timeout_seconds
+        self._rpc_fetcher = rpc_fetcher or self._post_rpc
+
+    @staticmethod
+    def _post_rpc(url: str, body: bytes, timeout: float) -> bytes:
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname != "mainnet.base.org":
+            raise ValueError("only the official public Base RPC host is allowed")
+        request = Request(url, data=body, headers={
+            "Accept": "application/json", "Content-Type": "application/json",
+            "User-Agent": "AutonomousAIEconomy/0.1 read-only-escrow-verifier",
+        }, method="POST")
+        with urlopen(request, timeout=timeout) as response:
+            final = urlparse(response.geturl())
+            if final.scheme != "https" or final.hostname != "mainnet.base.org":
+                raise ValueError("Base RPC response host rejected")
+            data = response.read(1_000_001)
+        if len(data) > 1_000_000:
+            raise ValueError("Base RPC response exceeds 1 MB")
+        return data
+
+    def verify(self, task_id: str, tx_hash: str | None, expected_amount_base_units: str) -> dict:
+        if not isinstance(task_id, str) or not TASK_ID_RE.fullmatch(task_id):
+            return {"verified": False, "status": "invalid_task_id"}
+        if not isinstance(tx_hash, str) or not TX_RE.fullmatch(tx_hash):
+            return {"verified": False, "status": "missing_escrow_transaction"}
+        try:
+            expected = int(expected_amount_base_units)
+            if expected <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return {"verified": False, "status": "invalid_expected_escrow_amount"}
+        body = json.dumps({
+            "jsonrpc": "2.0", "id": 1, "method": "eth_getTransactionReceipt",
+            "params": [tx_hash],
+        }).encode()
+        try:
+            response = json.loads(self._rpc_fetcher(self.RPC_URL, body, self.timeout_seconds))
+        except Exception as exc:
+            return {"verified": False, "status": "rpc_error:" + type(exc).__name__}
+        receipt = response.get("result") if isinstance(response, dict) else None
+        if not isinstance(receipt, dict):
+            return {"verified": False, "status": "receipt_not_found"}
+        if str(receipt.get("status", "")).lower() != "0x1":
+            return {"verified": False, "status": "transaction_not_successful"}
+        logs = receipt.get("logs") if isinstance(receipt.get("logs"), list) else []
+        for log in logs:
+            if not isinstance(log, dict) or str(log.get("address", "")).lower() != self.DIAMOND:
+                continue
+            topics = log.get("topics") if isinstance(log.get("topics"), list) else []
+            if (len(topics) < 2 or str(topics[0]).lower() != self.ESCROW_FUNDED_TOPIC
+                    or str(topics[1]).lower() != task_id.lower()):
+                continue
+            data = str(log.get("data", ""))
+            if not re.fullmatch(r"0x[0-9a-fA-F]{128}", data):
+                continue
+            amount = int(data[2:66], 16)
+            component = int(data[66:130], 16)
+            if component != 0:
+                continue
+            return {
+                "verified": amount == expected,
+                "status": "verified" if amount == expected else "escrow_amount_mismatch",
+                "amount_base_units": str(amount),
+                "expected_amount_base_units": str(expected),
+                "component": component,
+                "task_id": task_id,
+                "transaction_hash": tx_hash,
+            }
+        return {"verified": False, "status": "escrow_funded_event_not_found"}
+
+    def verify_lead(self, lead: TaskmarketLead) -> TaskmarketLead:
+        result = self.verify(lead.task_id, lead.escrow_tx_hash, lead.reward_base_units)
+        return replace(
+            lead,
+            escrow_verified_onchain=result.get("verified") is True,
+            escrow_verification_status=str(result.get("status") or "unknown"),
+            escrow_verified_amount_base_units=result.get("amount_base_units"),
+        )
+
+
 class TaskmarketTaskEvaluator:
     """Rejects split, promotional, off-platform and crowded tasks by default."""
 
