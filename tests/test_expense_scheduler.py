@@ -109,6 +109,11 @@ class ExpenseSchedulerTests(unittest.TestCase):
         with __import__("sqlite3").connect(self.scheduler.path) as db:
             db.execute("UPDATE agent_expense_schedules SET next_run_at=? WHERE schedule_id=?",
                        ((now - timedelta(seconds=1)).isoformat(), schedule["schedule_id"]))
+        # The second occurrence reaches exactly the daily cap; the third must block.
+        self.assertEqual(self.scheduler.run_due(now=now), {"settled": 1, "blocked": 0})
+        with __import__("sqlite3").connect(self.scheduler.path) as db:
+            db.execute("UPDATE agent_expense_schedules SET next_run_at=? WHERE schedule_id=?",
+                       ((now - timedelta(seconds=1)).isoformat(), schedule["schedule_id"]))
         self.assertEqual(self.scheduler.run_due(now=now), {"settled": 0, "blocked": 1})
         self.assertEqual(datetime.fromisoformat(self.scheduler.get(schedule["schedule_id"])["next_run_at"]), now - timedelta(seconds=1))
 
