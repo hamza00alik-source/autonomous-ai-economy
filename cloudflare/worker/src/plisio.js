@@ -116,39 +116,53 @@ export function normalizePlisioStatus(status) {
   }
 }
 
-/** Reconcile provider state against our stored invoice/order. Fail closed. */
+/**
+ * Verify the signed provider callback, then independently confirm the invoice
+ * ID/type/final status through Plisio's operation endpoint. Standard Plisio
+ * responses do not guarantee the white-label-only params.order_number fields,
+ * so order/price matching uses the authenticated callback plus our DB order.
+ */
 export async function reconcilePlisioInvoice({
-  apiKey, transactionId, expectedOrderNumber, expectedSourceAmount, fetchImpl = fetch
+  apiKey, transactionId, expectedOrderNumber, expectedSourceAmount,
+  callbackPayload, callbackSecret, fetchImpl = fetch
 }) {
   if (typeof expectedOrderNumber !== "string" || !expectedOrderNumber ||
-      !validPositiveDecimal(expectedSourceAmount)) throw new Error("Invalid expected Plisio order");
+      !validPositiveDecimal(expectedSourceAmount) ||
+      !callbackPayload || typeof callbackSecret !== "string" || !callbackSecret) {
+    throw new Error("Invalid expected Plisio order or callback proof");
+  }
+  const callback = await verifyAndNormalizePlisioCallback(callbackPayload, callbackSecret);
+  if (!callback || callback.transactionId !== transactionId) {
+    throw new Error("Plisio callback signature or transaction ID is invalid");
+  }
+  const matched = callback.orderNumber === expectedOrderNumber &&
+    callback.sourceCurrency === "USD" &&
+    sameUsdAmount(callback.sourceAmount, expectedSourceAmount);
   const operation = await getPlisioOperation({ apiKey, transactionId, fetchImpl });
-  const params = operation.params && typeof operation.params === "object" ? operation.params : {};
-  const matched = params.order_number === expectedOrderNumber &&
-    params.source_currency === "USD" &&
-    sameUsdAmount(String(params.source_amount ?? ""), expectedSourceAmount);
   const status = normalizePlisioStatus(operation.status);
+  const paid = matched && callback.status === "completed" && status === "completed";
   return Object.freeze({
     provider: "plisio", transactionId, status,
-    orderMatched: matched,
-    paid: status === "completed" && matched,
-    // Unknown or mismatched provider data can never unlock a download.
-    unlockAllowed: status === "completed" && matched
+    orderMatched: matched, paid,
+    // A signed callback and independent authoritative operation lookup must agree.
+    unlockAllowed: paid
   });
 }
 
-/**
- * Verify the JSON callback signature, then return a normalized hint only.
- * A caller must still invoke reconcilePlisioInvoice before granting access.
- */
+/** Verify JSON callback signature and expose only fields needed for reconciliation. */
 export async function verifyAndNormalizePlisioCallback(payload, secret) {
   if (!await verifyPlisioJsonCallback(payload, secret)) return null;
   if (typeof payload.txn_id !== "string" || typeof payload.order_number !== "string" ||
-      typeof payload.status !== "string") return null;
+      typeof payload.status !== "string" || payload.ipn_type !== "invoice" ||
+      typeof payload.source_currency !== "string" ||
+      typeof payload.source_amount !== "string" ||
+      !validPositiveDecimal(payload.source_amount)) return null;
   return Object.freeze({
     transactionId: payload.txn_id,
     orderNumber: payload.order_number,
-    status: normalizePlisioStatus(payload.status)
+    status: normalizePlisioStatus(payload.status),
+    sourceCurrency: payload.source_currency,
+    sourceAmount: payload.source_amount
   });
 }
 
