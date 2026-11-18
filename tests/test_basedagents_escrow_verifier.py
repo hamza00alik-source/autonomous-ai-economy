@@ -101,6 +101,28 @@ class BasedAgentsEscrowVerifierTests(unittest.TestCase):
         result = self.verifier().verify(task, payment)
         self.assertEqual(result["reason"], "payment_task_id_mismatch")
 
+    def test_wrong_task_token_and_network_block(self):
+        task, payment, *_ = fixtures()
+        task["bounty"]["token"] = "USDT"
+        result = self.verifier().verify(task, payment)
+        self.assertEqual(result["reason"], "task_bounty_token_is_not_usdc")
+        task, payment, *_ = fixtures()
+        task["bounty"]["network"] = "eip155:1"
+        result = self.verifier().verify(task, payment)
+        self.assertEqual(result["reason"], "task_bounty_network_is_not_base")
+
+    def test_missing_escrow_configuration_blocks(self):
+        task, payment, config, _ = fixtures()
+        config["escrow"]["enabled"] = False
+        result = self.verifier(config=config).verify(task, payment)
+        self.assertEqual(result["reason"], "escrow_not_enabled")
+
+    def test_unverified_registry_payment_blocks(self):
+        task, payment, *_ = fixtures()
+        payment["verified"] = False
+        result = self.verifier().verify(task, payment)
+        self.assertEqual(result["reason"], "registry_payment_not_verified")
+
     def test_rpc_url_allowlist(self):
         with self.assertRaises(ValueError):
             BasedAgentsEscrowVerifier(rpc_url="https://example.com")
