@@ -31,7 +31,9 @@ The schema uses integer minor units, exact three-letter uppercase currency codes
 
 `cloudflare/worker/src/financial_policy_auth.js` now provides a fail-closed Ed25519 verifier for canonical policy payloads. It checks the exact policy schema, safe integer limits, non-wildcard exact destination allowlists, owner/operator/agent active status and relationship, public-key fingerprint, signature encoding, and the signature over canonical JSON bytes. Its D1 loader cross-checks the signed payload against stored columns and the joined participant records. The private key is never accepted by the verifier or stored in D1. Tests cover valid signatures, altered payloads, wrong/suspended signers, owner-agent mismatch, malformed policies and D1 loading.
 
-This verifier is currently a tested service module, not an exposed API or an active financial write path. No participant or policy rows are seeded, and no remote owner signing workflow exists yet.
+`cloudflare/worker/src/financial_ledger.js` adds a separate internal journal-posting primitive. It validates balanced integer-minor-unit postings, rejects duplicate account lines and unsafe amounts, checks account owner/currency/status, then writes the transaction, posting lines and audit event in one D1 batch. It uses a payload hash with a unique idempotency key and resolves uncertain duplicate outcomes by reading back the original record. Database triggers additionally require an active owner, same-owner active accounts and an active owner-scoped audit actor. Dedicated unit tests exercise validation, account rejection, single-batch composition, idempotent replay and ambiguous duplicate retries.
+
+The policy verifier and journal writer are tested service modules, not exposed APIs or an active financial write path. The journal writer does not itself authorize a business expense; a future caller must first verify the active signed policy and enforce its destination, per-transaction and UTC-day limits before invoking the journal writer. No participant or policy rows are seeded, and no remote owner signing workflow exists yet.
 
 ## Required transaction protocol before enabling writes
 
@@ -61,7 +63,7 @@ A receipt may move to `confirmed` only after a provider-specific verifier valida
 
 ## Rollout gates
 
-1. Validate this migration against SQLite/D1-compatible SQL and add schema tests.
+1. Validate this migration against SQLite/D1-compatible SQL and schema tests. The repository now has a Python SQLite migration test suite for participant binding, append-only ledger/audit rows, policy versioning, account/currency guards and owner-scoped audit actors.
 2. Implement read-only owner APIs for cloud participant/policy/account/schedule inventory only after the cloud schema and authorization model are reviewed.
 3. Implement cloud ledger writes with atomicity, concurrency, idempotency, signature and audit tests.
 4. Add a read-only cloud dashboard view and reconcile it against authoritative D1 rows.
