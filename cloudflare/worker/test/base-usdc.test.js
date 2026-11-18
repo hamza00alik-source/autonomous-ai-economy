@@ -9,6 +9,7 @@ import {
   recoverBaseUsdcInvoiceSigner,
   BASE_USDC_CHECKOUT_ABI,
   decodeBaseUsdcPaymentLog,
+  verifyBaseUsdcFinality,
 } from "../src/base-usdc.js";
 
 const TEST_ONLY_PRIVATE_KEY = "0x0123456789012345678901234567890123456789012345678901234567890123";
@@ -164,4 +165,34 @@ test("Base OrderPaid decoder rejects removed logs and malformed coordinates", ()
     data: "0x",
     topics: [],
   }, base), /canonical transaction/);
+});
+
+
+test("Base payment finality requires successful canonical receipt and configured confirmations", () => {
+  const log = {
+    transactionHash: "0x" + "cd".repeat(32),
+    blockHash: "0x" + "ef".repeat(32),
+    blockNumber: 100n,
+  };
+  const receipt = {
+    status: "success",
+    transactionHash: log.transactionHash,
+    blockHash: log.blockHash,
+    blockNumber: log.blockNumber,
+  };
+  const block = { hash: log.blockHash, number: log.blockNumber };
+  const confirmed = verifyBaseUsdcFinality({
+    log, receipt, block, headBlock: 105n, confirmations: 6,
+  });
+  assert.equal(confirmed.confirmed, true);
+  assert.equal(confirmed.confirmations, 6);
+  assert.throws(() => verifyBaseUsdcFinality({
+    log, receipt, block, headBlock: 104n, confirmations: 6,
+  }), /confirmation depth/);
+  assert.throws(() => verifyBaseUsdcFinality({
+    log, receipt: { ...receipt, status: "reverted" }, block, headBlock: 105n, confirmations: 6,
+  }), /did not succeed/);
+  assert.throws(() => verifyBaseUsdcFinality({
+    log, receipt, block: { ...block, hash: "0x" + "11".repeat(32) }, headBlock: 105n, confirmations: 6,
+  }), /not canonical/);
 });
