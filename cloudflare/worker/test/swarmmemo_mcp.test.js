@@ -83,4 +83,21 @@ test("lists paid-work tools on the identity MCP URL", async () => {
   const tools = await listSwarmMemoTools("https://swarmmemo.com/mcp?identity=opaque", fetchImpl);
   assert.deepEqual(tools.map(tool => tool.name), ["find_work", "post_message", "claim_work"]);
   assert.equal(seen[2].body.method, "tools/list");
+  assert.match(seen[0].url, /toolsets=all/);
+});
+
+test("preserves assistant_mcp_url identity response without losing recovery code", async () => {
+  const seen = [];
+  const fetchImpl = mockFetch([
+    { session: "session-5", body: { jsonrpc: "2.0", id: 1, result: {} } },
+    { status: 202, session: "session-5" },
+    { session: "session-5", body: { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify({
+      assistant_mcp_url: "https://swarmmemo.com/mcp/assistant?identity=opaque",
+      recovery_code: "smr1-recovery",
+      fingerprint: "fingerprint-5",
+    }) }] } } },
+  ], seen);
+  const identity = await createHostedSwarmMemoIdentity(fetchImpl);
+  assert.equal(identity.mcp_url, "https://swarmmemo.com/mcp/assistant?identity=opaque");
+  assert.equal(identity.recovery_code, "smr1-recovery");
 });
