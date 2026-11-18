@@ -732,17 +732,18 @@ async function status(env) {
       manual_review_required: true,
     };
   }
+  const baseCheckoutReady = baseUsdcCheckoutEnabled(env) && baseIndexer.state === "running";
   return json({
     model: MODEL_ID,
     utc_day: day,
     estimated_neurons_reserved: budget?.reserved_neurons || 0,
     daily_safety_budget_neurons: DAILY_NEURON_BUDGET,
     tasks: counts.results || [],
-    public_payment_actions_enabled: baseUsdcCheckoutEnabled(env),
+    public_payment_actions_enabled: baseCheckoutReady,
     private_invoice_api_configured: Boolean(env.BASE_INVOICE_SIGNER_PRIVATE_KEY && env.BASE_INVOICE_SIGNER_ADDRESS),
-    public_checkout_enabled: baseUsdcCheckoutEnabled(env),
+    public_checkout_enabled: baseCheckoutReady,
     protected_delivery_storage_available: Boolean(env.ASSETS),
-    automatic_delivery_enabled: baseUsdcCheckoutEnabled(env) && Boolean(env.ASSETS),
+    automatic_delivery_enabled: baseCheckoutReady && Boolean(env.ASSETS),
     base_usdc_indexer: baseIndexer,
     outbound_payouts_enabled: false,
     public_registration_enabled: false,
@@ -839,7 +840,16 @@ export default {
       return json({ error: "direct product file access is disabled" }, 404);
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
-      if (!baseUsdcCheckoutEnabled(env)) return json({ error: "storefront is not published" }, 404);
+      if (!baseUsdcCheckoutEnabled(env) || !env.DB) return json({ error: "storefront is not published" }, 404);
+      let indexerState;
+      try {
+        indexerState = await env.DB.prepare(
+          "SELECT halted_at FROM base_usdc_indexer_state WHERE id=1"
+        ).first();
+      } catch {
+        return json({ error: "storefront is not published" }, 404);
+      }
+      if (!indexerState || indexerState.halted_at) return json({ error: "storefront is not published" }, 404);
       const page = await env.ASSETS.fetch(request);
       const headers = new Headers(page.headers);
       headers.set("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self' https://mainnet.base.org; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
