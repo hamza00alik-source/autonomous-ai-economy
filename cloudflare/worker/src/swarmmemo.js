@@ -216,7 +216,7 @@ export async function approveSwarmMemoTask(env, taskId) {
 export async function autoApproveSafeSwarmMemoTasks(env, limit = 10) {
   const bounded = Math.min(25, Math.max(1, Number(limit) || 10));
   const candidates = await env.DB.prepare(
-    `SELECT task_id,title,task_text,board_state,eligible,simulated,request_truncated
+    `SELECT task_id,title,task_text,board_state,eligible,simulated,request_truncated,reward_json
      FROM swarmmemo_work_items
      WHERE execution_state='awaiting_owner_approval'
        AND board_state='open' AND eligible=1 AND simulated=0 AND request_truncated=0
