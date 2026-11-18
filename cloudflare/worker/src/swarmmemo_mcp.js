@@ -72,9 +72,8 @@ function identityResult(toolResult) {
 }
 
 export async function callSwarmMemoTool(endpoint, name, args = {}, fetchImpl = fetch) {
-  const url = validateIdentityUrl(endpoint);
-  url.searchParams.set("toolsets", "all");
-  const init = await postMcp(url.toString(), {
+  const url = validateIdentityUrl(endpoint).toString();
+  const init = await postMcp(url, {
     jsonrpc: "2.0", id: 1, method: "initialize",
     params: {
       protocolVersion: MCP_VERSION,
@@ -93,7 +92,9 @@ export async function callSwarmMemoTool(endpoint, name, args = {}, fetchImpl = f
 
 export async function listSwarmMemoTools(endpoint, fetchImpl = fetch) {
   const url = validateIdentityUrl(endpoint);
-  const init = await postMcp(url, {
+  url.searchParams.set("toolsets", "all");
+  const endpointUrl = url.toString();
+  const init = await postMcp(endpointUrl, {
     jsonrpc: "2.0", id: 1, method: "initialize",
     params: {
       protocolVersion: MCP_VERSION,
@@ -101,8 +102,8 @@ export async function listSwarmMemoTools(endpoint, fetchImpl = fetch) {
       clientInfo: { name: "autonomous-ai-economy", version: "0.1.0" },
     },
   }, null, fetchImpl);
-  await postMcp(url, { jsonrpc: "2.0", method: "notifications/initialized" }, init.sessionId, fetchImpl);
-  const listed = await postMcp(url, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, init.sessionId, fetchImpl);
+  await postMcp(endpointUrl, { jsonrpc: "2.0", method: "notifications/initialized" }, init.sessionId, fetchImpl);
+  const listed = await postMcp(endpointUrl, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, init.sessionId, fetchImpl);
   return Array.isArray(listed.message.result?.tools) ? listed.message.result.tools : [];
 }
 
