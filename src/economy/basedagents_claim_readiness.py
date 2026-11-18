@@ -68,9 +68,10 @@ def evaluate_claim_readiness(task: dict, agent: dict, *,
     escrow_status = escrow.get("status")
     if escrow_status != "funded":
         reasons.append("escrow_not_funded")
-    payment_verified = payment.get("verified")
-    if payment_verified is not True and payment_verified != 1:
-        reasons.append("payment_not_verified_by_registry")
+    # Registry payment flags describe the current payment leg and may remain
+    # pending/unverified on a funded escrow task. The chain verifier is the
+    # authoritative proof of the initial deposit; do not require a second,
+    # contradictory registry boolean here.
     deposit_hash = (
         escrow.get("deposit_tx_hash")
         or escrow.get("funding_tx_hash")
