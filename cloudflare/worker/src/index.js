@@ -806,7 +806,7 @@ export default {
       if (!baseUsdcCheckoutEnabled(env)) return json({ error: "storefront is not published" }, 404);
       const page = await env.ASSETS.fetch(request);
       const headers = new Headers(page.headers);
-      headers.set("content-security-policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' https://mainnet.base.org; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+      headers.set("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self' https://mainnet.base.org; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
       headers.set("referrer-policy", "no-referrer");
       headers.set("x-content-type-options", "nosniff");
       headers.set("cache-control", "no-store");
