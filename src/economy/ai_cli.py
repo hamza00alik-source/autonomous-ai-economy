@@ -13,6 +13,7 @@ from .basedagents_marketplace import BasedAgentsPublicTasks
 from .basedagents_opportunities import BasedAgentsOpportunityScanner, PaidOpportunityStore
 from .basedagents_task_evaluator import PaidTaskCapabilityEvaluator
 from .jobbi_gigs import JobbiPublicGigs, JobbiGigStore
+from .taskmarket_marketplace import TaskmarketPublicTasks, TaskmarketTaskEvaluator, TaskmarketOpportunityStore
 
 
 def main() -> int:
@@ -57,6 +58,17 @@ def main() -> int:
     jobbi_list.add_argument("--limit", type=int, default=20)
     jobbi_list.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/jobbi-gigs.sqlite3")
 
+    tm_scan = sub.add_parser("scan-taskmarket-tasks", help="scan Base USDC tasks; never registers, claims or submits")
+    tm_scan.add_argument("--limit", type=int, default=100)
+    tm_scan.add_argument("--minimum-reward", default="1.00")
+    tm_scan.add_argument("--maximum-submissions", type=int, default=5)
+    tm_scan.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/taskmarket-opportunities.sqlite3")
+
+    tm_list = sub.add_parser("list-taskmarket-tasks", help="list saved Taskmarket opportunities and conservative evaluations")
+    tm_list.add_argument("--limit", type=int, default=20)
+    tm_list.add_argument("--qualified-only", action="store_true")
+    tm_list.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/taskmarket-opportunities.sqlite3")
+
     evaluated = sub.add_parser("list-task-evaluations", help="list persisted task scope/capability evaluations")
     evaluated.add_argument("--limit", type=int, default=20)
     evaluated.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
@@ -78,6 +90,30 @@ def main() -> int:
         db_path = args.db or (args.data_dir / "jobbi-gigs.sqlite3")
         store = JobbiGigStore(db_path)
         print(json.dumps(store.list_review_required(limit=args.limit), indent=2))
+        return 0
+
+    if args.command == "scan-taskmarket-tasks":
+        db_path = args.db or (args.data_dir / "taskmarket-opportunities.sqlite3")
+        store = TaskmarketOpportunityStore(db_path)
+        evaluator = TaskmarketTaskEvaluator(
+            minimum_reward_usdc=args.minimum_reward,
+            maximum_submissions=args.maximum_submissions,
+        )
+        leads = TaskmarketPublicTasks().search(limit=args.limit)
+        summary = store.save_many(leads, evaluator)
+        print(json.dumps({
+            "source": "taskmarket",
+            **summary,
+            "note": "Escrow metadata is reported by Taskmarket, not independently verified on-chain. No identity, wallet, claim, submission or payment action was performed.",
+        }, indent=2))
+        return 0
+
+    if args.command == "list-taskmarket-tasks":
+        db_path = args.db or (args.data_dir / "taskmarket-opportunities.sqlite3")
+        store = TaskmarketOpportunityStore(db_path)
+        print(json.dumps(store.list_opportunities(
+            limit=args.limit, qualified_only=args.qualified_only,
+        ), indent=2))
         return 0
 
     if args.command == "status":
