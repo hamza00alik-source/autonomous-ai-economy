@@ -92,6 +92,46 @@ class PaidOpportunityStore:
         return result
 
 
+    def save_evaluation(self, evaluation: dict) -> None:
+        """Persist a conservative evaluation; never changes marketplace state."""
+        task_id = evaluation.get("task_id")
+        state = evaluation.get("state")
+        if not isinstance(task_id, str) or not task_id:
+            raise ValueError("evaluation requires task_id")
+        if state not in {"qualified_for_local_draft", "needs_review"}:
+            raise ValueError("unsupported evaluation state")
+        payload = json.dumps(evaluation, sort_keys=True, separators=(",", ":"))
+        now = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.path) as db:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS paid_task_evaluations (
+                    external_task_id TEXT PRIMARY KEY,
+                    state TEXT NOT NULL CHECK(state IN ('qualified_for_local_draft','needs_review')),
+                    evaluation_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            db.execute("""
+                INSERT INTO paid_task_evaluations(external_task_id,state,evaluation_json,updated_at)
+                VALUES(?,?,?,?)
+                ON CONFLICT(external_task_id) DO UPDATE SET
+                  state=excluded.state,evaluation_json=excluded.evaluation_json,
+                  updated_at=excluded.updated_at
+            """, (task_id, state, payload, now))
+
+    def list_evaluations(self, limit: int = 50) -> list[dict]:
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        with sqlite3.connect(self.path) as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute("""
+                SELECT evaluation_json,updated_at FROM paid_task_evaluations
+                ORDER BY updated_at DESC LIMIT ?
+            """, (limit,)).fetchall()
+        return [{**json.loads(row["evaluation_json"]), "updated_at": row["updated_at"]}
+                for row in rows]
+
+
 class BasedAgentsOpportunityScanner:
     """One bounded public scan; never accepts tasks or invokes payment endpoints."""
 
