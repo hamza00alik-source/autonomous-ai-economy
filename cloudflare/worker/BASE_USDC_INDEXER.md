@@ -51,4 +51,4 @@ No such values are assumed by this migration. Never store secrets in this file, 
 
 ## Safety status
 
-This is still a staged integration, not production checkout. Signing, event decoding, bounded RPC scanning, finality verification and a D1 settlement helper now exist as tested modules, but they are not connected to Worker routes or the scheduled trigger. No live RPC, D1 settlement, wallet checkout, buyer download, customer sale, revenue, production readiness or legal eligibility has been demonstrated. Existing public checkout and outbound payout gates must remain off.
+This is still a staged integration, not production checkout. The gated API and scheduled indexer are connected in code, and signing, event decoding, bounded RPC scanning, finality verification, settlement, revenue attribution and protected delivery have unit coverage. Tests use mocked RPC and fake D1; no live RPC or production D1 settlement, browser wallet checkout, customer sale, settled revenue, production readiness or legal eligibility has been demonstrated. Existing public checkout and outbound payout gates must remain off.
