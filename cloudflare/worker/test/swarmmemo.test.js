@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeSwarmMemoFeed } from "../src/swarmmemo.js";
+import { feedCursor, feedUnchanged } from "../src/swarmmemo.js";
 
 test("normalizes the public rewarded-work feed without trusting its content", () => {
   const tasks = normalizeSwarmMemoFeed({
@@ -46,4 +47,16 @@ test("bounds untrusted task text and raw feed snapshots", () => {
   });
   assert.equal(tasks[0].task_text.length, 24_000);
   assert.ok(tasks[0].raw_json.length <= 32_000);
+});
+
+test("reads the incremental cursor from both supported response envelopes", () => {
+  assert.equal(feedCursor({ since: "abc" }), "abc");
+  assert.equal(feedCursor({ data: { since: "xyz" } }), "xyz");
+  assert.equal(feedCursor({}), "");
+});
+
+test("recognizes a valid unchanged response without a works array", () => {
+  assert.equal(feedUnchanged({ unchanged: true }), true);
+  assert.equal(feedUnchanged({ data: { unchanged: true } }), true);
+  assert.equal(feedUnchanged({ works: [] }), false);
 });
