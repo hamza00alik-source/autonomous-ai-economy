@@ -15,7 +15,7 @@ No provider reviewed in this pass is approved for production. Keep public checko
 | CoinPayments (new platform) | REST API; hosted invoices; signed/retried webhooks; regional merchant instances; KYC onboarding | Current FAQ says it is not serving EU/EEA clients since 2026-07-01; compliance list includes US and other restricted jurisdictions. Pakistan instance eligibility needs explicit confirmation. | Not a worldwide single-provider fit; do not integrate until Pakistan instance and target-country coverage are confirmed. |
 | CPAY | Advertises non-custodial wallet settlement, Base, USDT/USDC, API and signed webhooks | Its terms say it may act as agent to receive, hold and disburse funds, which conflicts with the non-custodial marketing claim. Merchant jurisdiction/contracting entity and actual custody model need written confirmation. | Hold; do not entrust funds or integrate based on marketing claims. |
 | Plisio | Invoice API and signed callback verification; broad crypto support; claims 0.5% API fee | Its service appears custodial/balance-based in independent review; no reliable official evidence found here proving Pakistan merchant eligibility and worldwide buyer access. | Hold pending written eligibility, custody and settlement confirmation. |
-| DepiPay | Wallet-connected non-custodial design; per-invoice addresses; EVM-style signed requests; event polling; legal restricted list does not list Pakistan, US, UK or EU | Current developer/FAQ docs conflict on authentication; current supported network list is Ethereum, BSC and TRON (Solana described as coming soon), not Base. Existing AAE public Base address is not enough to authorize a new smart-wallet setup or sign API requests. | Best candidate for a non-custodial pilot only after its API/auth, wallet ownership, supported chain and buyer-jurisdiction terms are independently confirmed. No keys or funds supplied. |
+| DePay (distinct from DepiPay) | Base support; direct wallet payments; callbacks and payment tracking; USDC/USDT support; per-invoice addresses; EVM-style signed requests; event polling; legal restricted list does not list Pakistan, US, UK or EU | Current developer/FAQ docs conflict on authentication; current supported network list is Ethereum, BSC and TRON (Solana described as coming soon), not Base. Existing AAE public Base address is not enough to authorize a new smart-wallet setup or sign API requests. | Reject for production: official documentation announces permanent service discontinuation on 2026-12-31. |
 
 ## Evidence links
 
@@ -34,6 +34,13 @@ No provider reviewed in this pass is approved for production. Keep public checko
 - DepiPay legal restrictions: https://depipay.com/legal.html
 - DepiPay FAQ: https://depipay.com/faq.html
 - DepiPay API: https://depipay.com/docs.html
+- DePay shutdown notice: https://depay.com/docs/payments/integrate/link
+- DePay Base support: https://depay.com/docs/payments/supported/blockchains/
+- DePay payment tracking/callbacks: https://depay.com/docs/apis/payments/tracking/
+
+## New finding: DePay retirement
+
+DePay's official documentation now announces that its services will be permanently discontinued on 2026-12-31. Although its technical model fits Base and direct wallet payments, it is not a viable foundation for AAE's production checkout with only weeks remaining. Do not build a new dependency on it. See https://depay.com/docs/payments/integrate/link.
 
 ## AAE implementation rules
 
@@ -60,4 +67,4 @@ No provider reviewed in this pass is approved for production. Keep public checko
 - Production test payment: not performed.
 - Product publication: not performed.
 - Verified sales/revenue: zero.
-- Next engineering step: implement a provider-neutral payment state interface and automated tests, then add a provider only after the above eligibility and custody gates pass.
+- Next engineering step: implement a provider-neutral payment state interface and automated tests, then add a provider only after the above eligibility and custody gates pass. DePay is disqualified by its announced shutdown; DepiPay remains an unverified candidate and must not be confused with DePay.
