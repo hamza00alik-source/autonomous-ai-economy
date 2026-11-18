@@ -37,6 +37,7 @@ class AgentExpenseScheduler:
                     terms_sha256 TEXT NOT NULL,
                     agent_id TEXT NOT NULL,
                     policy_id TEXT NOT NULL,
+                    policy_version INTEGER NOT NULL,
                     destination TEXT NOT NULL,
                     currency TEXT NOT NULL,
                     amount_minor INTEGER NOT NULL CHECK(amount_minor > 0),
@@ -120,10 +121,10 @@ class AgentExpenseScheduler:
                 raise ExpenseScheduleError("financial policy changed during schedule creation")
             db.execute(
                 """INSERT INTO agent_expense_schedules
-                   (schedule_id,idempotency_key,terms_sha256,agent_id,policy_id,destination,
+                   (schedule_id,idempotency_key,terms_sha256,agent_id,policy_id,policy_version,destination,
                     currency,amount_minor,interval_seconds,next_run_at,status,created_at,updated_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,'active',?,?)""",
-                (schedule_id, idempotency_key, digest, agent_id, policy_id, destination,
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,'active',?,?)""",
+                (schedule_id, idempotency_key, digest, agent_id, policy_id, policy["version"], destination,
                  currency.upper(), amount_minor, interval_seconds, start.isoformat(),
                  now.isoformat(), now.isoformat()),
             )
@@ -173,6 +174,9 @@ class AgentExpenseScheduler:
 
         reservation = None
         try:
+            current_policy = self.spending._authorized_policy(schedule["agent_id"], schedule["policy_id"])
+            if current_policy["version"] != schedule["policy_version"]:
+                raise FinancialSpendingError("scheduled expense policy was superseded; owner must recreate the schedule")
             reservation = self.spending.reserve(
                 agent_id=schedule["agent_id"], policy_id=schedule["policy_id"],
                 destination=schedule["destination"], currency=schedule["currency"],
