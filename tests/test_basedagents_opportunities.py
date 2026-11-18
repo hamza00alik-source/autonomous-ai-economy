@@ -59,6 +59,9 @@ class BasedAgentsOpportunityTests(unittest.TestCase):
         self.assertEqual(result["external_claims"], 0)
         self.assertEqual(result["payments"], 0)
 
+    def test_empty_evaluation_queue_is_safe(self):
+        self.assertEqual(self.store.list_evaluations(), [])
+
     def test_evaluations_are_persisted_and_upserted(self):
         evaluation = {
             "task_id": "task-1", "state": "qualified_for_local_draft",
