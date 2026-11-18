@@ -173,3 +173,14 @@ economy-ai verify-source-url --url https://github.com/owner/repo/issues/123
 ```
 
 The command uses GitHub's public read-only API and reports whether the source item is still open, its latest title/update timestamp, and visible comment count. It flags closed or merged items and high/unknown competition. Only canonical GitHub issue/PR URLs are supported. API errors remain unverified. This check does not prove bounty payment, task acceptance, or that the listing permits AI-generated work; repository contribution rules and reward terms still require review. It never claims, comments, creates a branch, opens a PR, or submits work.
+
+
+### Local GitHub task draft packets
+
+For a GitHub issue or pull request that has passed the read-only source check, the CLI can save a local preparation packet:
+
+```bash
+economy-ai prepare-github-task-draft --url https://github.com/owner/repo/issues/123 --output ./drafts/task-123.json
+```
+
+The builder rechecks source state, rejects closed/merged items and high or unknown visible comment counts, then fetches the full issue body. It only marks a packet ready for human review when it detects an explicit deliverable and acceptance-criteria wording; otherwise it records blockers for review. The packet contains the original task text, detected scope lines, a local QA checklist and a response outline. It is not an AI-generated completed deliverable, does not prove payment or eligibility, and cannot claim or submit work. Output files are create-only and will not overwrite an existing packet.
