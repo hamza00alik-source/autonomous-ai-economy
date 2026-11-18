@@ -32,5 +32,6 @@ CREATE TABLE IF NOT EXISTS swarmmemo_poll_state (
   last_error TEXT,
   last_count INTEGER NOT NULL DEFAULT 0,
   last_http_status INTEGER,
+  since_cursor TEXT,
   updated_at TEXT NOT NULL
 );
