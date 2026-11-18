@@ -42,7 +42,7 @@ class JobbiGigsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             provider.search(limit=0)
         with self.assertRaises(ValueError):
-            provider._fetcher("https://evil.example/feed", 1)
+            JobbiPublicGigs._fetch("https://evil.example/feed", 1)
 
     def test_store_shortlists_escrowed_and_promised_usd_gigs_without_claiming(self):
         gigs = JobbiPublicGigs(fetcher=lambda *_: json.dumps({"items": [
@@ -51,12 +51,13 @@ class JobbiGigsTests(unittest.TestCase):
                  payment_state="promised", payout_grade="C-"),
             item("token:3", reward={"amount": 25000, "currency": "TOKEN", "rail": "token"}),
             item("closed:4", claims_open=False),
+            item("zero:5", reward={"amount": 0, "currency": "USDC", "rail": "x402"}),
         ]}).encode()).search()
         with tempfile.TemporaryDirectory() as tmp:
             store = JobbiGigStore(Path(tmp) / "gigs.sqlite3")
             summary = store.save_many(gigs)
             rows = store.list_review_required()
-        self.assertEqual(summary["saved"], 4)
+        self.assertEqual(summary["saved"], 5)
         self.assertEqual(summary["claims"], 0)
         self.assertEqual(summary["payments"], 0)
         self.assertEqual(len(rows), 2)
