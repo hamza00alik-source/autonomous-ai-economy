@@ -165,7 +165,7 @@ test("all non-completed and unknown states fail closed", async () => {
   assert.equal(normalizePlisioStatus("future-status"), "unknown");
 });
 
-test("callback verification returns signed invoice metadata but never unlocks by itself", async () => {
+test("callback verification returns signed metadata, rejects tampering, and never unlocks by itself", async () => {
   const callback = signed({ txn_id: "txn-11", ipn_type: "invoice", status: "completed",
     order_number: "order-11", source_currency: "USD", source_amount: "11.00" });
   const hint = await verifyAndNormalizePlisioCallback(callback, SECRET);
