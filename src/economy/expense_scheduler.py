@@ -97,7 +97,7 @@ class AgentExpenseScheduler:
             "agent_id": agent_id, "policy_id": policy_id, "policy_version": policy["version"],
             "destination": destination, "currency": currency.upper(),
             "amount_minor": amount_minor, "interval_seconds": interval_seconds,
-            "start_at": start.isoformat(),
+            "start_at": start.isoformat() if start_at is not None else "immediate",
         }
         digest = hashlib.sha256(json.dumps(terms, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         schedule_id = str(uuid.uuid4())
