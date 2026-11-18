@@ -94,3 +94,12 @@ test("explicit non-claimable status overrides a generally open task", () => {
   });
   assert.equal(tasks[0].eligible, 0);
 });
+
+test("marks oversized briefs truncated so they cannot be approved", () => {
+  const tasks = normalizeSwarmMemoFeed({
+    works: [{ id: "oversized-1", title: "Oversized task", request: { text: "x".repeat(24_001), truncated: false } }]
+  });
+  assert.equal(tasks[0].task_text.length, 24_000);
+  assert.equal(tasks[0].request_truncated, 1);
+  assert.equal(tasks[0].eligible, 0);
+});
