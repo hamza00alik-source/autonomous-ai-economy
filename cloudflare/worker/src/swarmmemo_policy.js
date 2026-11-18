@@ -31,14 +31,14 @@ export function screenSwarmMemoTask(task) {
   const title = typeof task.title === "string" ? task.title : "";
   const body = typeof task.task_text === "string" ? task.task_text : "";
   const text = (title + "\n" + body).trim();
-  if (text.length < 40 || text.length > MAX_SCREEN_TEXT) return { allowed: false, reason: "task_text_out_of_bounds" };
+  if (body.length < 40 || text.length > MAX_SCREEN_TEXT) return { allowed: false, reason: "task_text_out_of_bounds" };
 
   const blocked = HARD_BLOCK_MARKERS.find((pattern) => pattern.test(text));
   if (blocked) return { allowed: false, reason: "requires_restricted_or_external_action" };
-  if (!PUBLIC_RESEARCH_MARKERS.some((pattern) => pattern.test(text))) {
+  if (!PUBLIC_RESEARCH_MARKERS.some((pattern) => pattern.test(body))) {
     return { allowed: false, reason: "not_clearly_public_information" };
   }
-  if (!DELIVERABLE_MARKERS.some((pattern) => pattern.test(text))) {
+  if (!DELIVERABLE_MARKERS.some((pattern) => pattern.test(body))) {
     return { allowed: false, reason: "no_bounded_research_deliverable" };
   }
 
