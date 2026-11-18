@@ -66,8 +66,19 @@ class AllocationTests(unittest.TestCase):
             self.allocate(source_reference="pending-1", net_amount_minor=100)
 
     def test_insufficient_treasury_balance_fails_closed(self):
+        self.ledger.post(
+            idempotency_key="simulated-prior-expense",
+            description="Simulated use of cleared treasury funds",
+            currency="USD",
+            lines=[
+                {"account_id": "treasury:available", "direction": "credit",
+                 "amount_minor": 101, "reference": "prior-expense"},
+                {"account_id": "operating-expense:test", "direction": "debit",
+                 "amount_minor": 101, "reference": "prior-expense"},
+            ],
+        )
         with self.assertRaisesRegex(FinancialLedgerError, "insufficient"):
-            self.allocate(net_amount_minor=102)
+            self.allocate()
 
     def test_repeated_allocation_is_idempotent(self):
         first = self.allocate()
