@@ -846,3 +846,28 @@ test("Base USDC buyer order and download routes remain locked until settlement",
   assert.equal(assetRequests, 1);
   assert.equal(row.download_count, 1);
 });
+
+test("Base Sepolia indexer configuration cannot activate the public Base mainnet checkout", async () => {
+  const response = await worker.fetch(new Request("https://worker.example/v1/store/base-usdc/checkout", {
+    method: "POST",
+    headers: { origin: "https://worker.example", "content-type": "application/json", "cf-connecting-ip": "203.0.113.11" },
+    body: "{}"
+  }), {
+    AAE_BASE_USDC_CHECKOUT_ENABLED: "true",
+    AAE_BASE_USDC_INDEXER_ENABLED: "true",
+    AAE_CRYPTO_ENABLEMENT_APPROVED: "true",
+    AAE_BASE_USDC_LEGAL_REVIEW_APPROVED: "true",
+    BASE_CHAIN_ID: "84532",
+    BASE_RPC_URL: "https://sepolia.base.org",
+    BASE_DEPLOYMENT_BLOCK: "1",
+    BASE_CONFIRMATIONS: "2",
+    BASE_INVOICE_SIGNER_PRIVATE_KEY: TEST_BASE_SIGNER_KEY,
+    BASE_INVOICE_SIGNER_ADDRESS: "0x1111111111111111111111111111111111111111",
+    BASE_MERCHANT_ADDRESS: "0x2222222222222222222222222222222222222222",
+    BASE_CHECKOUT_CONTRACT_ADDRESS: "0x3333333333333333333333333333333333333333",
+    CHECKOUT_LIMITER: { limit: async () => ({ success: true }) },
+    ASSETS: { fetch: async () => new Response("asset") },
+    DB: fakeBaseCheckoutDb()
+  });
+  assert.equal(response.status, 503);
+});
