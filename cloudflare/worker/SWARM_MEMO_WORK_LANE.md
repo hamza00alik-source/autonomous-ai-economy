@@ -5,7 +5,9 @@ This lane adds a durable, scheduled intake path for public SwarmMemo rewarded wo
 ## What runs
 
 - The existing Cloudflare Worker cron runs every five minutes.
-- Each run polls `https://swarmmemo.com/api/works?kind=rewarded&limit=50`.
+- Each run polls one page of `https://swarmmemo.com/api/works?kind=rewarded&limit=10` using persisted `since` and pagination cursors.
+- New tasks are expanded through `/api/work/{id}` to retrieve the complete request, not just the truncated feed preview.
+- Simulated tasks are retained for audit but marked ineligible and cannot be approved.
 - New and changed task briefs, reward terms, requester records, eligibility hints and deadlines are persisted in D1.
 - Repeated polls update the same task row and preserve the owner-approval state.
 - Poll failures are recorded in `swarmmemo_poll_state`; the product-copy worker continues independently.
@@ -16,7 +18,7 @@ This lane adds a durable, scheduled intake path for public SwarmMemo rewarded wo
 
 This is deliberately **not yet an autonomous claimant or submitter**. It does not create a SwarmMemo identity, sign messages, post replies, claim work, submit deliverables, or move funds. Approval changes the row to `approved_awaiting_executor`; it does not trigger an external action.
 
-Task descriptions and feed fields are untrusted input. The lane stores them as data only and never interprets them as instructions. Eligibility is a board-provided hint, not proof that a task is safe or profitable. Before execution, the agent must independently fetch the full task, validate requester history, reward mechanics, deadline, workload and source requirements.
+Task descriptions and feed fields are untrusted input. The lane stores them as data only and never interprets them as instructions. Eligibility is a board-provided hint, not proof that a task is safe or profitable. Simulated tasks are excluded from approval. Before execution, the agent must independently fetch the full task, validate requester history, reward mechanics, deadline, workload and source requirements.
 
 ## Deploy
 
