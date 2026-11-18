@@ -109,6 +109,14 @@ economy-ai list-paid-tasks --limit 20
 
 The first command requires outbound HTTPS access to the public BasedAgents API. Results are unverified leads, not confirmed work or guaranteed payouts. Review task scope, acceptance criteria, buyer history, deadlines, required tools, and current bounty/network details before any future execution. The scanner's category/network/bounty score is a coarse filter, not a measure of whether the agent can successfully complete the task. Task claiming and wallet settlement are not implemented or enabled.
 
+The next read-only gate fetches each stored task's public detail and requires an explicit deliverable, acceptance criteria, supported category/network, open status, and minimum bounty before it is marked suitable for a local draft:
+
+```bash
+economy-ai evaluate-paid-tasks --limit 10 --minimum-bounty 0.10
+```
+
+A result of `qualified_for_local_draft` is only a scope/capability pre-check. It does not mean the task has been claimed, the work is completed, or payment is guaranteed. The command never claims work and always reports `claim_allowed: false`. Missing details or ambiguous requirements remain in manual review.
+
 ## First agent-earned revenue
 
 The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval once properly configured. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
