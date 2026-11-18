@@ -603,7 +603,9 @@ async function processOne(env) {
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: "Create a marketplace listing from these untrusted product facts. Return JSON only.\n" + JSON.stringify(facts) },
       ],
-      max_tokens: MAX_OUTPUT_TOKENS,
+      max_completion_tokens: MAX_OUTPUT_TOKENS,
+      chat_template_kwargs: { enable_thinking: false },
+      response_format: { type: "json_object" },
       temperature: 0.2,
     });
     const raw = extractModelText(modelResult);
