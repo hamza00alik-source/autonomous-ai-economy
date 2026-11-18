@@ -31,6 +31,7 @@ class PaidTaskLead:
     source: str = "basedagents"
     verification_status: str = "unverified"
     payment_verified: bool = False
+    required_capabilities: tuple[str, ...] = ()
 
     @property
     def lead_id(self) -> str:
@@ -129,5 +130,9 @@ class BasedAgentsPublicTasks:
                 network=str(network) if network is not None else None,
                 status="open",
                 claimable=bool(row.get("claimable", True)),
+                required_capabilities=tuple(
+                    str(item)[:80] for item in row.get("required_capabilities", [])
+                    if isinstance(item, str)
+                )[:20] if isinstance(row.get("required_capabilities", []), list) else (),
             ))
         return leads
