@@ -217,3 +217,6 @@ The cloud layer also contains an internal double-entry journal writer. It valida
 
 
 Cloud financial controls are now implemented on the review branch: policy-verified reservations, D1-enforced transaction/daily/budget limits, atomic simulated expense journaling, opt-in recurring schedule execution, owner emergency pause, and mobile dashboard views/actions. They remain disabled and unprovisioned until owner identity, signed policies, accounts and explicit scheduler configuration are safely established. See [cloud financial controls](docs/cloud-financial-source-of-truth.md).
+
+
+The private owner console now also supports registering a policy signed locally by the enrolled operator key. Only the canonical policy, Ed25519 signature and public-key fingerprint are sent; private key material is never uploaded. Owner identity and public-key enrollment are still a provisioning prerequisite.
