@@ -188,7 +188,11 @@ class FakeD1Statement {
       })) };
     }
     if (this.sql.includes("FROM ai_tasks ORDER BY created_at DESC")) {
-      return { results: (this.db.tasks || []).slice().sort((a,b) => b.created_at.localeCompare(a.created_at)).slice(0,25) };
+      const rows = (this.db.tasks || []).slice().sort((a,b) => b.created_at.localeCompare(a.created_at)).slice(0,25);
+      return { results: rows.map(row => ({
+        task_id: row.task_id, task_type: row.task_type, status: row.status,
+        created_at: row.created_at, updated_at: row.updated_at
+      })) };
     }
     if (this.sql.includes("FROM agent_revenue_events WHERE agent_id=?")) {
       return { results: [...this.db.revenue.values()].filter(row => row.agent_id === this.values[0]) };
