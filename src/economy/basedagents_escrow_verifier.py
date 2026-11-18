@@ -120,7 +120,7 @@ class BasedAgentsEscrowVerifier:
             if payment.get("task_id") != task_id:
                 raise ValueError("payment_task_id_mismatch")
             audit_hashes = []
-            for key in ("deposit_tx_hash", "funding_tx_hash", "payment_tx_hash"):
+            for key in ("deposit_tx_hash", "funding_tx_hash"):
                 value = payment.get(key)
                 if isinstance(value, str):
                     audit_hashes.append(value)
@@ -162,6 +162,11 @@ class BasedAgentsEscrowVerifier:
                         and item.get("asset").lower() == USDC_BASE.lower()] if isinstance(accepts, list) else []
             if not matching:
                 raise ValueError("live_config_does_not_advertise_base_usdc")
+            bounty = task.get("bounty") if isinstance(task.get("bounty"), dict) else {}
+            if bounty.get("network") != BASE_NETWORK:
+                raise ValueError("task_bounty_network_is_not_base")
+            if bounty.get("token") != "USDC":
+                raise ValueError("task_bounty_token_is_not_usdc")
             if task.get("escrow") is False:
                 raise ValueError("task_is_not_escrowed")
             if escrow.get("wallet") and escrow["wallet"].lower() != recipient.lower():
