@@ -30,6 +30,7 @@ class MakeFunBounty:
     paid_places: int | None
     entry_fee_usdc: str | None
     escrow_status: str
+    submission_count: int | None
     source_url: str
     source: str = "make.fun"
     payment_verified: bool = False
@@ -83,6 +84,14 @@ class MakeFunPublicBounties:
                 return None
         return None
 
+    @staticmethod
+    def _nonnegative_int(value) -> int | None:
+        try:
+            result = int(value) if value is not None else None
+            return result if result is None or result >= 0 else None
+        except (TypeError, ValueError):
+            return None
+
     def search(self, *, limit: int = 50) -> list[MakeFunBounty]:
         if not 1 <= limit <= 100:
             raise ValueError("limit must be between 1 and 100")
@@ -103,19 +112,36 @@ class MakeFunPublicBounties:
             status = str(row.get("status") or "unknown").lower()
             if not isinstance(slug, str) or not slug or not isinstance(title, str) or status != "open":
                 continue
+
+            # Current make.fun API fields: rewardAmount, rewards (place map),
+            # entryFeeUsd (per-account fee), submissionCount and escrowLifecycle.
             rewards = row.get("rewards") or row.get("prizes")
-            reward = row.get("reward_usdc") or row.get("reward") or row.get("total_reward")
+            reward = (row.get("rewardAmount") or row.get("reward_usdc")
+                      or row.get("reward") or row.get("total_reward"))
             paid_places = row.get("paid_places") or row.get("places_paid")
-            if paid_places is None and isinstance(rewards, list):
+            if paid_places is None and isinstance(rewards, (dict, list)):
                 paid_places = len(rewards)
-            try:
-                paid_places = int(paid_places) if paid_places is not None else None
-                if paid_places is not None and paid_places < 0:
-                    paid_places = None
-            except (TypeError, ValueError):
-                paid_places = None
-            fee = row.get("entry_fee_usdc") or row.get("entry_fee")
-            escrow = row.get("escrow_status") or ("unknown" if not row.get("escrow") else "listed")
+            paid_places = self._nonnegative_int(paid_places)
+
+            fee = row.get("entryFeeUsd")
+            if fee is None:
+                fee = row.get("entry_fee_usdc")
+            if fee is None:
+                fee = row.get("entry_fee")
+            lifecycle = row.get("escrowLifecycle")
+            lock = row.get("escrowLock")
+            escrow = row.get("escrow_status")
+            if escrow is None and isinstance(lifecycle, dict):
+                escrow = lifecycle.get("state")
+            if escrow is None and isinstance(lock, dict):
+                escrow = lock.get("status")
+            if escrow is None:
+                escrow = "unknown"
+
+            submissions = self._nonnegative_int(row.get("submissionCount"))
+            raw_url = row.get("url")
+            source_url = (BASE_URL + raw_url if isinstance(raw_url, str)
+                          and raw_url.startswith("/bounty/") else f"{BASE_URL}/bounty/{slug}")
             results.append(MakeFunBounty(
                 slug=slug[:180], title=title[:300],
                 description=str(row.get("description") or row.get("summary") or "")[:6000],
@@ -125,6 +151,7 @@ class MakeFunPublicBounties:
                 status="open", paid_places=paid_places,
                 entry_fee_usdc=self._amount(fee),
                 escrow_status=str(escrow)[:80],
-                source_url=f"{BASE_URL}/bounties/{slug}",
+                submission_count=submissions,
+                source_url=source_url,
             ))
         return results
