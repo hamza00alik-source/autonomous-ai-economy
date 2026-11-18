@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/basedagents-independent-escrow-verifier]
   pull_request:
   workflow_dispatch:
 
