@@ -433,15 +433,23 @@ MOBA Objective Props — 10 Low-Poly Fantasy 3D Models for Godot
 
 ## Description
 
-Add ten original low-poly fantasy props to a game prototype, including objectives, consumables, map utilities, and defensive structures. Each asset is supplied as an individual glTF 2.0 binary model (.glb), with a combined preview scene and a Godot 4 demo scene.
+Add a cohesive set of ten original low-poly fantasy props to an indie game prototype. The collection covers resource pickups, consumables, objectives, map utilities, defensive structures and environment dressing:
+- Mana Crystal and Health Vial
+- Rune Altar and Ancient Coin Stack
+- Supply Chest
+- Arcane Ward Totem and Battle Banner
+- Jungle Brazier and Lane Turret
+- Rune Gate
+
+Every prop is delivered as an individual glTF 2.0 binary model (.glb). A combined ten-object preview and a ready-to-open Godot 4.7+ demo project are included to make inspection and prototyping easier.
 
 ## Included
 
-- 10 individual GLB models
-- 1 combined preview GLB
-- 1 complete Godot 4.7+ project with a camera-lit demo scene, floor and project.godot
-- PBR material definitions
-- README and draft license
+- 10 individual GLB models with named files
+- 1 combined preview GLB containing all ten props
+- 1 Godot 4.7+ project with camera, lighting, floor and demo scene
+- PBR material definitions embedded in the GLB assets
+- README, SHA-256 integrity manifest and draft license
 
 ## Technical limits
 
