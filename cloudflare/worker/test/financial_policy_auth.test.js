@@ -98,3 +98,54 @@ test("rejects a valid signature attached to a different owner-agent relationship
   input.agent.owner_id = "other-owner";
   assert.equal((await verifyOwnerSignedFinancialPolicy(input)).reason, "agent_not_active_or_owned");
 });
+
+test("cloud policy loader refuses malformed agent identifiers before querying D1", async () => {
+  const { loadActiveCloudFinancialPolicy } = await import("../src/financial_policy_auth.js");
+  let queried = false;
+  const result = await loadActiveCloudFinancialPolicy({ prepare() { queried = true; throw new Error("unexpected query"); } }, "bad id");
+  assert.deepEqual(result, { ok: false, reason: "invalid_agent_id" });
+  assert.equal(queried, false);
+});
+
+test("cloud policy loader fails closed when no active policy exists", async () => {
+  const { loadActiveCloudFinancialPolicy } = await import("../src/financial_policy_auth.js");
+  let sql = "";
+  const db = { prepare(query) { sql = query; return { bind(value) { assert.equal(value, "agent-01"); return { first: async () => null }; } }; } };
+  const result = await loadActiveCloudFinancialPolicy(db, "agent-01");
+  assert.deepEqual(result, { ok: false, reason: "active_policy_not_found" });
+  assert.match(sql, /p.status='active'/);
+  assert.match(sql, /JOIN financial_participants s/);
+  assert.match(sql, /JOIN financial_participants a/);
+});
+
+test("cloud policy loader verifies stored signature and relational bindings before authorizing", async () => {
+  const { loadActiveCloudFinancialPolicy } = await import("../src/financial_policy_auth.js");
+  const input = await fixture();
+  const row = {
+    policy_id: input.policy.policy_id, version: input.policy.version,
+    owner_id: input.policy.owner_id, agent_id: input.policy.agent_id,
+    signer_id: input.signer.participant_id, currency: input.policy.currency,
+    per_transaction_limit_minor: input.policy.per_transaction_limit_minor,
+    daily_spend_limit_minor: input.policy.daily_spend_limit_minor,
+    allowed_destinations_json: JSON.stringify(input.policy.allowed_destinations),
+    canonical_payload: input.canonicalPayload, signature_base64url: input.signatureBase64Url,
+    signer_key_fingerprint: input.signerKeyFingerprint, status: "active",
+    owner_participant_id: input.owner.participant_id, owner_type: "owner", owner_status: "active",
+    signer_participant_id: input.signer.participant_id, signer_type: "operator", signer_status: "active",
+    signer_owner_id: input.signer.owner_id, signer_public_key_jwk: JSON.stringify(input.signerJwk),
+    signer_fingerprint: input.signerKeyFingerprint,
+    agent_participant_id: input.agent.participant_id, agent_type: "agent", agent_status: "active",
+    agent_owner_id: input.agent.owner_id, agent_operator_id: input.agent.operator_id
+  };
+  const db = { prepare(query) {
+    assert.match(query, /financial_policies/);
+    return { bind(value) { assert.equal(value, "agent-01"); return { first: async () => row }; } };
+  } };
+  const result = await loadActiveCloudFinancialPolicy(db, "agent-01");
+  assert.equal(result.ok, true);
+  assert.equal(result.policy.policy_id, "agent-policy-01");
+  row.agent_operator_id = "different-operator";
+  const rejected = await loadActiveCloudFinancialPolicy(db, "agent-01");
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.reason, "signer_not_authorized_operator");
+});
