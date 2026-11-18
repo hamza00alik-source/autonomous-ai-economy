@@ -87,3 +87,10 @@ test("explicitly closed eligibility is not overridden by an open state", () => {
   });
   assert.equal(tasks[0].eligible, 0);
 });
+
+test("explicit non-claimable status overrides a generally open task", () => {
+  const tasks = normalizeSwarmMemoFeed({
+    data: { works: [{ id: "not-claimable", title: "Not claimable", state: "open", eligibility: "open", claimable: false, request: { text: "Task." } }] }
+  });
+  assert.equal(tasks[0].eligible, 0);
+});
