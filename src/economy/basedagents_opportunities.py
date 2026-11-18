@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import re
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -52,12 +54,13 @@ class PaidOpportunityStore:
         if minimum_bounty_usdc < 0:
             raise ValueError("minimum bounty must be non-negative")
         try:
-            amount = float(lead.bounty_usdc) if lead.bounty_usdc is not None else 0.0
-        except (TypeError, ValueError):
-            amount = 0.0
+            normalized = re.sub(r"(?i)\\s*USDC\\s*$", "", str(lead.bounty_usdc)).strip().replace("$", "").replace(",", "")
+            amount = Decimal(normalized) if lead.bounty_usdc is not None else Decimal("0")
+        except (InvalidOperation, TypeError, ValueError):
+            amount = Decimal("0")
         category_ok = lead.category in SUPPORTED_CATEGORIES
         network_ok = lead.network in SUPPORTED_NETWORKS
-        paid_ok = amount >= minimum_bounty_usdc and lead.bounty_usdc is not None
+        paid_ok = amount >= Decimal(str(minimum_bounty_usdc)) and lead.bounty_usdc is not None
         claimable = bool(lead.claimable)
         score = (40 if category_ok else 0) + (30 if network_ok else 0) + (20 if paid_ok else 0) + (10 if claimable else 0)
         state = "review_required" if score == 100 else "rejected"
