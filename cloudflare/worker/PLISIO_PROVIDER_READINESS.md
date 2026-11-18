@@ -49,6 +49,7 @@ The existing NOWPayments and Base USDC work is not replaced by this evaluation. 
 
 - [Plisio API introduction](https://plisio.net/documentation/getting-started/introduction)
 - [Plisio invoice creation and callback documentation](https://plisio.net/documentation/endpoints/create-an-invoice)
+- [Plisio transaction details](https://plisio.net/documentation/endpoints/transaction-details) — operation lookup by invoice transaction ID and documented `completed`, `pending`, `expired`, `mismatch`, `error`, and cancellation states.
 - [Plisio AML/KYC explanation](https://plisio.net/docs/aml.pdf)
 - [Plisio WHMCS plugin marketing page](https://plisio.net/whmcs-accept-crypto) — marketing claims only; not proof of general API eligibility or Pakistan legal compliance.
 - [Plisio Terms of Use PDF](https://plisio.net/docs/plisio-terms-of-use.pdf) — linked document is dated 12 March 2019; obtain current API terms before relying on it.
