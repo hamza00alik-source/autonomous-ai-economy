@@ -10,7 +10,7 @@ from hashlib import sha256
 import json
 from typing import Callable
 from urllib.error import URLError
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -67,6 +67,24 @@ class BasedAgentsPublicTasks:
         if len(body) > MAX_RESPONSE_BYTES:
             raise ValueError("task response exceeds 1 MB safety limit")
         return body
+
+    def get_task(self, task_id: str) -> dict:
+        """Fetch one public task detail record; never authenticates or writes."""
+        if not isinstance(task_id, str) or not task_id or len(task_id) > 160:
+            raise ValueError("task_id must be a non-empty string up to 160 characters")
+        if any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for ch in task_id):
+            raise ValueError("task_id contains unsupported characters")
+        url = BASE_URL + "/v1/tasks/" + quote(task_id, safe="")
+        payload = json.loads(self._fetcher(url, self.timeout_seconds))
+        if not isinstance(payload, dict):
+            raise ValueError("unexpected task detail response schema")
+        task = payload.get("task", payload)
+        if not isinstance(task, dict):
+            raise ValueError("task detail response is missing task object")
+        returned_id = task.get("task_id") or task.get("id")
+        if returned_id is not None and returned_id != task_id:
+            raise ValueError("task detail ID does not match requested ID")
+        return task
 
     def search(self, *, limit: int = 50, offset: int = 0) -> list[PaidTaskLead]:
         if not 1 <= limit <= 100:
