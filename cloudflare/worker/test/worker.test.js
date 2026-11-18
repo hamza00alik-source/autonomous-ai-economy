@@ -591,6 +591,7 @@ test("Base USDC storefront stays unpublished until every live checkout gate is c
     DB: {
       prepare: () => ({ first: async () => ({ halted_at: null }) })
     },
+    CHECKOUT_LIMITER: { limit: async () => ({ success: true }) },
     BASE_RPC_URL: "https://base.example/rpc",
     BASE_DEPLOYMENT_BLOCK: "100",
     BASE_CONFIRMATIONS: "6",
@@ -686,6 +687,7 @@ test("Base USDC checkout pauses when indexer is halted or its health row is miss
     BASE_MERCHANT_ADDRESS: "0x1111111111111111111111111111111111111111",
     BASE_CHECKOUT_CONTRACT_ADDRESS: "0x2222222222222222222222222222222222222222",
     CHECKOUT_LIMITER: { limit: async () => ({ success: true }) },
+    ASSETS: { fetch: async () => new Response("asset") },
     DB: db
   };
   const request = () => new Request("https://worker.example/v1/store/base-usdc/checkout", {
