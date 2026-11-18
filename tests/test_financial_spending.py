@@ -131,7 +131,7 @@ class AgentSpendingTests(unittest.TestCase):
             currency="USD", per_transaction_limit_minor=400,
             daily_spend_limit_minor=700, allowed_destinations=["service:compute"])
         self.policies.save(payload, b64(self.key.sign(_canonical(payload))))
-        with self.assertRaisesRegex(FinancialSpendingError, "authorized"):
+        with self.assertRaisesRegex(FinancialSpendingError, "superseded"):
             self.spending.settle(reservation["reservation_id"])
 
     def test_suspended_agent_blocks_new_reservations(self):
