@@ -83,7 +83,7 @@ class DoubleEntryLedger:
                 raise FinancialLedgerError("each line requires an account_id")
             if not isinstance(direction, str) or direction not in {"debit", "credit"}:
                 raise FinancialLedgerError("line direction must be debit or credit")
-            if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:
+            if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0 or amount > 9_223_372_036_854_775_807:
                 raise FinancialLedgerError("line amount_minor must be a positive signed-64-bit integer")
             if reference is not None and not isinstance(reference, str):
                 raise FinancialLedgerError("line reference must be text or null")
