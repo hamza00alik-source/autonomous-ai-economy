@@ -93,7 +93,7 @@ class BasedAgentsEscrowVerifierTests(unittest.TestCase):
         task, payment, config, _ = fixtures()
         config["escrow"]["wallet"] = "0x" + "2" * 40
         result = self.verifier(config=config).verify(task, payment)
-        self.assertEqual(result["reason"], "no_exact_usdc_transfer_to_escrow_wallet")
+        self.assertEqual(result["reason"], "task_escrow_wallet_differs_from_live_config")
 
     def test_missing_task_payment_link_blocks(self):
         task, payment, *_ = fixtures()
