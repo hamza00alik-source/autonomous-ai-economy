@@ -1,8 +1,8 @@
 """Fail-closed local readiness checks before considering a BasedAgents claim.
 
 This module performs no network calls, registration, wallet creation, signing,
-claiming, delivery, or payment. Callers must supply freshly fetched task data
-and independently verified escrow evidence.
+claiming, delivery, or payment. Callers must supply fresh task/payment data and
+a separate chain verifier's confirmation of the escrow deposit transaction.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import re
 
 BASE_MAINNET = "eip155:8453"
 _ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
+_TX_HASH = re.compile(r"^0x[0-9a-fA-F]{64}$")
 
 
 @dataclass(frozen=True)
@@ -56,12 +57,29 @@ def evaluate_claim_readiness(task: dict, agent: dict, *,
     except (InvalidOperation, TypeError, ValueError):
         reasons.append("bounty_missing_or_invalid")
 
-    network = bounty.get("network") or task.get("network")
+    network = bounty.get("network") or task.get("bounty_network") or task.get("network")
     if network != BASE_MAINNET:
         reasons.append("unsupported_or_missing_payout_network")
+    if bounty.get("token", task.get("bounty_token", "USDC")) != "USDC":
+        reasons.append("unsupported_bounty_token")
 
+    escrow = task.get("escrow") if isinstance(task.get("escrow"), dict) else {}
+    payment = task.get("payment") if isinstance(task.get("payment"), dict) else {}
+    escrow_status = escrow.get("status")
+    if escrow_status != "funded":
+        reasons.append("escrow_not_funded")
+    payment_verified = payment.get("verified")
+    if payment_verified is not True and payment_verified != 1:
+        reasons.append("payment_not_verified_by_registry")
+    deposit_hash = (
+        escrow.get("deposit_tx_hash")
+        or escrow.get("funding_tx_hash")
+        or payment.get("deposit_tx_hash")
+    )
+    if not isinstance(deposit_hash, str) or not _TX_HASH.fullmatch(deposit_hash):
+        reasons.append("escrow_deposit_transaction_missing")
     if escrow_verified is not True:
-        reasons.append("escrow_not_independently_verified")
+        reasons.append("escrow_deposit_not_independently_verified")
 
     agent_id = agent.get("agent_id") or agent.get("id")
     if not isinstance(agent_id, str) or not agent_id.startswith("ag_"):
