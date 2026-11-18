@@ -39,6 +39,28 @@ class PaidTaskCliTests(unittest.TestCase):
         store = PaidOpportunityStore(self.data_dir / "paid-opportunities.sqlite3")
         self.assertEqual(len(store.list_review_required()), 1)
 
+    def test_evaluate_command_fetches_details_without_claiming(self):
+        store = PaidOpportunityStore(self.data_dir / "paid-opportunities.sqlite3")
+        store.save(PaidTaskLead(
+            task_id="evaluate-task", title="Research report",
+            description="Produce a cited research report", category="research",
+            bounty_usdc="5.00", network="eip155:8453", status="open", claimable=True,
+        ))
+        detail = {
+            "task_id": "evaluate-task", "title": "Research report", "status": "open",
+            "description": "Produce a cited research report",
+            "expected_output": "A Markdown report",
+            "acceptance_criteria": ["Cite five sources"],
+            "bounty": {"amount_display": "5.00", "network": "eip155:8453"},
+        }
+        with patch("economy.ai_cli.BasedAgentsPublicTasks") as provider:
+            provider.return_value.get_task.return_value = detail
+            with patch.object(sys, "argv", [
+                "economy-ai", "--data-dir", str(self.data_dir), "evaluate-paid-tasks",
+            ]):
+                self.assertEqual(main(), 0)
+        provider.return_value.get_task.assert_called_once_with("evaluate-task")
+
     def test_list_command_outputs_saved_review_queue(self):
         store = PaidOpportunityStore(self.data_dir / "paid-opportunities.sqlite3")
         store.save(PaidTaskLead(
