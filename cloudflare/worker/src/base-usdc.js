@@ -1,6 +1,7 @@
 import {
   createPublicClient,
   decodeEventLog,
+  formatUnits,
   http,
   isAddress,
   keccak256,
@@ -328,5 +329,138 @@ export async function fetchConfirmedBaseUsdcLogs({
     headBlock: headBlock.toString(),
     scannedToBlock: end.toString(),
     events,
+  };
+}
+
+
+async function quarantineBaseUsdcEvent(db, log, reason, now) {
+  await db.prepare(
+    "INSERT OR IGNORE INTO base_usdc_quarantine (transaction_hash,log_index,reason,event_json,created_at) VALUES (?,?,?,?,?)"
+  ).bind(
+    String(log?.transactionHash || "unknown"),
+    Number.isSafeInteger(log?.logIndex) ? log.logIndex : -1,
+    String(reason).slice(0, 240),
+    JSON.stringify({
+      address: log?.address || null,
+      topics: log?.topics || null,
+      data: log?.data || null,
+      transactionHash: log?.transactionHash || null,
+      blockHash: log?.blockHash || null,
+      blockNumber: log?.blockNumber?.toString?.() || null,
+      logIndex: log?.logIndex ?? null,
+    }),
+    now,
+  ).run();
+}
+
+/**
+ * Matches one finalized contract event to a pending invoice, then commits the
+ * payment event, invoice entitlement and gross revenue attribution in one D1
+ * batch. No payout or agent credit is created here.
+ */
+export async function settleBaseUsdcInvoice({
+  db,
+  log,
+  finality,
+  blockTimestamp,
+  contractAddress,
+  merchantAddress,
+  tokenAddress = BASE_USDC_ADDRESS,
+}) {
+  if (!db || typeof db.prepare !== "function" || typeof db.batch !== "function") {
+    throw new Error("D1 database with batch transaction support is required");
+  }
+  if (!finality?.confirmed || finality.transactionHash?.toLowerCase() !== log?.transactionHash?.toLowerCase() ||
+      finality.blockHash?.toLowerCase() !== log?.blockHash?.toLowerCase() ||
+      finality.blockNumber !== log?.blockNumber?.toString?.()) {
+    throw new Error("verified finality evidence is required for this exact log");
+  }
+  if (!Number.isSafeInteger(blockTimestamp) || blockTimestamp <= 0) {
+    throw new Error("canonical block timestamp is required");
+  }
+  const now = new Date().toISOString();
+  const decoded = decodeEventLog({
+    abi: BASE_USDC_CHECKOUT_ABI,
+    data: log.data,
+    topics: log.topics,
+    strict: true,
+  });
+  const orderIdHash = decoded.args.orderId;
+  const invoice = await db.prepare(
+    "SELECT order_id,order_id_hash,product_id,agent_id,amount_minor,gross_amount_minor,merchant_address,invoice_deadline,status,transaction_hash FROM base_usdc_invoices WHERE order_id_hash=?"
+  ).bind(orderIdHash).first();
+
+  if (!invoice) {
+    await quarantineBaseUsdcEvent(db, log, "unknown_order", now);
+    return { status: "quarantined", reason: "unknown_order" };
+  }
+  let verified;
+  try {
+    verified = decodeBaseUsdcPaymentLog(log, {
+      chainId: BASE_MAINNET_CHAIN_ID,
+      contractAddress,
+      merchantAddress: invoice.merchant_address,
+      tokenAddress,
+      orderIdHash: invoice.order_id_hash,
+      amountMinor: String(invoice.amount_minor),
+    });
+    if (invoice.merchant_address.toLowerCase() !== merchantAddress.toLowerCase()) {
+      throw new Error("invoice merchant differs from configured merchant");
+    }
+    if (blockTimestamp > Number(invoice.invoice_deadline)) {
+      throw new Error("payment event occurred after invoice expiry");
+    }
+  } catch (error) {
+    const reason = String(error?.message || "invoice_mismatch").slice(0, 240);
+    await quarantineBaseUsdcEvent(db, log, reason, now);
+    return { status: "quarantined", reason };
+  }
+
+  if (invoice.status === "settled" && invoice.transaction_hash?.toLowerCase() === verified.transactionHash.toLowerCase()) {
+    return { status: "duplicate", order_id: invoice.order_id };
+  }
+  if (invoice.status !== "pending" || invoice.transaction_hash) {
+    await quarantineBaseUsdcEvent(db, log, "invoice_not_pending_or_already_paid", now);
+    return { status: "quarantined", reason: "invoice_not_pending_or_already_paid" };
+  }
+
+  const settledAt = new Date(blockTimestamp * 1000).toISOString();
+  const downloadExpiresAt = new Date((blockTimestamp + 7 * 24 * 60 * 60) * 1000).toISOString();
+  const cryptoAmount = formatUnits(BigInt(invoice.amount_minor), 6);
+  const statements = [
+    db.prepare(
+      "INSERT INTO base_usdc_payment_events (chain_id,transaction_hash,log_index,order_id,buyer_address,merchant_address,token_address,amount_minor,block_number,block_hash,transaction_status,observed_at) SELECT 8453,?,?,?,?,?,?,?,?,?,'confirmed',? WHERE EXISTS (SELECT 1 FROM base_usdc_invoices WHERE order_id_hash=? AND status='pending' AND transaction_hash IS NULL AND invoice_deadline>=? AND amount_minor=? AND merchant_address=?)"
+    ).bind(
+      verified.transactionHash, verified.logIndex, invoice.order_id, verified.buyerAddress,
+      verified.merchantAddress, verified.tokenAddress, Number(verified.amountMinor),
+      Number(verified.blockNumber), verified.blockHash, now, invoice.order_id_hash,
+      blockTimestamp, Number(invoice.amount_minor), invoice.merchant_address,
+    ),
+    db.prepare(
+      "UPDATE base_usdc_invoices SET status='settled',buyer_address=?,transaction_hash=?,log_index=?,block_number=?,block_hash=?,settled_at=?,download_expires_at=? WHERE order_id_hash=? AND status='pending' AND transaction_hash IS NULL AND EXISTS (SELECT 1 FROM base_usdc_payment_events WHERE chain_id=8453 AND transaction_hash=? AND log_index=? AND transaction_status='confirmed')"
+    ).bind(
+      verified.buyerAddress, verified.transactionHash, verified.logIndex,
+      Number(verified.blockNumber), verified.blockHash, settledAt, downloadExpiresAt,
+      invoice.order_id_hash, verified.transactionHash, verified.logIndex,
+    ),
+    db.prepare(
+      "INSERT OR IGNORE INTO base_usdc_agent_revenue_events (order_id,agent_id,product_id,gross_amount_minor,gross_currency,transaction_hash,crypto_received_amount,crypto_currency,status,net_amount_minor,agent_credit_minor,settled_at,reconciled_at,created_at,updated_at) SELECT order_id,agent_id,product_id,gross_amount_minor,'usd',transaction_hash,?,'USDC','settled_pending_reconciliation',NULL,NULL,settled_at,NULL,?,? FROM base_usdc_invoices WHERE order_id_hash=? AND status='settled' AND transaction_hash=?"
+    ).bind(cryptoAmount, now, now, invoice.order_id_hash, verified.transactionHash),
+  ];
+  await db.batch(statements);
+  const saved = await db.prepare(
+    "SELECT status,transaction_hash,download_expires_at FROM base_usdc_invoices WHERE order_id_hash=?"
+  ).bind(invoice.order_id_hash).first();
+  if (saved?.status !== "settled" || saved.transaction_hash?.toLowerCase() !== verified.transactionHash.toLowerCase()) {
+    return { status: "conflict", order_id: invoice.order_id };
+  }
+  return {
+    status: "settled",
+    order_id: invoice.order_id,
+    transaction_hash: verified.transactionHash,
+    download_expires_at: saved.download_expires_at,
+    gross_amount_minor: invoice.gross_amount_minor,
+    gross_currency: "USD",
+    agent_credit_minor: null,
   };
 }
