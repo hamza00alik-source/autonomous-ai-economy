@@ -166,3 +166,39 @@ def test_supervisor_continues_ai_lane_after_builtin_worker_error():
                       worker=normal_worker, ai_worker=ai_worker)
     assert calls == ["model"]
     assert stats == {"cycles": 1, "completed": 1, "idle": 0, "errors": 1}
+
+
+
+def test_supervisor_runs_optional_financial_scheduler_each_cycle():
+    calls = []
+    def financial_scheduler():
+        calls.append("financial")
+        return {"settled": 1, "blocked": 0}
+
+    stats = supervise(Store(), poll_seconds=0.1, max_cycles=2,
+                      worker=lambda _store: None,
+                      financial_scheduler=financial_scheduler)
+    assert calls == ["financial", "financial"]
+    assert stats == {"cycles": 2, "completed": 0, "idle": 0, "errors": 0}
+
+
+def test_supervisor_isolates_financial_scheduler_errors_from_worker_lane():
+    calls = []
+    def financial_scheduler():
+        raise RuntimeError("financial store unavailable")
+
+    def worker(_store):
+        calls.append("worker")
+        return {"status": "completed"}
+
+    stats = supervise(Store(), poll_seconds=0.1, max_cycles=1,
+                      worker=worker, financial_scheduler=financial_scheduler)
+    assert calls == ["worker"]
+    assert stats == {"cycles": 1, "completed": 1, "idle": 0, "errors": 1}
+
+
+def test_supervisor_rejects_malformed_financial_scheduler_result():
+    stats = supervise(Store(), poll_seconds=0.1, max_cycles=1,
+                      worker=lambda _store: None,
+                      financial_scheduler=lambda: {"settled": True, "blocked": 0})
+    assert stats == {"cycles": 1, "completed": 0, "idle": 0, "errors": 1}
