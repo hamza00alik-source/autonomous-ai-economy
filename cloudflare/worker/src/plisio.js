@@ -1,9 +1,157 @@
 /**
- * Verify Plisio's documented non-PHP JSON callback format.
- * Callback URL must include json=true. Preserve received JSON property order:
- * Plisio's Node example signs JSON.stringify(payload without verify_hash)
- * using HMAC-SHA1 and the API secret. This module is not route-wired.
+ * Isolated Plisio API adapter. Deliberately not connected to Worker routes.
+ * API credentials are passed by the caller and must come from Worker secrets.
+ * Never expose request URLs: Plisio requires api_key in the query string.
  */
+const API_BASE = "https://api.plisio.net/api/v1";
+const INVOICE_URL_HOSTS = new Set(["plisio.net", "www.plisio.net"]);
+
+function validPositiveDecimal(value) {
+  if (typeof value !== "string" || !/^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/.test(value)) return false;
+  return Number(value) > 0 && Number.isFinite(Number(value));
+}
+
+function sameUsdAmount(left, right) {
+  if (!validPositiveDecimal(left) || !validPositiveDecimal(right)) return false;
+  const [li = "0", lf = ""] = left.split(".");
+  const [ri = "0", rf = ""] = right.split(".");
+  return BigInt(li) * 100000000n + BigInt((lf + "00000000").slice(0, 8)) ===
+    BigInt(ri) * 100000000n + BigInt((rf + "00000000").slice(0, 8));
+}
+
+function safeInvoiceUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && INVOICE_URL_HOSTS.has(url.hostname) &&
+      !url.username && !url.password ? url.toString() : null;
+  } catch { return null; }
+}
+
+function callbackWithJsonFlag(value) {
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password || url.hash) {
+    throw new Error("Invalid Plisio callback URL");
+  }
+  url.searchParams.set("json", "true");
+  return url.toString();
+}
+
+async function readPlisioJson(response) {
+  if (!response || response.ok !== true) throw new Error("Plisio API request failed");
+  let body;
+  try { body = await response.json(); } catch { throw new Error("Invalid Plisio API response"); }
+  if (!body || body.status !== "success" || !body.data || typeof body.data !== "object") {
+    throw new Error("Plisio API did not confirm the request");
+  }
+  return body.data;
+}
+
+function apiUrl(path, apiKey, params = {}) {
+  if (typeof apiKey !== "string" || apiKey.length < 1) throw new Error("Plisio API key is required");
+  const url = new URL(`${API_BASE}${path}`);
+  url.searchParams.set("api_key", apiKey);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+  }
+  return url;
+}
+
+/** Create an invoice using server-supplied order and price data only. */
+export async function createPlisioInvoice({
+  apiKey, orderNumber, orderName, sourceAmount, callbackUrl, fetchImpl = fetch
+}) {
+  if (typeof orderNumber !== "string" || !orderNumber.trim() || orderNumber.length > 128 ||
+      typeof orderName !== "string" || !orderName.trim() || orderName.length > 128 ||
+      !validPositiveDecimal(sourceAmount) || typeof callbackUrl !== "string") {
+    throw new Error("Invalid Plisio invoice input");
+  }
+  const callback = callbackWithJsonFlag(callbackUrl);
+  const url = apiUrl("/invoices/new", apiKey, {
+    source_currency: "USD", source_amount: sourceAmount,
+    order_number: orderNumber, order_name: orderName, callback_url: callback
+  });
+  const data = await readPlisioJson(await fetchImpl(url.toString(), {
+    method: "GET", headers: { accept: "application/json" }
+  }));
+  const invoiceUrl = safeInvoiceUrl(data.invoice_url);
+  if (typeof data.txn_id !== "string" || !data.txn_id.trim() || !invoiceUrl) {
+    throw new Error("Plisio returned an incomplete or unsafe invoice");
+  }
+  return Object.freeze({
+    provider: "plisio", transactionId: data.txn_id,
+    invoiceUrl, orderNumber, sourceCurrency: "USD", sourceAmount
+  });
+}
+
+/**
+ * Fetch the authoritative operation record. Callback data alone never settles
+ * an order; the caller must compare this record with its own immutable order.
+ */
+export async function getPlisioOperation({ apiKey, transactionId, fetchImpl = fetch }) {
+  if (typeof transactionId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(transactionId)) {
+    throw new Error("Invalid Plisio transaction ID");
+  }
+  const data = await readPlisioJson(await fetchImpl(
+    apiUrl(`/operations/${encodeURIComponent(transactionId)}`, apiKey).toString(),
+    { method: "GET", headers: { accept: "application/json" } }
+  ));
+  if (data.id !== transactionId || data.type !== "invoice" || typeof data.status !== "string") {
+    throw new Error("Plisio operation does not match the requested invoice");
+  }
+  return data;
+}
+
+export function normalizePlisioStatus(status) {
+  switch (status) {
+    case "new":
+    case "pending":
+    case "pending internal": return "pending";
+    case "completed": return "completed";
+    case "expired": return "expired";
+    case "mismatch": return "mismatch";
+    case "error": return "error";
+    case "cancelled":
+    case "cancelled duplicate": return "cancelled";
+    default: return "unknown";
+  }
+}
+
+/** Reconcile provider state against our stored invoice/order. Fail closed. */
+export async function reconcilePlisioInvoice({
+  apiKey, transactionId, expectedOrderNumber, expectedSourceAmount, fetchImpl = fetch
+}) {
+  if (typeof expectedOrderNumber !== "string" || !expectedOrderNumber ||
+      !validPositiveDecimal(expectedSourceAmount)) throw new Error("Invalid expected Plisio order");
+  const operation = await getPlisioOperation({ apiKey, transactionId, fetchImpl });
+  const params = operation.params && typeof operation.params === "object" ? operation.params : {};
+  const matched = params.order_number === expectedOrderNumber &&
+    params.source_currency === "USD" &&
+    sameUsdAmount(String(params.source_amount ?? ""), expectedSourceAmount);
+  const status = normalizePlisioStatus(operation.status);
+  return Object.freeze({
+    provider: "plisio", transactionId, status,
+    orderMatched: matched,
+    paid: status === "completed" && matched,
+    // Unknown or mismatched provider data can never unlock a download.
+    unlockAllowed: status === "completed" && matched
+  });
+}
+
+/**
+ * Verify the JSON callback signature, then return a normalized hint only.
+ * A caller must still invoke reconcilePlisioInvoice before granting access.
+ */
+export async function verifyAndNormalizePlisioCallback(payload, secret) {
+  if (!await verifyPlisioJsonCallback(payload, secret)) return null;
+  if (typeof payload.txn_id !== "string" || typeof payload.order_number !== "string" ||
+      typeof payload.status !== "string") return null;
+  return Object.freeze({
+    transactionId: payload.txn_id,
+    orderNumber: payload.order_number,
+    status: normalizePlisioStatus(payload.status)
+  });
+}
+
 function constantTimeHexEqual(left, right) {
   if (typeof left !== "string" || typeof right !== "string" ||
       !/^[0-9a-f]{40}$/i.test(left) || !/^[0-9a-f]{40}$/i.test(right)) return false;
