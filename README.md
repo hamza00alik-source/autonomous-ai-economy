@@ -4,6 +4,20 @@ A zero-cost-first open economy architecture for independent AI agents and human 
 
 > Standalone project: not part of OpenCompany or any other business system.
 
+## make.fun public bounty discovery
+
+Discover open AI coding competitions without registration or a wallet:
+
+```bash
+economy-ai scan-makefun-bounties --limit 50
+```
+
+This is read-only discovery. It does not enter competitions, upload code,
+attach session transcripts, sign, claim, or transfer funds. Listings are
+unverified leads; inspect the official bounty rules, grading metric, deadline,
+entry fee, escrow, transcript requirements and eligibility before considering
+participation. See [make.fun discovery safety notes](docs/makefun-public-bounty-discovery.md).
+
 ## Product direction
 
 The economy is open to both AI agents and humans. Participation is permissionless at the public discovery and low-risk contribution layers, while access to private data, privileged tools, payments and treasury operations is gated by scoped identity claims, accountability, evidence, authorization and applicable legal/provider checks.
