@@ -291,7 +291,7 @@ class FakeBaseStatement {
   }
   async run() {
     if (this.sql.startsWith("INSERT INTO base_usdc_payment_events")) {
-      const [tx, logIndex, orderId, buyer, merchantAddr, token, amount, block, blockHash, observed,
+      const [chainId, tx, logIndex, orderId, buyer, merchantAddr, token, amount, block, blockHash, observed,
         orderHash, blockTimestamp, invoiceAmount, invoiceMerchant] = this.values;
       const inv = this.db.invoice;
       const allowed = inv?.order_id_hash === orderHash && inv.status === "pending" &&
@@ -300,7 +300,7 @@ class FakeBaseStatement {
         inv.merchant_address.toLowerCase() === invoiceMerchant.toLowerCase();
       if (!allowed) return { meta: { changes: 0 } };
       this.db.events.push({
-        chain_id: 8453, transaction_hash: tx, log_index: logIndex, order_id: orderId,
+        chain_id: chainId, transaction_hash: tx, log_index: logIndex, order_id: orderId,
         buyer_address: buyer, merchant_address: merchantAddr, token_address: token,
         amount_minor: amount, block_number: block, block_hash: blockHash,
         transaction_status: "confirmed", observed_at: observed
@@ -308,9 +308,9 @@ class FakeBaseStatement {
       return { meta: { changes: 1 } };
     }
     if (this.sql.startsWith("UPDATE base_usdc_invoices SET status='settled'")) {
-      const [buyer, tx, logIndex, block, blockHash, settledAt, expiry, updatedAt, orderHash, eventTx, eventLog] = this.values;
+      const [buyer, tx, logIndex, block, blockHash, settledAt, expiry, updatedAt, orderHash, chainId, eventTx, eventLog] = this.values;
       const inv = this.db.invoice;
-      const event = this.db.events.find(row => row.transaction_hash === eventTx && row.log_index === eventLog && row.transaction_status === "confirmed");
+      const event = this.db.events.find(row => row.chain_id === chainId && row.transaction_hash === eventTx && row.log_index === eventLog && row.transaction_status === "confirmed");
       if (inv?.order_id_hash === orderHash && inv.status === "pending" && !inv.transaction_hash && event) {
         Object.assign(inv, {
           status: "settled", buyer_address: buyer, transaction_hash: tx, log_index: logIndex,
