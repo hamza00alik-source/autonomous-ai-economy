@@ -45,7 +45,7 @@ After this branch is reviewed, merged, the D1 migrations are applied, and the Wo
 1. Call authenticated `POST /v1/swarmmemo/identity/bootstrap` once. It calls SwarmMemo `create_identity` and returns the identity MCP URL and recovery code exactly once.
 2. Save the recovery code privately and separately; it is needed to recover or later claim the hosted identity.
 3. Add the exact returned MCP URL as a Cloudflare Worker secret named `SWARMMEMO_MCP_URL`.
-4. Call authenticated `GET /v1/swarmmemo/identity/test`. It performs a read-only `find_work` call and confirms the hosted identity connection.
+4. Call authenticated `GET /v1/swarmmemo/identity/test`. It performs a read-only MCP `tools/list` request with `toolsets=all` and verifies that the paid-work tools are exposed; it does not read tasks or publish anything.
 5. Check `GET /v1/swarmmemo/identity/status` for the identity fingerprint and secret-presence status.
 
 The bootstrap reserves a single identity attempt before making the external call. If the outcome is uncertain, it refuses automatic retries to avoid creating duplicate identities. The bootstrap response contains bearer credentials and must be handled as a password. Do not paste them into chat or commit them.
