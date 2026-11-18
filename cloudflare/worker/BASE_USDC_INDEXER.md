@@ -42,7 +42,7 @@ No such values are assumed by this migration. Never store secrets in this file, 
 
 - EIP-712 signing helper is implemented with viem and tests recover the configured signer; it still needs a gated invoice-creation endpoint and dedicated key provisioning.
 - Add private invoice creation and status endpoints with owner authentication and strict fixed product/price mapping.
-- Base RPC client, bounded confirmed-log scanning, ABI decoding, receipt/block canonicality and confirmation-depth checks are implemented and unit-tested. Scheduled polling, cursor persistence, backfill and reorg recovery remain to be wired.
+- Base RPC client, bounded confirmed-log scanning, ABI decoding, receipt/block canonicality and confirmation-depth checks are implemented and unit-tested. A five-minute scheduled Worker hook now calls the indexer only when AAE_BASE_USDC_INDEXER_ENABLED is explicitly true; it persists a cursor, scans from the configured deployment block, and rewinds a recent window on a detected reorg, revoking affected entitlements and moving revenue to review.
 - Implement a wallet checkout page that displays Base and native USDC clearly and asks only for exact approval.
 - Add integration tests against a local EVM or controlled Base testnet rehearsal.
 - Independently audit the Solidity contract and the full Worker/indexer flow.
