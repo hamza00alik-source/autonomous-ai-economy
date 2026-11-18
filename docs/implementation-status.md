@@ -147,3 +147,12 @@ This status distinguishes local prototype code from the future open economy. A c
 - Startup creates storage schemas only; it does not enroll participants, create/sign a policy, add budget, create a schedule, or make a payment. Existing schedules can execute only if their current owner-signed policy and allocated simulated budget authorize them.
 - The flag is explicitly simulation-only. It does not connect to providers, wallets, chains, bank rails or production Worker/D1. It is not enabled by default.
 - A test verifies that the opt-in callback initializes clean stores, returns zero activity, and does not create any financial policy automatically.
+
+
+## Local owner financial control console
+
+- Added the `economy-finance` local CLI for listing financial policy versions and their current authorization state, viewing an agent's simulated cleared budget/reservations/daily usage, and inspecting recurring expense schedules.
+- Added schedule pause/resume/cancel commands and an emergency `pause-all` operation that atomically pauses every currently active recurring schedule. Pausing prevents future scheduler polls from selecting those schedules; it does not reverse an already-settled journal entry or interrupt an occurrence already in progress.
+- Added an unsigned policy-template workflow and a separate `policy-sign` command. The owner reviews the exact normalized JSON terms, then signs locally with their existing Ed25519 PEM key. The private key is read from a local file, never printed, persisted by AAE, or uploaded. The policy store verifies the signature against the currently enrolled owner's public key and active operator relationship.
+- The console is a trusted-local administrative CLI, not a public or remotely authenticated dashboard. Do not expose it through a web server or public internet. It creates no participant, policy, budget or schedule unless the owner explicitly runs the relevant command.
+- All budget figures and expense activity are simulated journal data only. A cleared simulated balance is not a bank, wallet or provider balance; policy authorization does not prove legal/KYC eligibility or permit real transfers.
