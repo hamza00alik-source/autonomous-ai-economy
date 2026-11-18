@@ -487,11 +487,10 @@ export async function pollBaseUsdc(env, injectedClient = null) {
   const deploymentBlock = Number(env.BASE_DEPLOYMENT_BLOCK);
   const confirmations = Number(env.BASE_CONFIRMATIONS);
   const maxBlocks = Number(env.BASE_MAX_BLOCKS_PER_POLL || 500);
-  const reorgLookback = Number(env.BASE_REORG_LOOKBACK || 64);
   if (!Number.isSafeInteger(deploymentBlock) || deploymentBlock < 0 ||
       !Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 10000 ||
       !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > 1000 ||
-      !Number.isSafeInteger(reorgLookback) || reorgLookback < 1 || reorgLookback > 1000) {
+      false) {
     throw new Error("Base indexer block and confirmation settings are invalid");
   }
   const client = injectedClient || createBasePublicClient(env.BASE_RPC_URL);
