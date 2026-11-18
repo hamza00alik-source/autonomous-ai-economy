@@ -59,6 +59,27 @@ class PaidTaskCapabilityEvaluatorTests(unittest.TestCase):
         self.assertIn("bounty_below_minimum", result.reasons)
         self.assertIn("unsupported_or_missing_network", result.reasons)
 
+    def test_extracts_numbered_acceptance_evidence_from_description(self):
+        detail = dict(self.detail)
+        detail.pop("acceptance_criteria")
+        detail["description"] = "Scope\\nAcceptance evidence:\\n1. Include source links\\n2. Validate totals\\n\\nNotes"
+        result = self.evaluator.evaluate(self.lead, detail)
+        self.assertEqual(len(result.acceptance_criteria), 2)
+
+    def test_rejects_external_runtime_and_paid_usage_requirements(self):
+        detail = dict(self.detail)
+        detail["required_capabilities"] = ["docker", "automation", "x402"]
+        detail["description"] = (
+            "Install in a genuine external runtime.\\n"
+            "Reward follows at least 0.50 USDC of settled revenue and a paid cycle.\\n"
+            "Acceptance evidence:\\n1. Show install proof"
+        )
+        result = self.evaluator.evaluate(self.lead, detail)
+        self.assertEqual(result.state, "needs_review")
+        self.assertIn("requires_unavailable_infrastructure_or_payment_capability", result.reasons)
+        self.assertIn("requires_authorized_external_runtime", result.reasons)
+        self.assertIn("requires_prior_paid_usage_or_revenue_threshold", result.reasons)
+
     def test_parses_display_amount_with_currency_suffix(self):
         detail = dict(self.detail, bounty={"amount_display": "5.00 USDC", "network": "eip155:8453"})
         result = self.evaluator.evaluate(self.lead, detail)
