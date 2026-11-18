@@ -694,3 +694,51 @@ test("Base USDC checkout rejects buyer-supplied price or product and cross-origi
   }), env);
   assert.equal(cross.status, 403);
 });
+
+
+test("Base USDC buyer order and download routes remain locked until settlement", async () => {
+  const token = "d".repeat(64);
+  const db = fakeBaseCheckoutDb();
+  const orderId = "base-moba-order-456";
+  const row = {
+    order_id: orderId,
+    product_id: "moba-objective-props",
+    status: "pending",
+    download_expires_at: null,
+    buyer_token_hash: createHash("sha256").update(token).digest("hex"),
+    download_count: 0
+  };
+  db.rows.set(orderId, row);
+  let assetRequests = 0;
+  const env = {
+    DB: db,
+    ASSETS: {
+      fetch: async () => {
+        assetRequests += 1;
+        return new Response(new Uint8Array([80, 75, 3, 4]), {
+          status: 200, headers: { "content-length": "4" }
+        });
+      }
+    }
+  };
+  const status = await worker.fetch(new Request("https://worker.example/v1/store/base-usdc/orders/" + orderId, {
+    headers: { authorization: "Bearer " + token }
+  }), env);
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).download_available, false);
+  const locked = await worker.fetch(new Request("https://worker.example/v1/store/base-usdc/orders/" + orderId + "/download", {
+    headers: { authorization: "Bearer " + token }
+  }), env);
+  assert.equal(locked.status, 403);
+  assert.equal(assetRequests, 0);
+
+  row.status = "settled";
+  row.download_expires_at = new Date(Date.now() + 60_000).toISOString();
+  const downloaded = await worker.fetch(new Request("https://worker.example/v1/store/base-usdc/orders/" + orderId + "/download", {
+    headers: { authorization: "Bearer " + token }
+  }), env);
+  assert.equal(downloaded.status, 200);
+  assert.equal(downloaded.headers.get("content-type"), "application/zip");
+  assert.equal(assetRequests, 1);
+  assert.equal(row.download_count, 1);
+});
