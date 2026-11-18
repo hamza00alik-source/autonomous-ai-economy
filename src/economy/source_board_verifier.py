@@ -70,7 +70,8 @@ class GitHubSourceBoardVerifier:
         if (not owner or not repo or not number.isdigit()
                 or any(ch in owner + repo for ch in "?#%")):
             return None
-        return f"{API_ROOT}/repos/{owner}/{repo}/issues/{number}", kind
+        resource = "pulls" if kind == "pull" else "issues"
+        return f"{API_ROOT}/repos/{owner}/{repo}/{resource}/{number}", kind
 
     def verify(self, url: str) -> SourceBoardResult:
         endpoint = self._endpoint(url)
