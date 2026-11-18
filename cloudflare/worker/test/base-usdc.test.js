@@ -464,3 +464,82 @@ test("scheduled Base indexer is dormant unless its explicit enablement gate is t
   assert.deepEqual(await pollBaseUsdc({}), { enabled: false });
   assert.deepEqual(await pollBaseUsdc({ AAE_BASE_USDC_INDEXER_ENABLED: "false" }), { enabled: false });
 });
+
+
+test("scheduled Base indexer detects cursor reorg, rewinds and revokes affected settlements", async () => {
+  const cursor = { next_block: 200, last_block_hash: "0x" + "11".repeat(32) };
+  const invoice = { status: "settled", transaction_hash: "0x" + "aa".repeat(32), download_expires_at: "later" };
+  const revenue = { status: "settled_pending_reconciliation" };
+  const events = [{ block_number: 150, transaction_hash: invoice.transaction_hash, transaction_status: "confirmed" }];
+  const statements = [];
+  const db = {
+    prepare(sql) {
+      return {
+        values: [],
+        bind(...values) { this.values = values; return this; },
+        async first() {
+          if (sql.includes("SELECT next_block,last_block_hash")) return { ...cursor };
+          return null;
+        },
+        async run() {
+          statements.push(sql);
+          if (sql.startsWith("INSERT OR IGNORE INTO base_usdc_indexer_state")) return { meta: { changes: 0 } };
+          if (sql.startsWith("UPDATE base_usdc_payment_events")) {
+            const [rewind] = this.values;
+            for (const event of events) if (event.block_number >= rewind) event.transaction_status = "orphaned";
+          }
+          if (sql.startsWith("UPDATE base_usdc_invoices")) {
+            const [expiry, updated, rewind] = this.values;
+            if (invoice.status === "settled" && events.some(e => e.block_number >= rewind && e.transaction_status === "orphaned")) {
+              invoice.status = "review";
+              invoice.download_expires_at = expiry;
+              invoice.updated_at = updated;
+            }
+          }
+          if (sql.startsWith("UPDATE base_usdc_agent_revenue_events")) {
+            const [updated, rewind] = this.values;
+            if (events.some(e => e.block_number >= rewind && e.transaction_status === "orphaned")) {
+              revenue.status = "refund_review";
+              revenue.updated_at = updated;
+            }
+          }
+          if (sql.startsWith("UPDATE base_usdc_indexer_state")) {
+            const [next, hash] = this.values;
+            cursor.next_block = next;
+            cursor.last_block_hash = hash;
+          }
+          return { meta: { changes: 1 } };
+        }
+      };
+    },
+    async batch(items) {
+      const result = [];
+      for (const item of items) result.push(await item.run());
+      return result;
+    }
+  };
+  const client = {
+    async getBlock({ blockNumber }) {
+      if (blockNumber === 199n) return { hash: "0x" + "22".repeat(32) };
+      if (blockNumber === 135n) return { hash: "0x" + "33".repeat(32) };
+      throw new Error("unexpected block request");
+    }
+  };
+  const result = await pollBaseUsdc({
+    AAE_BASE_USDC_INDEXER_ENABLED: "true",
+    BASE_CHECKOUT_CONTRACT_ADDRESS: contract,
+    BASE_MERCHANT_ADDRESS: merchant,
+    BASE_DEPLOYMENT_BLOCK: "100",
+    BASE_CONFIRMATIONS: "6",
+    BASE_REORG_LOOKBACK: "64",
+    DB: db,
+  }, client);
+  assert.equal(result.reorg_detected, true);
+  assert.equal(result.rewound_to_block, 136);
+  assert.equal(result.manual_review_required, true);
+  assert.equal(cursor.next_block, 136);
+  assert.equal(cursor.last_block_hash, "0x" + "33".repeat(32));
+  assert.equal(events[0].transaction_status, "orphaned");
+  assert.equal(invoice.status, "review");
+  assert.equal(revenue.status, "refund_review");
+});
