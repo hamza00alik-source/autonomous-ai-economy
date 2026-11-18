@@ -1,4 +1,4 @@
-const MCP_ENDPOINT = "https://swarmmemo.com/mcp";
+const MCP_ENDPOINT = "https://swarmmemo.com/mcp?toolsets=all";
 const MCP_VERSION = "2025-03-26";
 const MAX_MCP_BYTES = 128_000;
 
