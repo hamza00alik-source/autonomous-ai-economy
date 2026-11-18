@@ -201,7 +201,7 @@ class ExpenseSchedulerTests(unittest.TestCase):
         policies = self.policies.list_for_agent("agent")
         self.assertEqual(len(policies), 1)
         self.assertEqual(policies[0]["policy_id"], "ops")
-        self.assertTrue(policies[0]["currently_authorized")
+        self.assertTrue(policies[0]["currently_authorized"])
 
 
 if __name__ == "__main__":
