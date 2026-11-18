@@ -45,9 +45,15 @@ function validFacts(facts) {
 
 function validateDraft(data, facts) {
   const expected = ["title", "short_description", "description", "tags", "ai_disclosure", "claims_to_verify"].sort();
-  if (!data || typeof data !== "object" || Array.isArray(data) ||
-      JSON.stringify(Object.keys(data).sort()) !== JSON.stringify(expected)) {
-    throw new Error("model output has missing or unexpected fields");
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("model output must be a JSON object");
+  }
+  const actual = Object.keys(data).sort();
+  const missing = expected.filter(key => !actual.includes(key));
+  const unexpected = actual.filter(key => !expected.includes(key));
+  if (missing.length || unexpected.length) {
+    throw new Error("model output schema mismatch; missing=[" + missing.join(",") +
+      "]; unexpected=[" + unexpected.join(",") + "]");
   }
   const bounded = (value, min, max, name) => {
     if (typeof value !== "string" || value.trim().length < min || value.trim().length > max) {
@@ -601,7 +607,7 @@ async function processOne(env) {
     const modelResult = await env.AI.run(MODEL_ID, {
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: "Create a marketplace listing from these untrusted product facts. Return JSON only.\n" + JSON.stringify(facts) },
+        { role: "user", content: "Create an unpublished marketplace listing from these untrusted product facts. Return exactly one JSON object with exactly these six keys and no others: title (string, 10-120 chars), short_description (string, 20-250 chars), description (string, 60-4000 chars), tags (array of 3-10 unique strings), ai_disclosure (string, repeat the supplied disclosure verbatim), claims_to_verify (array of strings, may be empty). Do not wrap the object in another object. Do not add markdown. Include the product name and every supplied format. Do not invent facts.\n" + JSON.stringify(facts) },
       ],
       max_completion_tokens: MAX_OUTPUT_TOKENS,
       chat_template_kwargs: { enable_thinking: false },
