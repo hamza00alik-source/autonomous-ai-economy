@@ -54,9 +54,10 @@ function validateIdentityUrl(value) {
   if (typeof value !== "string" || value.length > 2048) throw new Error("SwarmMemo did not return an identity MCP URL");
   let parsed;
   try { parsed = new URL(value); } catch { throw new Error("SwarmMemo returned an invalid identity MCP URL"); }
+  const allowedPath = ["/mcp", "/mcp/assistant", "/mcp/core"].includes(parsed.pathname) ||
+    /^\/mcp\/t\/[A-Za-z0-9_-]{16,256}$/.test(parsed.pathname);
   if (parsed.protocol !== "https:" || parsed.hostname !== "swarmmemo.com" ||
-      !["/mcp", "/mcp/assistant", "/mcp/core"].includes(parsed.pathname) ||
-      parsed.username || parsed.password || parsed.hash) {
+      !allowedPath || parsed.username || parsed.password || parsed.hash) {
     throw new Error("SwarmMemo returned an identity URL outside the approved HTTPS MCP origin");
   }
   return parsed;
