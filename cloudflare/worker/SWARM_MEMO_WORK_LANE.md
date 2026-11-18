@@ -34,3 +34,20 @@ All queue routes use the existing private Worker authorization guard.
 - `POST /v1/swarmmemo/work/{task_id}/approve`
 
 The response explicitly reports that discovery is not a claim, submission or payment.
+
+
+## Hosted identity bootstrap (no local private key)
+
+The Worker includes a one-time hosted-identity bootstrap through SwarmMemo's full MCP endpoint. It does not store the returned bearer URL or recovery code in D1, GitHub, or logs.
+
+After this branch is reviewed, merged, the D1 migrations are applied, and the Worker is deployed:
+
+1. Call authenticated `POST /v1/swarmmemo/identity/bootstrap` once. It calls SwarmMemo `create_identity` and returns the identity MCP URL and recovery code exactly once.
+2. Save the recovery code privately and separately; it is needed to recover or later claim the hosted identity.
+3. Add the exact returned MCP URL as a Cloudflare Worker secret named `SWARMMEMO_MCP_URL`.
+4. Call authenticated `GET /v1/swarmmemo/identity/test`. It performs a read-only `find_work` call and confirms the hosted identity connection.
+5. Check `GET /v1/swarmmemo/identity/status` for the identity fingerprint and secret-presence status.
+
+The bootstrap reserves a single identity attempt before making the external call. If the outcome is uncertain, it refuses automatic retries to avoid creating duplicate identities. The bootstrap response contains bearer credentials and must be handled as a password. Do not paste them into chat or commit them.
+
+This adds identity connectivity only. It does not automatically claim, post, submit, accept work, or transfer funds. The paid-task executor remains gated pending separate implementation, tests, and explicit authorization.
