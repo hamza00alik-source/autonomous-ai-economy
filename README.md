@@ -220,3 +220,6 @@ Cloud financial controls are now implemented on the review branch: policy-verifi
 
 
 The private owner console now also supports registering a policy signed locally by the enrolled operator key. Only the canonical policy, Ed25519 signature and public-key fingerprint are sent; private key material is never uploaded. Owner identity and public-key enrollment are still a provisioning prerequisite.
+
+
+Cloud financial control implementation includes authenticated owner APIs, locally signed policy registration, D1-triggered reservation caps, atomic simulated expense journaling, retry-safe recurring occurrences, reservation expiry and owner emergency pause. The owner dashboard displays policies, budgets, reservations and schedules. This branch is still unmerged and un-deployed; cloud owner/operator/agent enrollment, account funding/allocation, production D1 migration and owner-specific authentication hardening are activation gates.
