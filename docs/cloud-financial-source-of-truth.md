@@ -33,7 +33,7 @@ The schema uses integer minor units, exact three-letter uppercase currency codes
 
 `cloudflare/worker/src/financial_ledger.js` adds a separate internal journal-posting primitive. It validates balanced integer-minor-unit postings, rejects duplicate account lines and unsafe amounts, checks account owner/currency/status, then writes the transaction, posting lines and audit event in one D1 batch. It uses a payload hash with a unique idempotency key and resolves uncertain duplicate outcomes by reading back the original record. Database triggers additionally require an active owner, same-owner active accounts and an active owner-scoped audit actor. Dedicated unit tests exercise validation, account rejection, single-batch composition, idempotent replay and ambiguous duplicate retries.
 
-The policy verifier and journal writer are tested service modules, not exposed APIs or an active financial write path. The journal writer does not itself authorize a business expense; a future caller must first verify the active signed policy and enforce its destination, per-transaction and UTC-day limits before invoking the journal writer. No participant or policy rows are seeded, and no remote owner signing workflow exists yet.
+The policy verifier and base journal writer remain internal modules. The policy-enforced cloud control service and authenticated owner endpoints are now implemented separately below. No participant or policy rows are seeded, and the remote owner signing/provisioning workflow remains a prerequisite to activation.
 
 ## Required transaction protocol before enabling writes
 
