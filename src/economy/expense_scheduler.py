@@ -144,7 +144,7 @@ class AgentExpenseScheduler:
                    ORDER BY next_run_at,schedule_id LIMIT ?""",
                 (current.isoformat(), limit),
             ).fetchall()
-        counts = {"settled": 0, "blocked": 0}
+        counts = {"settled": 0, "blocked": 0, "skipped": 0}
         for schedule in rows:
             result = self._run_one(dict(schedule), current)
             counts[result] += 1
@@ -156,6 +156,14 @@ class AgentExpenseScheduler:
         with sqlite3.connect(self.path, timeout=10, isolation_level=None) as db:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("BEGIN IMMEDIATE")
+            current_schedule = db.execute(
+                "SELECT status,next_run_at FROM agent_expense_schedules WHERE schedule_id=?",
+                (schedule["schedule_id"],),
+            ).fetchone()
+            if (current_schedule is None or current_schedule[0] != "active"
+                    or current_schedule[1] != due_at):
+                db.commit()
+                return "skipped"
             row = db.execute(
                 "SELECT status FROM agent_expense_occurrences WHERE schedule_id=? AND due_at=?",
                 (schedule["schedule_id"], due_at),
