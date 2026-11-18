@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from economy.ai_cli import main
-from economy.taskmarket_marketplace import TaskmarketOpportunityStore
+from economy.taskmarket_marketplace import TaskmarketLead, TaskmarketOpportunityStore
 
 
 TASK_ID = "0x" + "a" * 64
@@ -32,7 +32,7 @@ class TaskmarketCliTests(unittest.TestCase):
         }
         class Provider:
             def search(self, *, limit):
-                return [type("Lead", (), {"to_dict": lambda self: lead, **lead})()]
+                return [TaskmarketLead(**lead)]
         with tempfile.TemporaryDirectory() as tmp:
             with patch("economy.ai_cli.TaskmarketPublicTasks", return_value=Provider()):
                 with patch.object(sys, "argv", [
