@@ -11,7 +11,11 @@ import { base } from "viem/chains";
 const CHAIN_ID = 8453;
 const USDC = getAddress("0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
 const STORE_KEY = "aae-base-usdc-order:";
-const checkoutAbi = [{
+const checkoutAbi = [
+  { type: "function", name: "merchant", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  { type: "function", name: "invoiceSigner", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  { type: "function", name: "BASE_USDC", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  {
   type: "function",
   name: "pay",
   stateMutability: "nonpayable",
@@ -115,6 +119,16 @@ async function connectAndPay(data) {
   if (Number(data.deadline) <= Math.floor(Date.now() / 1000)) throw new Error("This invoice has expired. Start a new checkout.");
   const code = await publicClient.getBytecode({ address: contract });
   if (!code || code === "0x") throw new Error("The checkout contract is not deployed at the configured address. No USDC approval was requested.");
+  const [onchainMerchant, onchainSigner, onchainToken] = await Promise.all([
+    publicClient.readContract({ address: contract, abi: checkoutAbi, functionName: "merchant" }),
+    publicClient.readContract({ address: contract, abi: checkoutAbi, functionName: "invoiceSigner" }),
+    publicClient.readContract({ address: contract, abi: checkoutAbi, functionName: "BASE_USDC" }),
+  ]);
+  if (getAddress(onchainMerchant) !== merchant ||
+      getAddress(onchainSigner) !== getAddress(data.invoice_signer_address) ||
+      getAddress(onchainToken) !== USDC) {
+    throw new Error("The deployed contract's merchant, invoice signer or USDC token does not match this invoice. No approval was requested.");
+  }
   const amount = BigInt(data.amount_minor);
   const balance = await publicClient.readContract({ address: token, abi: usdcAbi, functionName: "balanceOf", args: [account] });
   if (balance < amount) throw new Error("Insufficient Base USDC. Wallet balance: " + formatUnits(balance, 6) + " USDC; required: " + formatUnits(amount, 6) + " USDC.");
@@ -150,7 +164,15 @@ buy.addEventListener("click", async () => {
     }
     await connectAndPay(invoice);
   } catch (error) {
-    show(friendlyError(error));
+    if (invoice && Number(invoice.deadline) <= Math.floor(Date.now() / 1000)) {
+      localStorage.removeItem(STORE_KEY + activeOrder + ":token");
+      localStorage.removeItem(STORE_KEY + activeOrder + ":invoice");
+      activeOrder = null; accessToken = null; invoice = null;
+      history.replaceState(null, "", location.pathname);
+      show("The invoice expired. Select Buy again to create a fresh invoice.");
+    } else {
+      show(friendlyError(error));
+    }
     buy.disabled = false;
   }
 });
