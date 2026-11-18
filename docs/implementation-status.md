@@ -121,3 +121,12 @@ This status distinguishes local prototype code from the future open economy. A c
 - Expense settlement debits the agent budget and credits a simulated operating-expense account exactly once. It does not send money to the named destination or invoke a provider.
 - Added tests for replay conflicts, reservation capacity, daily/per-transaction limits, allowlist/currency rejection, release, settlement idempotency, policy rotation/supersession and participant suspension.
 - This remains a local simulated accounting component. It does not create provider payment instructions, sign or broadcast transactions, connect a wallet, or establish that a real service was paid. Production execution still requires a separately reviewed payment executor, provider/legal eligibility, custody/key controls and explicit owner approval.
+
+
+## Recurring simulated agent expenses
+
+- Added \`src/economy/expense_scheduler.py\`: durable recurring schedules with bounded intervals, exact signed-policy destination/currency checks, per-transaction caps, idempotent occurrences, pause/resume/cancel controls and a bounded \`run_due\` poll interface.
+- Every occurrence uses \`AgentSpending\` reservations and journal settlement; it cannot bypass agent budget availability, daily caps, owner-policy authorization or participant status.
+- A blocked occurrence remains due and can be retried after the agent budget is replenished by a reconciled-receipt allocation. The scheduler does not invent earnings or credit the budget itself.
+- Added tests for duplicate polling, daily caps, insufficient budget and later replenishment, policy allowlists, interval/timezone validation, lifecycle controls and idempotency.
+- This is a local simulated scheduler component, not hosted always-on scheduling and not a live payment executor. No vendor is contacted and no real expense is paid.
