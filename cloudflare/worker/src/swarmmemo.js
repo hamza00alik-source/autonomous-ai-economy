@@ -6,6 +6,14 @@ function safeString(value, max = 500) {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
+function feedCursor(payload) {
+  return safeString(payload?.since || payload?.data?.since, 500);
+}
+
+function feedUnchanged(payload) {
+  return payload?.unchanged === true || payload?.data?.unchanged === true;
+}
+
 export function normalizeSwarmMemoFeed(payload) {
   const rows = Array.isArray(payload?.works) ? payload.works
     : Array.isArray(payload?.items) ? payload.items
@@ -29,21 +37,24 @@ export function normalizeSwarmMemoFeed(payload) {
       requester: safeString(row.requester || row.requester_handle || row.author, 120),
       task_text: taskText,
       reward_json: JSON.stringify(reward),
-      requester_record_json: requesterRecord ? JSON.stringify(requesterRecord) : null,
+      requester_record_json: requesterRecord ? JSON.stringify(requesterRecord).slice(0, 16_000) : null,
       deadline: safeString(row.deadline || row.deadline_at, 80) || null,
       board_state: safeString(row.state || "open", 40).toLowerCase(),
       eligible: row.eligible === true ? 1 : 0,
       eligibility_reason: safeString(row.eligible_reason, 500) || null,
-      raw_json: JSON.stringify(row).slice(0, 32_000),
     }];
   });
 }
 
 export async function pollSwarmMemo(env, fetchImpl = fetch) {
   const now = new Date().toISOString();
-  let response;
   try {
-    response = await fetchImpl(FEED_URL, {
+    const previous = await env.DB.prepare(
+      "SELECT since_cursor FROM swarmmemo_poll_state WHERE source='rewarded'"
+    ).first();
+    const url = new URL(FEED_URL);
+    if (previous?.since_cursor) url.searchParams.set("since", previous.since_cursor);
+    const response = await fetchImpl(url.toString(), {
       method: "GET",
       headers: { accept: "application/json", "user-agent": "AutonomousAIEconomy/0.1" },
       signal: AbortSignal.timeout(12_000),
@@ -54,7 +65,8 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
     const raw = await response.text();
     if (new TextEncoder().encode(raw).length > MAX_FEED_BYTES) throw new Error("SwarmMemo feed exceeded size limit");
     const payload = JSON.parse(raw);
-    const tasks = normalizeSwarmMemoFeed(payload);
+    const cursor = feedCursor(payload) || previous?.since_cursor || null;
+    const tasks = feedUnchanged(payload) ? [] : normalizeSwarmMemoFeed(payload);
     const statements = tasks.map((task) => env.DB.prepare(
       `INSERT INTO swarmmemo_work_items
        (task_id,title,room,requester,task_text,reward_json,requester_record_json,deadline,
@@ -72,13 +84,13 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
       task.eligible, task.eligibility_reason, now, now, now));
     if (statements.length) await env.DB.batch(statements);
     await env.DB.prepare(
-      `INSERT INTO swarmmemo_poll_state (source,last_success_at,last_error,last_count,last_http_status,updated_at)
-       VALUES ('rewarded',?,NULL,?,?,?)
+      `INSERT INTO swarmmemo_poll_state (source,last_success_at,last_error,last_count,last_http_status,since_cursor,updated_at)
+       VALUES ('rewarded',?,NULL,?,?,?,?)
        ON CONFLICT(source) DO UPDATE SET last_success_at=excluded.last_success_at,
         last_error=NULL,last_count=excluded.last_count,last_http_status=excluded.last_http_status,
-        updated_at=excluded.updated_at`
-    ).bind(now, tasks.length, response.status, now).run();
-    return { ok: true, discovered: tasks.length, checked_at: now };
+        since_cursor=excluded.since_cursor,updated_at=excluded.updated_at`
+    ).bind(now, tasks.length, response.status, cursor, now).run();
+    return { ok: true, unchanged: feedUnchanged(payload), discovered: tasks.length, checked_at: now };
   } catch (error) {
     const message = safeString(error?.message || "SwarmMemo poll failed", 500);
     await env.DB.prepare(
