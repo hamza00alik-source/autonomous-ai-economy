@@ -11,6 +11,7 @@ from .ai_task_worker import queue_product_copy_task
 from .task_store import TaskStore
 from .basedagents_marketplace import BasedAgentsPublicTasks
 from .basedagents_opportunities import BasedAgentsOpportunityScanner, PaidOpportunityStore
+from .basedagents_task_evaluator import PaidTaskCapabilityEvaluator
 
 
 def main() -> int:
@@ -41,6 +42,11 @@ def main() -> int:
     leads.add_argument("--limit", type=int, default=20)
     leads.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
 
+    evaluate = sub.add_parser("evaluate-paid-tasks", help="fetch task details and check deliverable/acceptance criteria; never claims work")
+    evaluate.add_argument("--limit", type=int, default=10)
+    evaluate.add_argument("--minimum-bounty", default="0.10")
+    evaluate.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
+
     args = parser.parse_args()
     if args.command == "status":
         print(json.dumps(runtime_status(args.data_dir), indent=2))
@@ -60,6 +66,36 @@ def main() -> int:
         db_path = args.db or (args.data_dir / "paid-opportunities.sqlite3")
         store = PaidOpportunityStore(db_path)
         print(json.dumps(store.list_review_required(limit=args.limit), indent=2))
+        return 0
+
+    if args.command == "evaluate-paid-tasks":
+        db_path = args.db or (args.data_dir / "paid-opportunities.sqlite3")
+        store = PaidOpportunityStore(db_path)
+        provider = BasedAgentsPublicTasks()
+        evaluator = PaidTaskCapabilityEvaluator(minimum_bounty_usdc=args.minimum_bounty)
+        results = []
+        for item in store.list_review_required(limit=args.limit):
+            lead = item["payload"]
+            try:
+                detail = provider.get_task(item["external_task_id"])
+                result = evaluator.evaluate(lead, detail).to_dict()
+            except Exception as exc:
+                result = {
+                    "task_id": item["external_task_id"],
+                    "state": "needs_review",
+                    "score": 0,
+                    "reasons": [f"detail_fetch_or_evaluation_error:{type(exc).__name__}"],
+                    "claim_allowed": False,
+                }
+            results.append(result)
+        print(json.dumps({
+            "evaluated": len(results),
+            "qualified_for_local_draft": sum(r["state"] == "qualified_for_local_draft" for r in results),
+            "needs_review": sum(r["state"] == "needs_review" for r in results),
+            "external_claims": 0,
+            "payments": 0,
+            "results": results,
+        }, indent=2))
         return 0
 
     if args.command == "queue-copy":
