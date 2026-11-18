@@ -11,7 +11,7 @@ const encoder = new TextEncoder();
 function base64url(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return btoa(binary).split("=").join("").split("+").join("-").split("/").join("_");
 }
 async function fixture() {
   const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
