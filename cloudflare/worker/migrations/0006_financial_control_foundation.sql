@@ -6,14 +6,18 @@ CREATE TABLE IF NOT EXISTS financial_participants (
   participant_id TEXT PRIMARY KEY,
   participant_type TEXT NOT NULL CHECK (participant_type IN ('owner','agent','operator')),
   status TEXT NOT NULL CHECK (status IN ('active','suspended','revoked')),
+  owner_id TEXT,
   operator_id TEXT,
   public_key_jwk TEXT,
   key_fingerprint TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (operator_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
   CHECK (
-    (participant_type = 'agent' AND operator_id IS NOT NULL) OR
-    (participant_type != 'agent' AND operator_id IS NULL)
+    (participant_type = 'owner' AND owner_id IS NULL AND operator_id IS NULL) OR
+    (participant_type = 'operator' AND owner_id IS NOT NULL AND operator_id IS NULL) OR
+    (participant_type = 'agent' AND owner_id IS NOT NULL AND operator_id IS NOT NULL)
   )
 );
 
@@ -107,6 +111,7 @@ CREATE TABLE IF NOT EXISTS financial_policies (
   version INTEGER NOT NULL CHECK (version > 0),
   owner_id TEXT NOT NULL,
   agent_id TEXT NOT NULL,
+  signer_id TEXT NOT NULL,
   currency TEXT NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
   per_transaction_limit_minor INTEGER NOT NULL CHECK (per_transaction_limit_minor > 0),
   daily_spend_limit_minor INTEGER NOT NULL CHECK (daily_spend_limit_minor > 0),
@@ -119,7 +124,8 @@ CREATE TABLE IF NOT EXISTS financial_policies (
   updated_at TEXT NOT NULL,
   PRIMARY KEY(policy_id, version),
   FOREIGN KEY (owner_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
-  FOREIGN KEY (agent_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT
+  FOREIGN KEY (agent_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (signer_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_financial_policy_one_active
