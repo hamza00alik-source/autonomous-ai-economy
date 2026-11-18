@@ -635,18 +635,55 @@ class FakeBaseCheckoutStatement {
     if (this.sql.includes("FROM base_usdc_invoices WHERE order_id=?")) {
       return this.db.rows.get(this.values[0]) || null;
     }
+    if (this.sql.includes("FROM base_usdc_indexer_state")) return this.db.indexerState;
     return null;
   }
 }
 function fakeBaseCheckoutDb() {
   return {
     rows: new Map(),
+    indexerState: { halted_at: null },
     prepare(sql) { return new FakeBaseCheckoutStatement(this, sql); }
   };
 }
 
 const TEST_BASE_SIGNER_KEY = "0x0123456789012345678901234567890123456789012345678901234567890123";
 const TEST_BASE_SIGNER_ADDRESS = "0x" + "0000000000000000000000000000000000000000";
+
+test("Base USDC checkout pauses when indexer is halted or its health row is missing", async () => {
+  const { privateKeyToAccount } = await import("viem/accounts");
+  const signerAddress = privateKeyToAccount(TEST_BASE_SIGNER_KEY).address;
+  const db = fakeBaseCheckoutDb();
+  db.indexerState = { halted_at: "2026-11-18T10:00:00.000Z" };
+  const env = {
+    AAE_BASE_USDC_CHECKOUT_ENABLED: "true",
+    AAE_BASE_USDC_INDEXER_ENABLED: "true",
+    AAE_CRYPTO_ENABLEMENT_APPROVED: "true",
+    AAE_BASE_USDC_LEGAL_REVIEW_APPROVED: "true",
+    BASE_RPC_URL: "https://base.example/rpc",
+    BASE_DEPLOYMENT_BLOCK: "100",
+    BASE_CONFIRMATIONS: "6",
+    BASE_INVOICE_SIGNER_PRIVATE_KEY: TEST_BASE_SIGNER_KEY,
+    BASE_INVOICE_SIGNER_ADDRESS: signerAddress,
+    BASE_MERCHANT_ADDRESS: "0x1111111111111111111111111111111111111111",
+    BASE_CHECKOUT_CONTRACT_ADDRESS: "0x2222222222222222222222222222222222222222",
+    CHECKOUT_LIMITER: { limit: async () => ({ success: true }) },
+    DB: db
+  };
+  const request = () => new Request("https://worker.example/v1/store/base-usdc/checkout", {
+    method: "POST",
+    headers: { origin: "https://worker.example", "content-type": "application/json", "cf-connecting-ip": "203.0.113.11" },
+    body: "{}"
+  });
+  const halted = await worker.fetch(request(), env);
+  assert.equal(halted.status, 503);
+  assert.match((await halted.json()).error, /indexer is not healthy/);
+  assert.equal(db.rows.size, 0);
+  db.indexerState = null;
+  const uninitialized = await worker.fetch(request(), env);
+  assert.equal(uninitialized.status, 503);
+  assert.equal(db.rows.size, 0);
+});
 
 test("Base USDC checkout remains disabled without legal, signer and indexer gates", async () => {
   const response = await worker.fetch(new Request("https://worker.example/v1/store/base-usdc/checkout", {
