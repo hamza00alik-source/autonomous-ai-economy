@@ -54,7 +54,7 @@ class PaidOpportunityStore:
         if minimum_bounty_usdc < 0:
             raise ValueError("minimum bounty must be non-negative")
         try:
-            normalized = re.sub(r"(?i)\\s*USDC\\s*$", "", str(lead.bounty_usdc)).strip().replace("$", "").replace(",", "")
+            normalized = re.sub(r"(?i)\s*USDC\s*$", "", str(lead.bounty_usdc)).strip().replace("$", "").replace(",", "")
             amount = Decimal(normalized) if lead.bounty_usdc is not None else Decimal("0")
         except (InvalidOperation, TypeError, ValueError):
             amount = Decimal("0")
