@@ -494,6 +494,7 @@ function baseUsdcCheckoutEnabled(env) {
   const deploymentBlock = Number(env.BASE_DEPLOYMENT_BLOCK);
   const confirmations = Number(env.BASE_CONFIRMATIONS);
   const configValid = rpc.protocol === "https:" &&
+    Number(env.BASE_CHAIN_ID || 8453) === 8453 &&
     Number.isSafeInteger(deploymentBlock) && deploymentBlock >= 0 &&
     Number.isSafeInteger(confirmations) && confirmations >= 1 && confirmations <= 10000;
   return configValid &&
