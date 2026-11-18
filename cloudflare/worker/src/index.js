@@ -510,6 +510,17 @@ async function createBaseUsdcStoreCheckout(request, env) {
     return json({ error: "Base USDC checkout is not enabled or fully configured" }, 503);
   }
   if (!env.DB || !env.CHECKOUT_LIMITER) return json({ error: "checkout protection is not configured" }, 503);
+  let indexerState;
+  try {
+    indexerState = await env.DB.prepare(
+      "SELECT halted_at FROM base_usdc_indexer_state WHERE id=1"
+    ).first();
+  } catch {
+    return json({ error: "Base indexer health could not be verified; checkout is paused" }, 503);
+  }
+  if (!indexerState || indexerState.halted_at) {
+    return json({ error: "Base indexer is not healthy or requires manual review; new checkouts are paused" }, 503);
+  }
   const origin = request.headers.get("origin");
   if (!origin || origin !== new URL(request.url).origin) {
     return json({ error: "same-origin checkout requests only" }, 403);
