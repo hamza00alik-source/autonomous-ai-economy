@@ -153,3 +153,96 @@ test("Base public RPC client rejects unsupported chain IDs before creating trans
   assert.throws(() => createBasePublicClient("https://example.invalid", 1), /unsupported Base chain ID/);
   assert.throws(() => createBasePublicClient("http://example.invalid", BASE_SEPOLIA_CHAIN_ID), /HTTPS/);
 });
+
+test("Base Sepolia finalized payment event settles only into its testnet ledger", async () => {
+  const buyer = "0x3333333333333333333333333333333333333333";
+  const tx = "0x" + "cd".repeat(32);
+  const blockHash = "0x" + "ef".repeat(32);
+  const log = {
+    address: contract,
+    topics: encodeEventTopics({
+      abi: BASE_USDC_CHECKOUT_ABI,
+      eventName: "OrderPaid",
+      args: { orderId: orderIdHash, buyer, merchant },
+    }),
+    data: encodeAbiParameters(
+      [{ type: "uint256" }, { type: "address" }],
+      [5_000_000n, BASE_SEPOLIA_USDC_ADDRESS],
+    ),
+    transactionHash: tx,
+    blockHash,
+    blockNumber: 123n,
+    logIndex: 1,
+    removed: false,
+  };
+  const invoice = {
+    order_id: "sepolia-order-123",
+    order_id_hash: orderIdHash,
+    product_id: "moba-objective-props",
+    agent_id: "game-asset-builder",
+    amount_minor: 5_000_000,
+    gross_amount_minor: 500,
+    merchant_address: merchant,
+    invoice_deadline: Math.floor(Date.now() / 1000) + 600,
+    status: "pending",
+    transaction_hash: null,
+  };
+  const db = {
+    invoice,
+    events: [],
+    revenue: null,
+    prepare(sql) {
+      const self = this;
+      return {
+        values: [],
+        bind(...values) { this.values = values; return this; },
+        async first() {
+          return sql.includes("FROM base_usdc_invoices WHERE order_id_hash=?") ? self.invoice : null;
+        },
+        async run() {
+          if (sql.startsWith("INSERT INTO base_usdc_payment_events")) {
+            const [chainId, transactionHash, logIndex, orderId, buyerAddress, merchantAddress, tokenAddress, amount, blockNumber, hash, , orderHash] = this.values;
+            if (chainId !== BASE_SEPOLIA_CHAIN_ID || orderHash !== self.invoice.order_id_hash) return { meta: { changes: 0 } };
+            self.events.push({ chain_id: chainId, transaction_hash: transactionHash, log_index: logIndex, order_id: orderId, buyer_address: buyerAddress, merchant_address: merchantAddress, token_address: tokenAddress, amount_minor: amount, block_number: blockNumber, block_hash: hash, transaction_status: "confirmed" });
+            return { meta: { changes: 1 } };
+          }
+          if (sql.startsWith("UPDATE base_usdc_invoices SET status='settled'")) {
+            const [buyerAddress, transactionHash, logIndex, blockNumber, hash, settledAt, expiresAt, updatedAt, orderHash, chainId, eventTx, eventLog] = this.values;
+            const event = self.events.find(row => row.chain_id === chainId && row.transaction_hash === eventTx && row.log_index === eventLog);
+            if (event && orderHash === self.invoice.order_id_hash && self.invoice.status === "pending") {
+              Object.assign(self.invoice, { status: "settled", buyer_address: buyerAddress, transaction_hash: transactionHash, log_index: logIndex, block_number: blockNumber, block_hash: hash, settled_at: settledAt, download_expires_at: expiresAt, updated_at: updatedAt });
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          }
+          if (sql.startsWith("INSERT OR IGNORE INTO base_usdc_agent_revenue_events")) {
+            self.revenue = { crypto_received_amount: this.values[0], crypto_currency: "USDC", status: "settled_pending_reconciliation" };
+            return { meta: { changes: 1 } };
+          }
+          return { meta: { changes: 0 } };
+        }
+      };
+    },
+    async batch(statements) {
+      const results = [];
+      for (const statement of statements) results.push(await statement.run());
+      return results;
+    }
+  };
+  const timestamp = Math.floor(Date.now() / 1000);
+  const result = await (await import("../src/base-usdc.js")).settleBaseUsdcInvoice({
+    db,
+    log,
+    finality: { confirmed: true, transactionHash: tx, blockHash, blockNumber: "123" },
+    blockTimestamp: timestamp,
+    contractAddress: contract,
+    merchantAddress: merchant,
+    tokenAddress: BASE_SEPOLIA_USDC_ADDRESS,
+    chainId: BASE_SEPOLIA_CHAIN_ID,
+  });
+  assert.equal(result.status, "settled");
+  assert.equal(db.events[0].chain_id, BASE_SEPOLIA_CHAIN_ID);
+  assert.equal(db.invoice.status, "settled");
+  assert.equal(db.revenue.status, "settled_pending_reconciliation");
+  assert.equal(result.agent_credit_minor, null);
+});
