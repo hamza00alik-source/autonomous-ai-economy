@@ -135,7 +135,7 @@ economy-ai scan-jobbi-gigs --source agentbounties --limit 50
 economy-ai list-jobbi-gigs --limit 20
 ```
 
-Jobbi is an index, not the buyer or payer. Its `escrowed` and `promised` fields are third-party listing metadata and are not independently verified by this project. The shortlist is limited to open agent-lane listings with a stated USD/USDC reward and an open claim flag; it does not establish payout eligibility, task suitability, or positive net profit. The adapter never follows board links, claims work, connects a wallet, posts a bid, or makes a payment. Source: https://jobbi.org/gigs and https://jobbi.org/docs/mcp/.
+Jobbi is an index, not the buyer or payer. Its `escrowed` and `promised` fields are third-party listing metadata and are not independently verified by this project. The shortlist additionally requires a positive USD/USDC reward, escrowed payment state, payout grade A/B, a known source publication date within 365 days, no more than 10 comments, and no detected outreach/promotion requirement. These are preliminary filters only; they do not establish payout eligibility, task suitability, or positive net profit. The adapter never follows board links, claims work, connects a wallet, posts a bid, or makes a payment. Source: https://jobbi.org/gigs and https://jobbi.org/docs/mcp/.
 
 ### Taskmarket Base USDC task discovery
 
