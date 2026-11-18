@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
+import re
 from typing import Any
 
 from .basedagents_opportunities import SUPPORTED_CATEGORIES, SUPPORTED_NETWORKS
@@ -67,6 +68,11 @@ class PaidTaskCapabilityEvaluator:
         status = _text(detail.get("status") or lead.get("status"), 40).lower()
         bounty = detail.get("bounty") if isinstance(detail.get("bounty"), dict) else {}
         amount_text = (bounty.get("amount_display") or lead.get("bounty_usdc"))
+        if amount_text is None and bounty.get("amount_atomic") is not None:
+            try:
+                amount_text = str(Decimal(str(bounty["amount_atomic"])) / Decimal("1000000"))
+            except (InvalidOperation, TypeError, ValueError):
+                amount_text = None
         network = bounty.get("network") or lead.get("network")
         deliverable = _text(
             detail.get("expected_output") or detail.get("deliverable")
@@ -83,7 +89,8 @@ class PaidTaskCapabilityEvaluator:
             reasons.append("task_not_open")
         if category not in SUPPORTED_CATEGORIES:
             reasons.append("unsupported_category")
-        if not isinstance(lead.get("claimable", True), bool) or not lead.get("claimable", True):
+        claimable = detail.get("claimable", lead.get("claimable", True))
+        if not isinstance(claimable, bool) or not claimable:
             reasons.append("not_claimable")
         if len(description) >= self.maximum_description_chars:
             reasons.append("description_at_safety_limit")
@@ -92,7 +99,8 @@ class PaidTaskCapabilityEvaluator:
         if not criteria:
             reasons.append("explicit_acceptance_criteria_missing")
         try:
-            amount = Decimal(str(amount_text))
+            normalized_amount = re.sub(r"(?i)\\s*USDC\\s*$", "", str(amount_text)).strip().replace("$", "").replace(",", "")
+            amount = Decimal(normalized_amount)
         except (InvalidOperation, TypeError, ValueError):
             amount = Decimal("0")
             reasons.append("bounty_missing_or_invalid")
@@ -100,7 +108,8 @@ class PaidTaskCapabilityEvaluator:
             reasons.append("bounty_below_minimum")
         if network not in SUPPORTED_NETWORKS:
             reasons.append("unsupported_or_missing_network")
-        if detail.get("payment_status") in {"settled", "refunded", "cancelled"}:
+        payment_status = detail.get("payment_status")
+        if isinstance(payment_status, str) and payment_status.lower() in {"settled", "refunded", "cancelled"}:
             reasons.append("task_payment_or_status_not_actionable")
         score = max(0, 100 - 10 * len(reasons))
         state = "qualified_for_local_draft" if not reasons else "needs_review"
