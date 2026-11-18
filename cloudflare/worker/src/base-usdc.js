@@ -1,4 +1,5 @@
 import {
+  decodeEventLog,
   isAddress,
   keccak256,
   recoverTypedDataAddress,
@@ -129,4 +130,78 @@ export async function recoverBaseUsdcInvoiceSigner({
     message: { orderId: orderIdHash, amount, deadline: BigInt(deadline), merchant },
     signature,
   });
+}
+
+
+export const BASE_USDC_CHECKOUT_ABI = [{
+  type: "event",
+  name: "OrderPaid",
+  anonymous: false,
+  inputs: [
+    { indexed: true, name: "orderId", type: "bytes32" },
+    { indexed: true, name: "buyer", type: "address" },
+    { indexed: true, name: "merchant", type: "address" },
+    { indexed: false, name: "amount", type: "uint256" },
+    { indexed: false, name: "token", type: "address" },
+  ],
+}];
+
+/**
+ * Strictly decodes and validates the checkout contract event against the
+ * server-side invoice and deployment configuration. This is not, by itself,
+ * proof of finality: the indexer must separately verify receipt, canonical
+ * block hash and the configured confirmation threshold.
+ */
+export function decodeBaseUsdcPaymentLog(log, expected) {
+  const contract = assertAddress(expected?.contractAddress, "expected.contractAddress");
+  const merchant = assertAddress(expected?.merchantAddress, "expected.merchantAddress");
+  const token = assertAddress(expected?.tokenAddress || BASE_USDC_ADDRESS, "expected.tokenAddress");
+  if (expected?.chainId !== BASE_MAINNET_CHAIN_ID) throw new Error("unexpected Base chain ID");
+  if (!log || typeof log !== "object" || log.removed === true) throw new Error("removed or malformed chain log");
+  if (typeof log.address !== "string" || log.address.toLowerCase() !== contract.toLowerCase()) {
+    throw new Error("event emitter does not match the configured checkout contract");
+  }
+  if (typeof log.transactionHash !== "string" || !/^0x[0-9a-f]{64}$/i.test(log.transactionHash) ||
+      typeof log.blockHash !== "string" || !/^0x[0-9a-f]{64}$/i.test(log.blockHash) ||
+      typeof log.blockNumber !== "bigint" || log.blockNumber < 0n ||
+      !Number.isSafeInteger(log.logIndex) || log.logIndex < 0) {
+    throw new Error("chain log is missing canonical transaction or block coordinates");
+  }
+  const decoded = decodeEventLog({
+    abi: BASE_USDC_CHECKOUT_ABI,
+    data: log.data,
+    topics: log.topics,
+    strict: true,
+  });
+  if (decoded.eventName !== "OrderPaid") throw new Error("unexpected contract event");
+  const args = decoded.args;
+  if (typeof expected.orderIdHash !== "string" ||
+      args.orderId.toLowerCase() !== expected.orderIdHash.toLowerCase()) {
+    throw new Error("payment order ID does not match the invoice");
+  }
+  if (args.merchant.toLowerCase() !== merchant.toLowerCase()) {
+    throw new Error("payment merchant does not match the invoice");
+  }
+  if (args.token.toLowerCase() !== token.toLowerCase()) {
+    throw new Error("payment token is not native Base USDC");
+  }
+  let expectedAmount;
+  try { expectedAmount = BigInt(expected.amountMinor); } catch {
+    throw new Error("expected invoice amount is invalid");
+  }
+  if (expectedAmount <= 0n || args.amount !== expectedAmount) {
+    throw new Error("payment amount does not exactly match the invoice");
+  }
+  return {
+    chainId: BASE_MAINNET_CHAIN_ID,
+    orderIdHash: args.orderId,
+    buyerAddress: args.buyer,
+    merchantAddress: args.merchant,
+    tokenAddress: args.token,
+    amountMinor: args.amount.toString(),
+    transactionHash: log.transactionHash,
+    logIndex: log.logIndex,
+    blockNumber: log.blockNumber.toString(),
+    blockHash: log.blockHash,
+  };
 }
