@@ -31,7 +31,7 @@ CREATE INDEX IF NOT EXISTS idx_base_usdc_invoice_status
     ON base_usdc_invoices(status, created_at);
 
 CREATE TABLE IF NOT EXISTS base_usdc_payment_events (
-    chain_id INTEGER NOT NULL CHECK (chain_id = 8453),
+    chain_id INTEGER NOT NULL CHECK (chain_id IN (8453, 84532)),
     transaction_hash TEXT NOT NULL,
     log_index INTEGER NOT NULL CHECK (log_index >= 0),
     order_id TEXT NOT NULL,
