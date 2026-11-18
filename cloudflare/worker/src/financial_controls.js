@@ -9,9 +9,15 @@ function validId(value) { return typeof value === "string" && ID.test(value); }
 export async function getCloudFinancialControls(db, ownerId, { limit = 25 } = {}) {
   if (!validId(ownerId)) return { ok: false, reason: "invalid_owner_id" };
   const safeLimit = Number.isInteger(limit) ? Math.min(100, Math.max(1, limit)) : 25;
-  const [control, agents, reservations, schedules, occurrences] = await Promise.all([
+  const [control, agents, budgets, reservations, schedules, occurrences] = await Promise.all([
     db.prepare("SELECT emergency_paused,pause_reason,changed_at FROM financial_control_state WHERE owner_id=?").bind(ownerId).first(),
     db.prepare("SELECT participant_id,status,operator_id FROM financial_participants WHERE owner_id=? AND participant_type='agent' ORDER BY participant_id").bind(ownerId).all(),
+    db.prepare(
+      "SELECT a.agent_id,a.currency," +
+      "COALESCE((SELECT SUM(CASE WHEN p.direction='credit' THEN p.amount_minor ELSE -p.amount_minor END) FROM financial_journal_postings p WHERE p.account_id=a.account_id),0) AS allocated_minor," +
+      "COALESCE((SELECT SUM(r.amount_minor) FROM financial_budget_reservations r WHERE r.agent_id=a.agent_id AND r.owner_id=a.owner_id AND r.currency=a.currency AND r.status='reserved' AND r.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')),0) AS reserved_minor " +
+      "FROM financial_accounts a WHERE a.owner_id=? AND a.account_type='agent_operating' AND a.status='active' ORDER BY a.agent_id,a.currency"
+    ).bind(ownerId).all(),
     db.prepare("SELECT reservation_id,agent_id,policy_id,policy_version,destination,currency,amount_minor,status,expires_at,created_at FROM financial_budget_reservations WHERE owner_id=? ORDER BY created_at DESC LIMIT ?").bind(ownerId,safeLimit).all(),
     db.prepare("SELECT schedule_id,agent_id,policy_id,policy_version,destination,currency,amount_minor,interval_seconds,next_due_at,status,created_at FROM financial_expense_schedules WHERE owner_id=? ORDER BY created_at DESC LIMIT ?").bind(ownerId,safeLimit).all(),
     db.prepare("SELECT occurrence_id,schedule_id,agent_id,due_at,status,reason_code,created_at,updated_at FROM financial_expense_occurrences WHERE owner_id=? ORDER BY created_at DESC LIMIT ?").bind(ownerId,safeLimit).all()
@@ -22,6 +28,7 @@ export async function getCloudFinancialControls(db, ownerId, { limit = 25 } = {}
     pause_reason: control?.pause_reason || "Cloud spending remains paused until the owner explicitly enables it.",
     pause_changed_at: control?.changed_at || null,
     agents: agents.results || [],
+    budgets: (budgets.results || []).map(row=>({...row,available_minor:row.allocated_minor-row.reserved_minor})),
     reservations: reservations.results || [],
     schedules: schedules.results || [],
     occurrences: occurrences.results || [],
@@ -186,13 +193,23 @@ export async function createCloudExpenseSchedule(db, input, { now = new Date().t
 
 export async function setCloudExpenseScheduleStatus(db, { ownerId, scheduleId, status, now = new Date().toISOString() }) {
   if(!validId(ownerId)||!validId(scheduleId)||!["active","paused","cancelled"].includes(status)) return {ok:false,reason:"invalid_schedule_control"};
-  const result=await db.prepare(
-    "UPDATE financial_expense_schedules SET status=?,updated_at=? WHERE owner_id=? AND schedule_id=? AND EXISTS (SELECT 1 FROM financial_participants p WHERE p.participant_id=? AND p.participant_type='owner' AND p.status='active')"
-  ).bind(status,now,ownerId,scheduleId,ownerId).run();
-  if(result.meta?.changes!==1) return {ok:false,reason:"schedule_not_found_or_owner_inactive"};
+  await db.batch([
+    db.prepare(
+      "UPDATE financial_expense_schedules SET status=?,updated_at=? WHERE owner_id=? AND schedule_id=? " +
+      "AND EXISTS (SELECT 1 FROM financial_participants p WHERE p.participant_id=? AND p.participant_type='owner' AND p.status='active') " +
+      "AND (?!='active' OR EXISTS (SELECT 1 FROM financial_policies fp WHERE fp.policy_id=financial_expense_schedules.policy_id AND fp.version=financial_expense_schedules.policy_version AND fp.status='active'))"
+    ).bind(status,now,ownerId,scheduleId,ownerId,status),
+    db.prepare(
+      "INSERT INTO financial_audit_events(event_id,owner_id,actor_id,event_type,target_type,target_id,request_id,details_json,created_at) " +
+      "SELECT lower(hex(randomblob(16))),participant_id,participant_id,?,'expense_schedule',?,?,?,? FROM financial_participants " +
+      "WHERE participant_id=? AND participant_type='owner' AND status='active' " +
+      "AND EXISTS (SELECT 1 FROM financial_expense_schedules WHERE owner_id=? AND schedule_id=?)"
+    ).bind("financial.expense_schedule_"+status,scheduleId,scheduleId,json({status}),now,ownerId,ownerId,scheduleId)
+  ]);
+  const row=await db.prepare("SELECT status FROM financial_expense_schedules WHERE owner_id=? AND schedule_id=?").bind(ownerId,scheduleId).first();
+  if(row?.status!==status) return {ok:false,reason:"schedule_not_found_or_policy_inactive"};
   return {ok:true,schedule_id:scheduleId,status};
 }
-
 async function stableId(value) {
   const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,"0")).join("");
