@@ -697,19 +697,9 @@ export default {
           next_step: "Inspect the existing identity state before attempting recovery.",
         }, 409);
       }
+      let identity;
       try {
-        const identity = await createHostedSwarmMemoIdentity();
-        await env.DB.prepare(
-          "UPDATE swarmmemo_identity_state SET state='created',fingerprint=?,handle=?,created_at=?,updated_at=? WHERE id=1"
-        ).bind(identity.fingerprint, identity.handle, now, new Date().toISOString()).run();
-        return json({
-          created: true,
-          fingerprint: identity.fingerprint,
-          handle: identity.handle,
-          mcp_url: identity.mcp_url,
-          recovery_code: identity.recovery_code,
-          instructions: "Save the recovery code privately. Add the exact mcp_url as the Cloudflare Worker secret SWARMMEMO_MCP_URL. Never place either value in GitHub, chat, logs, or public files. This identity has not claimed or submitted any task.",
-        }, 201);
+        identity = await createHostedSwarmMemoIdentity();
       } catch (error) {
         await env.DB.prepare(
           "UPDATE swarmmemo_identity_state SET state='uncertain',updated_at=? WHERE id=1"
@@ -720,6 +710,23 @@ export default {
           next_step: "Check SwarmMemo identity records before any retry to avoid creating duplicates.",
         }, 502);
       }
+      let persistenceWarning = null;
+      try {
+        await env.DB.prepare(
+          "UPDATE swarmmemo_identity_state SET state='created',fingerprint=?,handle=?,created_at=?,updated_at=? WHERE id=1"
+        ).bind(identity.fingerprint, identity.handle, now, new Date().toISOString()).run();
+      } catch {
+        persistenceWarning = "Identity was created, but its status could not be saved to D1. Save the credentials now; do not retry bootstrap.";
+      }
+      return json({
+        created: true,
+        fingerprint: identity.fingerprint,
+        handle: identity.handle,
+        mcp_url: identity.mcp_url,
+        recovery_code: identity.recovery_code,
+        persistence_warning: persistenceWarning,
+        instructions: "Save the recovery code privately. Add the exact mcp_url as the Cloudflare Worker secret SWARMMEMO_MCP_URL. Never place either value in GitHub, chat, logs, or public files. This identity has not claimed or submitted any task.",
+      }, 201);
     }
     if (url.pathname === "/v1/swarmmemo/identity/test" && request.method === "GET") {
       if (!env.SWARMMEMO_MCP_URL) return json({ error: "SWARMMEMO_MCP_URL secret is not configured" }, 503);
