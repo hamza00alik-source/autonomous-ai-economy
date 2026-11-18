@@ -98,6 +98,10 @@ economy-supervisor --data-dir ./data
 
 This requires configured Cloudflare Workers AI credentials. The supervisor runs the AI lane separately from the no-network sandbox; the agent cannot publish or contact customers. See `docs/ai-product-copy-agent.md` and `docs/ai-model-runtime.md`.
 
+## Private owner dashboard
+
+A mobile-first, read-only owner dashboard is served at `/owner` by the private Cloudflare Worker. Enter the existing owner bearer token to view Worker status, recent AI tasks and provider-settled agent revenue attribution. The dashboard does not expose payment or transfer actions. The local SQLite financial policies, simulated ledger, budgets and recurring schedules are not yet synchronized to Cloudflare D1 and are deliberately shown as unavailable. See [private owner dashboard](docs/private-owner-dashboard.md).
+
 ## Private Cloudflare worker pilot
 
 A Cloudflare Worker is deployed and configured with a five-minute scheduled AI product-copy lane using Workers AI and D1. It is private behind an owner bearer token and has a 6,500-estimated-neuron daily cap. The latest source includes a more tolerant model-response parser, but a live inference test is still pending because the previous production task failed. It cannot publish listings, contact customers, or move money. Public checkout and outbound payouts remain disabled. See `docs/cloudflare-private-worker.md` for the deployment and operating details.
