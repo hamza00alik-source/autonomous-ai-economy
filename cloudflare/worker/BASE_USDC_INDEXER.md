@@ -26,8 +26,10 @@ The generated `public/wallet-checkout.js` is a build artifact and should not be 
 
 - The event primary key is (chain_id, transaction_hash, log_index).
 - The indexer cursor stores the next block and last observed block hash.
-- A detected reorg rewinds a bounded recent window, marks affected events orphaned, moves affected invoices to review, revokes download access and moves revenue to refund review.
-- Current bounded rewind is not a complete deep-reorg proof. A reorg deeper than the configured lookback may require manual review and reconciliation; this remains a production blocker until a conservative ancestor/checkpoint strategy and operational alerting are implemented.
+- Any mismatch between the stored checkpoint hash and the canonical RPC block hash trips a persistent fail-closed incident latch. The indexer does not guess a rewind depth or continue scanning.
+- On a mismatch, every settled invoice is moved to `review`, every download entitlement is revoked immediately, and all pending/reconciled revenue rows move to `refund_review`. The cursor is preserved for forensic reconciliation.
+- Subsequent scheduled runs remain halted without RPC scanning until a separately reviewed operator reconciliation/reset. There is no automatic unhalt.
+- The authenticated `/v1/status` endpoint reports indexer state, checkpoint height, halt timestamp and reason without exposing signing or queue secrets. This is a status surface, not an external paging/alerting integration.
 - Unknown orders, expired invoices, wrong token, wrong merchant, amount mismatch, wrong emitter, failed receipt, duplicate order payment, or malformed logs are quarantined. They never unlock a download.
 
 ## Security and production blockers
