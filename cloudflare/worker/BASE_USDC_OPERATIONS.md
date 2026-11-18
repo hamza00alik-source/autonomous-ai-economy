@@ -75,3 +75,18 @@ Production activation is a separate approval process and is not authorized by th
 - Explicit owner approval for each relevant gate and for public checkout activation.
 
 Until these conditions are met, keep public checkout, deployment, publication, payouts and fund movement disabled. Do not describe CI success or mocked tests as production readiness or revenue.
+
+
+## Base Sepolia rehearsal (test tokens only)
+
+The code supports a separate Base Sepolia indexer configuration for controlled testing. It must use a dedicated test-only deployment, database and invoice-signing key.
+
+1. Confirm the Circle-published Base Sepolia USDC address from https://developers.circle.com/stablecoins/usdc-contract-addresses. The expected token is `0x036CbD53842c5426634e7929541eC2318f3dCF7e` on chain ID `84532`.
+2. Obtain test ETH and test USDC only from reputable testnet faucets; Circle documents USDC distribution at https://faucet.circle.com. Test tokens have no financial value.
+3. Deploy only the dedicated `BaseUsdcDirectCheckoutSepolia` contract to Base Sepolia after a separately approved testnet deployment action. Record the exact deployed address and block number.
+4. Configure the test worker/indexer with `BASE_CHAIN_ID=84532`, `BASE_USDC_TOKEN_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e`, the Base Sepolia HTTPS RPC, the test contract address, and its deployment block. Use a separate D1 database and a test-only invoice signer.
+5. Verify the EIP-712 signature domain is chain 84532 and the deployed test contract; verify token, merchant, amount, order ID, receipt and canonical block before considering the synthetic order settled.
+6. Exercise duplicate event delivery, wrong-token and wrong-amount quarantine, expired invoice, insufficient confirmations, cursor mismatch, entitlement revocation and manual recovery using test data.
+7. Confirm the Base-mainnet checkout route still returns unavailable when `BASE_CHAIN_ID=84532`. Never point the testnet worker at production D1 or production signer material.
+
+No testnet contract has been deployed and no wallet transaction has been submitted. The CI suite is a local deterministic simulation, not a live Base Sepolia rehearsal.
