@@ -58,6 +58,8 @@ jobs:
         run: python tools/check_product_js.py
       - name: Install private Worker dependencies
         run: npm --prefix cloudflare/worker install --no-audit --no-fund
+      - name: Build the local Base wallet checkout bundle
+        run: npm --prefix cloudflare/worker run build:wallet
       - name: Test private Cloudflare worker logic
         run: node --test cloudflare/worker/test/*.test.js
       - name: Build first digital product bundle
@@ -98,6 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           npm --prefix cloudflare/worker install --no-audit --no-fund
+          npm --prefix cloudflare/worker run build:wallet
           mkdir -p cloudflare/worker/public/downloads
           cp dist/moba-objective-props.zip cloudflare/worker/public/downloads/moba-objective-props.zip
           sed -i 's/REPLACE_WITH_D1_DATABASE_ID/00000000-0000-0000-0000-000000000000/' cloudflare/worker/wrangler.toml
