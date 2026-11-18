@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS base_usdc_invoices (
     block_number INTEGER,
     block_hash TEXT,
     created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     settled_at TEXT,
     download_expires_at TEXT,
     download_count INTEGER NOT NULL DEFAULT 0 CHECK (download_count >= 0)
