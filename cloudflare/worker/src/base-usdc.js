@@ -443,10 +443,10 @@ export async function settleBaseUsdcInvoice({
       blockTimestamp, Number(invoice.amount_minor), invoice.merchant_address,
     ),
     db.prepare(
-      "UPDATE base_usdc_invoices SET status='settled',buyer_address=?,transaction_hash=?,log_index=?,block_number=?,block_hash=?,settled_at=?,download_expires_at=? WHERE order_id_hash=? AND status='pending' AND transaction_hash IS NULL AND EXISTS (SELECT 1 FROM base_usdc_payment_events WHERE chain_id=8453 AND transaction_hash=? AND log_index=? AND transaction_status='confirmed')"
+      "UPDATE base_usdc_invoices SET status='settled',buyer_address=?,transaction_hash=?,log_index=?,block_number=?,block_hash=?,settled_at=?,download_expires_at=?,updated_at=? WHERE order_id_hash=? AND status='pending' AND transaction_hash IS NULL AND EXISTS (SELECT 1 FROM base_usdc_payment_events WHERE chain_id=8453 AND transaction_hash=? AND log_index=? AND transaction_status='confirmed')"
     ).bind(
       verified.buyerAddress, verified.transactionHash, verified.logIndex,
-      Number(verified.blockNumber), verified.blockHash, settledAt, downloadExpiresAt,
+      Number(verified.blockNumber), verified.blockHash, settledAt, downloadExpiresAt, now,
       invoice.order_id_hash, verified.transactionHash, verified.logIndex,
     ),
     db.prepare(
