@@ -267,3 +267,20 @@ export async function runDueCloudExpenseSchedules(db, ownerId, { now = new Date(
   }
   return {settled,blocked,skipped};
 }
+
+export async function expireCloudBudgetReservations(db, ownerId, { now = new Date().toISOString() } = {}) {
+  if(!validId(ownerId)) return {expired:0};
+  const result=await db.batch([
+    db.prepare(
+      "INSERT INTO financial_audit_events(event_id,owner_id,actor_id,event_type,target_type,target_id,request_id,details_json,created_at) " +
+      "SELECT lower(hex(randomblob(16))),r.owner_id,r.owner_id,'financial.reservation_expired','budget_reservation',r.reservation_id,r.idempotency_key," +
+      "json_object('amount_minor',r.amount_minor,'currency',r.currency),? FROM financial_budget_reservations r " +
+      "JOIN financial_participants o ON o.participant_id=r.owner_id AND o.participant_type='owner' AND o.status='active' " +
+      "WHERE r.owner_id=? AND r.status='reserved' AND r.expires_at<=?"
+    ).bind(now,ownerId,now),
+    db.prepare(
+      "UPDATE financial_budget_reservations SET status='expired',updated_at=? WHERE owner_id=? AND status='reserved' AND expires_at<=?"
+    ).bind(now,ownerId,now)
+  ]);
+  return {expired:result?.[1]?.meta?.changes || 0};
+}
