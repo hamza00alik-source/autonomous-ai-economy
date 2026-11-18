@@ -39,6 +39,15 @@ class PaidOpportunityStore:
                 )
             """)
 
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS paid_task_evaluations (
+                    external_task_id TEXT PRIMARY KEY,
+                    state TEXT NOT NULL CHECK(state IN ('qualified_for_local_draft','needs_review')),
+                    evaluation_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+
     def save(self, lead: PaidTaskLead, *, minimum_bounty_usdc: float = 0.10) -> dict:
         if minimum_bounty_usdc < 0:
             raise ValueError("minimum bounty must be non-negative")
