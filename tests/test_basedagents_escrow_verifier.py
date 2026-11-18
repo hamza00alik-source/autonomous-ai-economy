@@ -77,6 +77,12 @@ class BasedAgentsEscrowVerifierTests(unittest.TestCase):
             self.assertFalse(result["verified"])
             self.assertEqual(result["reason"], "no_exact_usdc_transfer_to_escrow_wallet")
 
+    def test_missing_explicit_funded_escrow_blocks(self):
+        task, payment, *_ = fixtures()
+        task["escrow"]["status"] = "pending"
+        result = self.verifier().verify(task, payment)
+        self.assertEqual(result["reason"], "task_escrow_not_explicitly_funded")
+
     def test_task_payment_link_mismatch_blocks(self):
         task, payment, *_ = fixtures()
         payment["task_id"] = "another_task"
