@@ -12,6 +12,8 @@ The existing NOWPayments and Base USDC paths are not replaced by this evaluation
 - Invoice creation is documented at `GET https://api.plisio.net/api/v1/invoices/new`. Required fields include a unique `order_number` and `order_name`; USD-denominated pricing can use `source_currency=USD` and `source_amount`. An invoice response contains a Plisio transaction ID and hosted invoice URL. See [Create an invoice](https://plisio.net/documentation/endpoints/create-an-invoice).
 - The callback documentation identifies `completed` as the fully paid status. It also lists pending, expired, error and cancelled states. The callback includes `verify_hash`; the documented PHP example computes HMAC-SHA1 over PHP-serialized, sorted callback fields. The Node example instead JSON-stringifies the sorted object and explicitly requires `json=true` in the callback URL. This serialization difference must be resolved with the official SDK or written provider confirmation before implementing a production verifier.
 - Plisio's AML/KYC document says automated risk controls can hold transactions and request identity verification through SumSub. It reserves the right to apply KYC/AML to customers, wallet addresses and selected assets. Therefore, **no-KYC is not guaranteed**. See [Plisio AML/KYC policy](https://plisio.net/docs/aml.pdf).
+
+- The currently linked Plisio Terms of Use describe service wallets and storage/exchange/management functions, reserve broad account-suspension rights, and say account-held crypto may need support-assisted withdrawal if an account is suspended. The published PDF is dated 12 March 2019, so it is not sufficient evidence of current API custody/settlement terms. Obtain the current merchant/API agreement and written clarification rather than relying on this older general terms document. See [Terms of Use PDF](https://plisio.net/docs/plisio-terms-of-use.pdf).
 - A Plisio WHMCS marketing page claims direct wallet payments and no KYC for that plugin, but those claims do not prove that the general API account, AAE's specific merchant flow, or a Pakistan-based merchant qualifies on the same terms. Do not rely on plugin marketing as a legal or contractual assurance.
 
 ## Required gates before any live integration
@@ -48,5 +50,6 @@ The existing NOWPayments and Base USDC paths are not replaced by this evaluation
 - [Plisio invoice creation and callback documentation](https://plisio.net/documentation/endpoints/create-an-invoice)
 - [Plisio AML/KYC explanation](https://plisio.net/docs/aml.pdf)
 - [Plisio WHMCS plugin marketing page](https://plisio.net/whmcs-accept-crypto) — marketing claims only; not proof of general API eligibility or Pakistan legal compliance.
+- [Plisio Terms of Use PDF](https://plisio.net/docs/plisio-terms-of-use.pdf) — linked document is dated 12 March 2019; obtain current merchant/API terms before relying on it.
 - [PVARA licensing](https://pvara.gov.pk/licensing)
 - [PVARA regulations](https://pvara.gov.pk/regulations)
