@@ -51,6 +51,15 @@ test("draft validator accepts bounded unpublished copy", () => {
   assert.equal(result.tags.length, 3);
 });
 
+test("draft validator reports exact missing and unexpected model fields", () => {
+  const malformed = { ...draft, headline: draft.title };
+  delete malformed.title;
+  assert.throws(
+    () => validateDraft(malformed, facts),
+    /schema mismatch; missing=\\[title\\]; unexpected=\\[headline\\]/
+  );
+});
+
 test("draft validator rejects unsupported performance claims and omitted disclosure", () => {
   assert.throws(() => validateDraft({ ...draft, description: draft.description + " Best-selling and guaranteed." }, facts), /unsupported/);
   assert.throws(() => validateDraft({ ...draft, ai_disclosure: "Human-created only." }, facts), /disclosure/);
