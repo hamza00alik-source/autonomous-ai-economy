@@ -192,7 +192,7 @@ export async function listSwarmMemoWork(env, limit = 50) {
       requester_record_json: undefined,
     })),
     poll: poll || null,
-    execution_notice: "Discovery and internal preparation approval only: narrowly screened public-research tasks may be auto-approved after full-text checks. This lane does not claim, post, submit, publish or pay. A configured signing identity and a separate executor are required for external commitments.",
+    execution_notice: "Discovery and internal preparation approval only: narrowly screened public-research tasks with explicit positive USD/USDC reward metadata may be auto-approved after full-text checks; credit-only tasks are excluded. This lane does not claim, post, submit, publish or pay. A configured signing identity and a separate executor are required for external commitments.",
   };
 }
 
