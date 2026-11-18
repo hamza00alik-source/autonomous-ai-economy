@@ -51,7 +51,7 @@ class ExpenseSchedulerTests(unittest.TestCase):
             currency="USD", lines=[
                 {"account_id": "agent-budget:agent", "direction": "debit",
                  "amount_minor": 1000, "reference": "allocation"},
-                {"account_id": "treasury:available", "direction": "credit",
+                {"account_id": "external-clearing", "direction": "credit",
                  "amount_minor": 1000, "reference": "allocation"},
             ])
         self.spending = AgentSpending(self.ledger, self.policies, root / "spending.sqlite3")
@@ -114,14 +114,14 @@ class ExpenseSchedulerTests(unittest.TestCase):
         # Move next occurrence due; second transaction would exceed daily cap.
         with __import__("sqlite3").connect(self.scheduler.path) as db:
             db.execute("UPDATE agent_expense_schedules SET next_run_at=? WHERE schedule_id=?",
-                       ((now - timedelta(seconds=1)).isoformat(), schedule["schedule_id"]))
+                       ((now - timedelta(seconds=2)).isoformat(), schedule["schedule_id"]))
         # The second occurrence reaches exactly the daily cap; the third must block.
         self.assertEqual(self.scheduler.run_due(now=now), {"settled": 1, "blocked": 0})
         with __import__("sqlite3").connect(self.scheduler.path) as db:
             db.execute("UPDATE agent_expense_schedules SET next_run_at=? WHERE schedule_id=?",
-                       ((now - timedelta(seconds=1)).isoformat(), schedule["schedule_id"]))
+                       ((now - timedelta(seconds=3)).isoformat(), schedule["schedule_id"]))
         self.assertEqual(self.scheduler.run_due(now=now), {"settled": 0, "blocked": 1})
-        self.assertEqual(datetime.fromisoformat(self.scheduler.get(schedule["schedule_id"])["next_run_at"]), now - timedelta(seconds=1))
+        self.assertEqual(datetime.fromisoformat(self.scheduler.get(schedule["schedule_id"])["next_run_at"]), now - timedelta(seconds=3))
 
     def test_pause_resume_cancel_controls(self):
         schedule = self.create()
