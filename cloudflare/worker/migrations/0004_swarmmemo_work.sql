@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS swarmmemo_work_items (
   requester TEXT,
   task_text TEXT NOT NULL,
   request_truncated INTEGER NOT NULL DEFAULT 0 CHECK (request_truncated IN (0,1)),
+  simulated INTEGER NOT NULL DEFAULT 0 CHECK (simulated IN (0,1)),
   reward_json TEXT NOT NULL,
   requester_record_json TEXT,
   deadline TEXT,
@@ -34,5 +35,6 @@ CREATE TABLE IF NOT EXISTS swarmmemo_poll_state (
   last_count INTEGER NOT NULL DEFAULT 0,
   last_http_status INTEGER,
   since_cursor TEXT,
+  page_cursor TEXT,
   updated_at TEXT NOT NULL
 );
