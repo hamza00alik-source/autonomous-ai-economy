@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS swarmmemo_work_items (
   room TEXT,
   requester TEXT,
   task_text TEXT NOT NULL,
+  request_truncated INTEGER NOT NULL DEFAULT 0 CHECK (request_truncated IN (0,1)),
   reward_json TEXT NOT NULL,
   requester_record_json TEXT,
   deadline TEXT,
