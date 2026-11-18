@@ -118,19 +118,19 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
  function renderBudgets(rows) {
    const body=$("budgetRows");body.replaceChildren();
    if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=5;td.textContent="No cloud agent budgets configured.";tr.appendChild(td);body.appendChild(tr);return;}
-   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.agent_id,item.currency,(Number(item.allocated_minor)/100).toFixed(2),(Number(item.reserved_minor)/100).toFixed(2),(Number(item.available_minor)/100).toFixed(2)]){const td=document.createElement("td");td.textContent=value;tr.appendChild(td);}body.appendChild(tr);}
+   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.agent_id,item.currency,number(item.allocated_minor),number(item.reserved_minor),number(item.available_minor)]){const td=document.createElement("td");td.textContent=value;tr.appendChild(td);}body.appendChild(tr);}
  }
  function renderReservations(rows) {
    const body=$("reservationRows");body.replaceChildren();
    if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.textContent="No budget reservations recorded.";tr.appendChild(td);body.appendChild(tr);return;}
-   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.reservation_id,item.agent_id,item.destination,item.currency+" "+(Number(item.amount_minor)/100).toFixed(2),item.status,time(item.expires_at)]){const td=document.createElement("td");td.textContent=String(value);tr.appendChild(td);}body.appendChild(tr);}
+   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.reservation_id,item.agent_id,item.destination,item.currency+" "+number(item.amount_minor)+" minor units",item.status,time(item.expires_at)]){const td=document.createElement("td");td.textContent=String(value);tr.appendChild(td);}body.appendChild(tr);}
  }
  function renderSchedules(rows) {
    const body=$("scheduleRows");body.replaceChildren();
    if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.textContent="No recurring schedules configured.";tr.appendChild(td);body.appendChild(tr);return;}
    for(const item of rows){
      const tr=document.createElement("tr");
-     const values=[item.agent_id,item.destination,item.currency+" "+(Number(item.amount_minor)/100).toFixed(2),number(item.interval_seconds)+" sec",time(item.next_due_at),item.status];
+     const values=[item.agent_id,item.destination,item.currency+" "+number(item.amount_minor)+" minor units",number(item.interval_seconds)+" sec",time(item.next_due_at),item.status];
      for(const value of values){const td=document.createElement("td");td.textContent=String(value);tr.appendChild(td);}
      const td=document.createElement("td");
      if(item.status!=="cancelled"){
