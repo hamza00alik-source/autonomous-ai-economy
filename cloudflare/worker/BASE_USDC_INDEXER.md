@@ -36,13 +36,13 @@ No such values are assumed by this migration. Never store secrets in this file, 
 - The indexer cursor stores the next block and last observed block hash.
 - Re-check a rolling recent block range and parent hashes; orphaned events must revoke access and move revenue to review/reversal rather than remain settled.
 - Unknown orders, expired invoices, wrong token, wrong merchant, amount mismatch, wrong emitter, failed receipt, duplicate order payment, or malformed logs go to quarantine. They never unlock a download.
-- D1 writes for event persistence, invoice settlement, revenue attribution and delivery entitlement must be atomic. If any write fails, the entire settlement transaction must roll back and be safely retryable.
+- A D1 batch settlement helper now matches the event to the invoice, checks the canonical block timestamp against invoice expiry, and writes the event, seven-day download entitlement and gross revenue attribution together. It is unit-tested with a fake D1 adapter; live D1 integration and failure/retry tests remain required.
 
 ## Work still required
 
-- Implement and unit-test EIP-712 invoice signing with a maintained Ethereum library; do not implement elliptic-curve signing manually.
+- EIP-712 signing helper is implemented with viem and tests recover the configured signer; it still needs a gated invoice-creation endpoint and dedicated key provisioning.
 - Add private invoice creation and status endpoints with owner authentication and strict fixed product/price mapping.
-- Implement JSON-RPC polling, ABI log decoding, receipt verification, confirmation handling, backfill, cursor persistence and reorg recovery.
+- Base RPC client, bounded confirmed-log scanning, ABI decoding, receipt/block canonicality and confirmation-depth checks are implemented and unit-tested. Scheduled polling, cursor persistence, backfill and reorg recovery remain to be wired.
 - Implement a wallet checkout page that displays Base and native USDC clearly and asks only for exact approval.
 - Add integration tests against a local EVM or controlled Base testnet rehearsal.
 - Independently audit the Solidity contract and the full Worker/indexer flow.
@@ -51,4 +51,4 @@ No such values are assumed by this migration. Never store secrets in this file, 
 
 ## Safety status
 
-This migration is a database foundation only. It does not prove payment acceptance, customer demand, product sales, revenue, production readiness, or legal eligibility. Existing public checkout and outbound payout gates must remain off.
+This is still a staged integration, not production checkout. Signing, event decoding, bounded RPC scanning, finality verification and a D1 settlement helper now exist as tested modules, but they are not connected to Worker routes or the scheduled trigger. No live RPC, D1 settlement, wallet checkout, buyer download, customer sale, revenue, production readiness or legal eligibility has been demonstrated. Existing public checkout and outbound payout gates must remain off.
