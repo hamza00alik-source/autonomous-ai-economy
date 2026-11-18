@@ -6,7 +6,7 @@ submits, posts, or pays.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import json
@@ -61,6 +61,9 @@ class TaskmarketLead:
     requester_actor_type: str
     source: str = "taskmarket"
     payment_verified: bool = False
+    escrow_verified_onchain: bool = False
+    escrow_verification_status: str = "not_checked"
+    escrow_verified_amount_base_units: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
