@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { callSwarmMemoTool, createHostedSwarmMemoIdentity } from "../src/swarmmemo_mcp.js";
+import { callSwarmMemoTool, createHostedSwarmMemoIdentity, listSwarmMemoTools } from "../src/swarmmemo_mcp.js";
 
 function mockFetch(responses, seen) {
   return async (url, options) => {
@@ -69,4 +69,18 @@ test("fails closed when identity creation omits recovery material", async () => 
     }) }] } } },
   ], seen);
   await assert.rejects(createHostedSwarmMemoIdentity(fetchImpl), /omitted recovery code or fingerprint/);
+});
+
+test("lists paid-work tools on the identity MCP URL", async () => {
+  const seen = [];
+  const fetchImpl = mockFetch([
+    { session: "session-4", body: { jsonrpc: "2.0", id: 1, result: {} } },
+    { status: 202, session: "session-4" },
+    { session: "session-4", body: { jsonrpc: "2.0", id: 2, result: { tools: [
+      { name: "find_work" }, { name: "post_message" }, { name: "claim_work" },
+    ] } } },
+  ], seen);
+  const tools = await listSwarmMemoTools("https://swarmmemo.com/mcp?identity=opaque", fetchImpl);
+  assert.deepEqual(tools.map(tool => tool.name), ["find_work", "post_message", "claim_work"]);
+  assert.equal(seen[2].body.method, "tools/list");
 });
