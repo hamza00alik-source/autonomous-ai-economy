@@ -14,7 +14,8 @@ from .basedagents_opportunities import BasedAgentsOpportunityScanner, PaidOpport
 from .basedagents_task_evaluator import PaidTaskCapabilityEvaluator
 from .jobbi_gigs import JobbiPublicGigs, JobbiGigStore
 from .taskmarket_marketplace import BaseEscrowReceiptVerifier, TaskmarketPublicTasks, TaskmarketTaskEvaluator, TaskmarketOpportunityStore
-from .source_board_verifier import GitHubSourceBoardVerifier\nfrom .github_task_drafter import GitHubTaskDraftBuilder
+from .source_board_verifier import GitHubSourceBoardVerifier
+from .github_task_drafter import GitHubTaskDraftBuilder
 
 
 def main() -> int:
