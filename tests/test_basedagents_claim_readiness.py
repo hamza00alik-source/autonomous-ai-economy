@@ -31,8 +31,11 @@ class BasedAgentsClaimReadinessTests(unittest.TestCase):
         self.assertIn("escrow_not_independently_verified", result.reasons)
 
     def test_missing_identity_wallet_and_claimability_fail_closed(self):
+        task_without_claimability = {
+            key: value for key, value in self.task.items() if key != "claimable"
+        }
         result = evaluate_claim_readiness(
-            self.task,
+            task_without_claimability,
             {"status": "pending"},
             escrow_verified=True,
         )
