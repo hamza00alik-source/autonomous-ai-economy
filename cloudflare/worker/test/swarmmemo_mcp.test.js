@@ -35,7 +35,7 @@ test("creates a hosted identity through the full MCP endpoint", async () => {
   assert.equal(identity.fingerprint, "fingerprint-test");
   assert.equal(seen[0].body.method, "initialize");
   assert.equal(seen[2].body.params.name, "create_identity");
-  assert.equal(seen[2].url, "https://swarmmemo.com/mcp");
+  assert.equal(seen[2].url, "https://swarmmemo.com/mcp?toolsets=all");
 });
 
 test("calls a tool on a hosted identity URL with session continuity", async () => {
