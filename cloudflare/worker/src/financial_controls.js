@@ -228,7 +228,9 @@ export async function runDueCloudExpenseSchedules(db, ownerId, { now = new Date(
     const dueAt=schedule.next_due_at;
     const key="schedule:"+await stableId(schedule.schedule_id+"|"+dueAt);
     const occurrenceId="occ-"+(await stableId(key)).slice(0,48);
-    const reservationId="rsv-"+(await stableId(key+"|reservation")).slice(0,48);
+    const retryWindow=Math.floor(Date.parse(now)/3600000);
+    const reservationAttemptKey=key+":reservation:"+retryWindow;
+    const reservationId="rsv-"+(await stableId(reservationAttemptKey)).slice(0,48);
     await db.prepare(
       "INSERT OR IGNORE INTO financial_expense_occurrences(occurrence_id,schedule_id,owner_id,agent_id,policy_id,policy_version,due_at,idempotency_key,status,created_at,updated_at) " +
       "SELECT ?,schedule_id,owner_id,agent_id,policy_id,policy_version,next_due_at,?,'claimed',?,? FROM financial_expense_schedules " +
@@ -237,7 +239,7 @@ export async function runDueCloudExpenseSchedules(db, ownerId, { now = new Date(
     const occurrence=await db.prepare("SELECT occurrence_id,status FROM financial_expense_occurrences WHERE schedule_id=? AND due_at=?").bind(schedule.schedule_id,dueAt).first();
     if(!occurrence || occurrence.status==="settled" || occurrence.status==="skipped") { skipped++; continue; }
     const reservation=await reserveCloudAgentBudget(db,{
-      ownerId,agentId:schedule.agent_id,reservationId,idempotencyKey:key+":reservation",
+      ownerId,agentId:schedule.agent_id,reservationId,idempotencyKey:reservationAttemptKey,
       destination:schedule.destination,currency:schedule.currency,amountMinor:schedule.amount_minor,
       expiresAt:new Date(Date.parse(now)+3600000).toISOString()
     },{now});
