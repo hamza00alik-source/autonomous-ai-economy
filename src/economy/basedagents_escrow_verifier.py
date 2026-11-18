@@ -103,6 +103,10 @@ class BasedAgentsEscrowVerifier:
                           headers={"Content-Type": "application/json",
                                    "Accept": "application/json"})
         with urlopen(request, timeout=timeout) as response:
+            final = urlparse(response.geturl())
+            expected = urlparse(self.rpc_url)
+            if final.scheme != "https" or final.hostname != expected.hostname:
+                raise URLError("RPC response host rejected")
             body = response.read(MAX_RESPONSE_BYTES + 1)
         if len(body) > MAX_RESPONSE_BYTES:
             raise ValueError("RPC response exceeds 1 MB")
@@ -135,6 +139,8 @@ class BasedAgentsEscrowVerifier:
                             audit_hashes.append(value)
 
             escrow = task.get("escrow") if isinstance(task.get("escrow"), dict) else {}
+            if escrow.get("status") != "funded":
+                raise ValueError("task_escrow_not_explicitly_funded")
             tx_hash = (escrow.get("deposit_tx_hash") or escrow.get("funding_tx_hash")
                        or payment.get("deposit_tx_hash") or payment.get("funding_tx_hash"))
             if not isinstance(tx_hash, str) or not _TX_HASH.fullmatch(tx_hash):
