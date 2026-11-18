@@ -370,8 +370,8 @@ class TaskmarketTaskEvaluator:
             "state": "qualified_for_local_draft" if not reasons else "rejected_or_needs_review",
             "score": max(0, 100 - 15 * len(reasons)),
             "reasons": reasons,
-            "reward_usdc": reward,
-            "net_reward_usdc": net_reward,
+            "reward_usdc": str(reward) if reward is not None else None,
+            "net_reward_usdc": str(net_reward) if net_reward is not None else None,
             "submission_count": count,
             "escrow_status": (
                 "onchain_verified" if data.get("escrow_verified_onchain") is True
