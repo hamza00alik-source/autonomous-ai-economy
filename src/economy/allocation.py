@@ -57,7 +57,6 @@ def allocate_reconciled_receipt(
     net_amount_minor: int,
     currency: str,
     source_reference: str,
-    settlement_state: str,
     policy: AllocationPolicy,
     simulated: bool = True,
 ) -> str:
@@ -69,8 +68,13 @@ def allocate_reconciled_receipt(
     """
     if simulated is not True:
         raise FinancialLedgerError("live-money allocation is disabled")
-    if settlement_state != "reconciled":
-        raise FinancialLedgerError("only reconciled receipts may be allocated")
+    receipt = ledger.simulated_receipt(source_reference)
+    if receipt is None or receipt["status"] != "reconciled":
+        raise FinancialLedgerError("only ledger-reconciled receipts may be allocated")
+    if receipt["agent_id"] != agent_id or receipt["currency"] != currency.upper():
+        raise FinancialLedgerError("receipt agent or currency does not match allocation request")
+    if receipt["gross_minor"] - receipt["fee_minor"] != net_amount_minor:
+        raise FinancialLedgerError("net allocation amount does not match reconciled receipt")
     if not isinstance(agent_id, str) or not agent_id.strip():
         raise FinancialLedgerError("agent_id is required")
     if isinstance(net_amount_minor, bool) or not isinstance(net_amount_minor, int) or net_amount_minor <= 0:
