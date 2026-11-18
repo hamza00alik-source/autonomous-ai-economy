@@ -80,7 +80,7 @@ class GitHubTaskDraftBuilder:
         if not verification.verified:
             return {**base, "status": "blocked_unverified_source",
                     "blockers": list(verification.reasons)}
-        if verification.state != "open" or verification.merged:
+        if verification.state not in {"open", "open_pull_request"} or verification.merged:
             return {**base, "status": "blocked_source_not_open",
                     "blockers": list(verification.reasons)}
         if verification.comments is None or verification.comments > 10:
