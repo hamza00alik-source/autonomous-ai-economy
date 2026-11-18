@@ -6,8 +6,8 @@ interface IERC20BaseUsdc {
     function transferFrom(address from, address to, uint256 value) external returns (bool);
 }
 
-/// @notice Signed-invoice direct checkout for Circle native USDC on Base mainnet.
-/// @dev Buyer funds move directly to merchant; the contract has no custody or withdrawal path.
+/// @notice Signed-invoice direct checkout for Circle USDC test tokens on Base Sepolia.
+/// @dev Test tokens move directly to merchant; the contract has no custody or withdrawal path and is not for production.
 contract BaseUsdcDirectCheckoutSepolia {
     address public constant BASE_USDC = 0x036CbD53842c5426634e7929541eC2318f3dCF7e;
     uint256 public constant BASE_SEPOLIA_CHAIN_ID = 84532;
