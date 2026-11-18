@@ -1,4 +1,4 @@
-import { loadActiveCloudFinancialPolicy } from "./financial_policy_auth.js";
+import { loadActiveCloudFinancialPolicy, verifyOwnerSignedFinancialPolicy } from "./financial_policy_auth.js";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$/;
 const iso = value => typeof value === "string" && Number.isFinite(Date.parse(value));
@@ -284,4 +284,48 @@ export async function expireCloudBudgetReservations(db, ownerId, { now = new Dat
     ).bind(now,ownerId,now)
   ]);
   return {expired:result?.[1]?.meta?.changes || 0};
+}
+
+export async function registerCloudSignedFinancialPolicy(db, { ownerId, policy, canonicalPayload, signatureBase64Url, signerKeyFingerprint, now = new Date().toISOString() }) {
+  if(!validId(ownerId) || !policy || policy.owner_id!==ownerId) return {ok:false,reason:"owner_policy_mismatch"};
+  const relationship=await db.prepare(
+    "SELECT o.participant_id AS owner_id,o.participant_type AS owner_type,o.status AS owner_status," +
+    "s.participant_id AS signer_id,s.participant_type AS signer_type,s.status AS signer_status,s.owner_id AS signer_owner_id,s.key_fingerprint,s.public_key_jwk," +
+    "a.participant_id AS agent_id,a.participant_type AS agent_type,a.status AS agent_status,a.owner_id AS agent_owner_id,a.operator_id " +
+    "FROM financial_participants o JOIN financial_participants a ON a.participant_id=? " +
+    "JOIN financial_participants s ON s.participant_id=a.operator_id WHERE o.participant_id=?"
+  ).bind(policy.agent_id,ownerId).first();
+  if(!relationship) return {ok:false,reason:"owner_operator_agent_not_provisioned"};
+  let signerJwk;
+  try { signerJwk=JSON.parse(relationship.public_key_jwk); } catch { return {ok:false,reason:"signer_public_key_invalid"}; }
+  const verification=await verifyOwnerSignedFinancialPolicy({
+    policy,canonicalPayload,signatureBase64Url,signerKeyFingerprint,signerJwk,
+    owner:{participant_id:relationship.owner_id,participant_type:relationship.owner_type,status:relationship.owner_status},
+    signer:{participant_id:relationship.signer_id,participant_type:relationship.signer_type,status:relationship.signer_status,owner_id:relationship.signer_owner_id,key_fingerprint:relationship.key_fingerprint},
+    agent:{participant_id:relationship.agent_id,participant_type:relationship.agent_type,status:relationship.agent_status,owner_id:relationship.agent_owner_id,operator_id:relationship.operator_id}
+  });
+  if(!verification.ok) return {ok:false,reason:verification.reason};
+  const latest=await db.prepare("SELECT MAX(version) AS version FROM financial_policies WHERE policy_id=? AND owner_id=? AND agent_id=?")
+    .bind(policy.policy_id,ownerId,policy.agent_id).first();
+  if((latest?.version||0)>=policy.version) return {ok:false,reason:"policy_version_must_increase"};
+  const destinations=json(policy.allowed_destinations);
+  try {
+    await db.batch([
+      db.prepare("UPDATE financial_policies SET status='superseded',updated_at=? WHERE policy_id=? AND owner_id=? AND agent_id=? AND status='active'")
+        .bind(now,policy.policy_id,ownerId,policy.agent_id),
+      db.prepare(
+        "INSERT INTO financial_policies(policy_id,version,owner_id,agent_id,signer_id,currency,per_transaction_limit_minor,daily_spend_limit_minor,allowed_destinations_json,canonical_payload,signature_base64url,signer_key_fingerprint,status,created_at,updated_at) " +
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?)"
+      ).bind(policy.policy_id,policy.version,ownerId,policy.agent_id,relationship.signer_id,policy.currency,
+        policy.per_transaction_limit_minor,policy.daily_spend_limit_minor,destinations,canonicalPayload,signatureBase64Url,signerKeyFingerprint,now,now),
+      db.prepare(
+        "INSERT INTO financial_audit_events(event_id,owner_id,actor_id,event_type,target_type,target_id,request_id,details_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)"
+      ).bind(crypto.randomUUID(),ownerId,relationship.signer_id,"financial.policy_registered","financial_policy",policy.policy_id,
+        policy.policy_id,json({version:policy.version,agent_id:policy.agent_id,currency:policy.currency}),now)
+    ]);
+  } catch(error) {
+    if(/monotonically|unique|active/i.test(String(error?.message||""))) return {ok:false,reason:"policy_version_conflict"};
+    throw error;
+  }
+  return {ok:true,policy_id:policy.policy_id,version:policy.version,agent_id:policy.agent_id,signer_id:relationship.signer_id};
 }
