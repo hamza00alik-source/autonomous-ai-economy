@@ -33,13 +33,29 @@ def _text(value: Any, limit: int = 4000) -> str:
     return value.strip()[:limit] if isinstance(value, str) else ""
 
 
-def _criteria(value: Any) -> tuple[str, ...]:
+def _criteria(value: Any, description: str = "") -> tuple[str, ...]:
     if isinstance(value, list):
         items = [_text(item, 500) for item in value]
     elif isinstance(value, str):
-        items = [line.strip(" -*\t")[:500] for line in value.splitlines()]
+        items = [line.strip(" -*\\t")[:500] for line in value.splitlines()]
     else:
         items = []
+    if not any(items) and description:
+        in_section = False
+        for line in description.splitlines():
+            stripped = line.strip()
+            if stripped.lower() in {"acceptance criteria:", "acceptance evidence:", "success criteria:"}:
+                in_section = True
+                continue
+            if in_section:
+                if not stripped:
+                    if items:
+                        break
+                    continue
+                if re.match(r"^\\s*(?:\\d+[.)]|[-*])\\s+", line):
+                    items.append(stripped[:500])
+                elif items:
+                    break
     return tuple(item for item in items if item)[:20]
 
 
@@ -79,7 +95,8 @@ class PaidTaskCapabilityEvaluator:
             or detail.get("output_format"), 1000
         )
         criteria = _criteria(
-            detail.get("acceptance_criteria") or detail.get("success_criteria")
+            detail.get("acceptance_criteria") or detail.get("success_criteria"),
+            description,
         )
         if not task_id:
             reasons.append("missing_task_id")
@@ -96,7 +113,7 @@ class PaidTaskCapabilityEvaluator:
         unsupported = {"docker", "x402", "wallet", "external_runtime", "paid_cycle"}
         if any(str(item).lower() in unsupported for item in capabilities):
             reasons.append("requires_unavailable_infrastructure_or_payment_capability")
-        combined_scope = (title + "\\n" + description).lower()
+        combined_scope = (title + " " + description).lower()
         if "genuine external runtime" in combined_scope or "external installation" in combined_scope:
             reasons.append("requires_authorized_external_runtime")
         if ("settled" in combined_scope and "revenue" in combined_scope
