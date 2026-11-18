@@ -170,6 +170,14 @@ class DoubleEntryLedger:
             ).fetchone()
         return int(row[0])
 
+    def find_by_idempotency(self, idempotency_key: str) -> dict[str, object] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT transaction_id FROM financial_journal_transactions WHERE idempotency_key=?",
+                (idempotency_key,),
+            ).fetchone()
+        return self.transaction(str(row[0])) if row else None
+
     def transaction(self, transaction_id: str) -> dict[str, object] | None:
         with self._connect() as db:
             header = db.execute(
