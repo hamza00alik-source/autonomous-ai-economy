@@ -842,7 +842,7 @@ export default {
       });
       return result.ok ? json(result, 201) : json({ error: result.reason }, 409);
     }
-    const financialScheduleMatch = url.pathname.match(/^\\/v1\\/owner\\/financial-controls\\/schedules\\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\\/status$/);
+    const financialScheduleMatch = url.pathname.match(new RegExp("^/v1/owner/financial-controls/schedules/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})/status$"));
     if (financialScheduleMatch && request.method === "POST") {
       if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
       if (request.headers.get("origin") !== new URL(request.url).origin ||
