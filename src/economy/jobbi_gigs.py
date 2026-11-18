@@ -6,7 +6,7 @@ verify deliverables, or pay agents. Feed fields are untrusted metadata.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import sqlite3
 from decimal import Decimal, InvalidOperation
@@ -36,6 +36,10 @@ class JobbiGig:
     acceptance: str
     acceptance_type: str
     claims_open: bool
+    date_published: str | None
+    date_modified: str | None
+    comments_count: int | None
+    tags: tuple[str, ...]
     lane: str = "agent"
     payment_verified: bool = False
 
@@ -108,6 +112,12 @@ class JobbiPublicGigs:
                 currency = str(currency).upper()[:20]
             if amount is not None:
                 amount = str(amount)[:40]
+            extra = meta.get("extra") if isinstance(meta.get("extra"), dict) else {}
+            try:
+                comments_count = max(0, int(extra["comments"])) if extra.get("comments") is not None else None
+            except (TypeError, ValueError):
+                comments_count = None
+            item_tags = item.get("tags") if isinstance(item.get("tags"), list) else []
             result.append(JobbiGig(
                 gig_id=gig_id,
                 title=title[:300],
@@ -123,6 +133,10 @@ class JobbiPublicGigs:
                 acceptance=str(meta.get("acceptance") or "")[:1000],
                 acceptance_type=str(meta.get("acceptance_type") or "unknown")[:40],
                 claims_open=meta.get("claims_open") is True,
+                date_published=str(item.get("date_published")) if item.get("date_published") else None,
+                date_modified=str(item.get("date_modified")) if item.get("date_modified") else None,
+                comments_count=comments_count,
+                tags=tuple(str(tag)[:80] for tag in item_tags if isinstance(tag, str))[:30],
             ))
         return result
 
@@ -132,6 +146,75 @@ def _positive_amount(value: str | None) -> bool:
         return Decimal(str(value)) > 0
     except (InvalidOperation, TypeError, ValueError):
         return False
+
+
+class JobbiGigEvaluator:
+    """Conservative first-pass filter; source-board review is still mandatory."""
+
+    def __init__(self, *, minimum_reward_usd: str = "1.00",
+                 maximum_comments: int = 10, maximum_age_days: int = 365,
+                 now: datetime | None = None):
+        self.minimum_reward = Decimal(minimum_reward_usd)
+        self.maximum_comments = maximum_comments
+        self.maximum_age = timedelta(days=maximum_age_days)
+        self.now = now or datetime.now(timezone.utc)
+
+    def evaluate(self, gig: JobbiGig) -> dict:
+        reasons = []
+        try:
+            amount = Decimal(str(gig.reward_amount))
+        except (InvalidOperation, TypeError, ValueError):
+            amount = Decimal("0")
+        if gig.currency not in SUPPORTED_CURRENCIES:
+            reasons.append("unsupported_or_non_fiat_reward")
+        if amount < self.minimum_reward:
+            reasons.append("reward_below_minimum_or_invalid")
+        if gig.payment_state != "escrowed":
+            reasons.append("payment_not_escrowed")
+        if gig.payout_grade not in {"A", "B", "B+"}:
+            reasons.append("payout_grade_too_low_or_unknown")
+        if not gig.claims_open:
+            reasons.append("claims_closed")
+        if gig.payment_rail not in {"stripe", "x402", "usdc", "base"}:
+            reasons.append("unsupported_or_unknown_payout_rail")
+        if gig.comments_count is None:
+            reasons.append("competition_unknown")
+        elif gig.comments_count > self.maximum_comments:
+            reasons.append("high_competition")
+        if not gig.date_published:
+            reasons.append("source_publication_date_missing")
+        else:
+            try:
+                published = datetime.fromisoformat(gig.date_published.replace("Z", "+00:00"))
+                if published.tzinfo is None:
+                    published = published.replace(tzinfo=timezone.utc)
+                age = self.now - published
+                if age < timedelta(days=-1):
+                    reasons.append("source_publication_date_in_future")
+                elif age > self.maximum_age:
+                    reasons.append("listing_stale")
+            except ValueError:
+                reasons.append("source_publication_date_invalid")
+        text = (gig.title + " " + gig.summary).lower()
+        if any(term in text for term in (
+            "contact the organizer", "contact organizers", "reach out to the organizer",
+            "email the organizer", "public promotional post", "paid promotion",
+        )):
+            reasons.append("outreach_or_promotion_required")
+        if any("core team only" in tag.lower() for tag in gig.tags):
+            reasons.append("core_team_only")
+        reasons = list(dict.fromkeys(reasons))
+        return {
+            "gig_id": gig.gig_id,
+            "state": "qualified_for_local_draft" if not reasons else "rejected_or_needs_review",
+            "reasons": reasons,
+            "reward_amount": str(amount),
+            "currency": gig.currency,
+            "comments_count": gig.comments_count,
+            "payment_verified": False,
+            "claim_allowed": False,
+            "external_actions": 0,
+        }
 
 
 class JobbiGigStore:
@@ -154,13 +237,17 @@ class JobbiGigStore:
                 )
             """)
 
-    def save_many(self, gigs: list[JobbiGig]) -> dict:
+    def save_many(self, gigs: list[JobbiGig], evaluator: JobbiGigEvaluator | None = None) -> dict:
         now = datetime.now(timezone.utc).isoformat()
         saved = 0
         review = 0
+        evaluator = evaluator or JobbiGigEvaluator()
         with sqlite3.connect(self.path) as db:
             for gig in gigs:
-                payload = json.dumps(gig.to_dict(), sort_keys=True, separators=(",", ":"))
+                payload_data = gig.to_dict()
+                evaluation = evaluator.evaluate(gig)
+                payload_data["evaluation"] = evaluation
+                payload = json.dumps(payload_data, sort_keys=True, separators=(",", ":"))
                 db.execute("""
                     INSERT INTO jobbi_gigs
                     (gig_id,source,currency,reward_amount,payment_state,claims_open,payload_json,discovered_at)
@@ -172,9 +259,7 @@ class JobbiGigStore:
                 """, (gig.gig_id, gig.source, gig.currency, gig.reward_amount,
                       gig.payment_state, int(gig.claims_open), payload, now))
                 saved += 1
-                if (gig.claims_open and gig.currency in SUPPORTED_CURRENCIES
-                        and _positive_amount(gig.reward_amount)
-                        and gig.payment_state in {"escrowed", "promised"}):
+                if evaluation["state"] == "qualified_for_local_draft":
                     review += 1
         return {"saved": saved, "review_required": review, "claims": 0, "payments": 0}
 
@@ -187,7 +272,8 @@ class JobbiGigStore:
                 SELECT payload_json,discovered_at FROM jobbi_gigs
                 WHERE claims_open=1 AND currency IN ('USD','USDC')
                   AND reward_amount IS NOT NULL AND CAST(reward_amount AS REAL) > 0
-                  AND payment_state IN ('escrowed','promised')
+                  AND payment_state = 'escrowed'
+                  AND payload_json LIKE '%"state":"qualified_for_local_draft"%'
                 ORDER BY CASE payment_state WHEN 'escrowed' THEN 0 ELSE 1 END,
                          discovered_at DESC LIMIT ?
             """, (limit,)).fetchall()
