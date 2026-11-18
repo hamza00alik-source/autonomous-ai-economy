@@ -1,6 +1,8 @@
 import unittest
 
-from economy.basedagents_claim_readiness import (\n    evaluate_claim_readiness, evaluate_claim_readiness_with_chain_verifier,\n)
+from economy.basedagents_claim_readiness import (
+    evaluate_claim_readiness, evaluate_claim_readiness_with_chain_verifier,
+)
 
 
 class BasedAgentsClaimReadinessTests(unittest.TestCase):
