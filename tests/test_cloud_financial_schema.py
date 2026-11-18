@@ -189,7 +189,7 @@ def test_audit_events_are_owner_scoped_and_append_only():
         )
 
 
-def _fund_agent(db):
+def _fund_agent(db, amount=10000):
     db.execute(
         "INSERT INTO financial_journal_transactions "
         "(transaction_id,owner_id,idempotency_key,payload_hash,source_type,source_reference,currency,status,description,created_at) "
@@ -199,8 +199,8 @@ def _fund_agent(db):
         "INSERT INTO financial_journal_postings "
         "(transaction_id,line_number,account_id,direction,amount_minor,currency,created_at) VALUES ('allocation-01',?,?,?,?,?,?)",
         [
-            (1, "expense-account", "debit", 10000, "USD", "2026-11-19T00:00:00.000Z"),
-            (2, "agent-account", "credit", 10000, "USD", "2026-11-19T00:00:00.000Z"),
+            (1, "expense-account", "debit", amount, "USD", "2026-11-19T00:00:00.000Z"),
+            (2, "agent-account", "credit", amount, "USD", "2026-11-19T00:00:00.000Z"),
         ],
     )
 
@@ -259,8 +259,7 @@ def test_cloud_reservations_enforce_agent_budget_and_daily_policy_limit():
     _participants(underfunded)
     _accounts(underfunded)
     _policy(underfunded, per_transaction_limit=4000)
-    _fund_agent(underfunded)
-    underfunded.execute("UPDATE financial_journal_postings SET amount_minor=4000 WHERE transaction_id='allocation-01'")
+    _fund_agent(underfunded, amount=4000)
     _unpause(underfunded)
     _reservation(underfunded, "reservation-c", 3000)
     with pytest.raises(sqlite3.IntegrityError, match="insufficient available agent budget"):
