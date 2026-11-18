@@ -16,6 +16,7 @@ from .jobbi_gigs import JobbiPublicGigs, JobbiGigStore
 from .taskmarket_marketplace import BaseEscrowReceiptVerifier, TaskmarketPublicTasks, TaskmarketTaskEvaluator, TaskmarketOpportunityStore
 from .source_board_verifier import GitHubSourceBoardVerifier
 from .github_task_drafter import GitHubTaskDraftBuilder
+from .makefun_marketplace import MakeFunPublicBounties
 
 
 def main() -> int:
@@ -72,6 +73,9 @@ def main() -> int:
     tm_list.add_argument("--qualified-only", action="store_true")
     tm_list.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/taskmarket-opportunities.sqlite3")
 
+    makefun_scan = sub.add_parser("scan-makefun-bounties", help="discover public make.fun USDC coding bounties; never registers or enters")
+    makefun_scan.add_argument("--limit", type=int, default=50)
+
     source_check = sub.add_parser("verify-source-url", help="read-only check a GitHub issue/PR source before drafting")
     source_check.add_argument("--url", required=True)
 
@@ -80,6 +84,18 @@ def main() -> int:
     evaluated.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
 
     args = parser.parse_args()
+    if args.command == "scan-makefun-bounties":
+        rows = MakeFunPublicBounties().search(limit=args.limit)
+        print(json.dumps({
+            "source": "make.fun",
+            "fetched": len(rows),
+            "bounties": [row.to_dict() for row in rows],
+            "notice": "Public listings only. No account, keypair, wallet, claim, entry, submission or payment action. Payment and entry eligibility are unverified.",
+            "external_actions": 0,
+            "entry_allowed": False,
+        }, indent=2))
+        return 0
+
     if args.command == "verify-source-url":
         result = GitHubSourceBoardVerifier().verify(args.url)
         print(json.dumps({**result.to_dict(), "external_actions": 0, "submission_allowed": False}, indent=2))
