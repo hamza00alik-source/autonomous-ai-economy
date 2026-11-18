@@ -4,7 +4,7 @@
 
 The private Worker contains a gated Base-native USDC checkout API, signed-invoice creation, buyer order-status and protected-download endpoints, and a scheduled Base event indexer. The public storefront source now uses the Base invoice API and a locally bundled viem wallet client; it no longer routes new purchases through NOWPayments.
 
-The wallet page requests the buyer's explicit approval for exactly the invoice amount, then calls the signed-invoice checkout contract. It verifies that the configured contract has deployed bytecode before asking for an approval, checks the buyer's Base USDC balance, and waits for approval confirmation before submitting payment. It never requests unlimited allowance. Wallet rejection, insufficient balance, chain switching, approval failure, and payment submission are surfaced to the buyer.
+The wallet page requests the buyer's explicit approval for exactly the invoice amount, then calls the signed-invoice checkout contract. Before asking for approval, it verifies deployed bytecode and reads the contract's immutable merchant, invoice signer and native USDC token getters against the server-signed invoice. It checks the buyer's Base USDC balance and waits for approval confirmation before submitting payment. It never requests unlimited allowance. Wallet rejection, insufficient balance, chain switching, approval failure, and payment submission are surfaced to the buyer.
 
 The frontend bundle is built locally from the pinned npm dependency tree using esbuild:
 `npm --prefix cloudflare/worker run build:wallet`.
