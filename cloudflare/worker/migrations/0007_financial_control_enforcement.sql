@@ -133,3 +133,13 @@ BEGIN
 END;
 
 -- Emergency pause is fail-closed: absence of an owner control row is treated as paused by services.
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_reservation_requires_explicit_unpause
+BEFORE INSERT ON financial_budget_reservations
+WHEN NOT EXISTS (
+  SELECT 1 FROM financial_control_state c
+  WHERE c.owner_id=NEW.owner_id AND c.emergency_paused=0
+)
+BEGIN
+  SELECT RAISE(ABORT, 'owner emergency pause is active or not configured');
+END;
