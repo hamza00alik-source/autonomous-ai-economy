@@ -46,7 +46,7 @@ After deployment, copy the `workers.dev` URL printed by Wrangler and add one mor
 
 The Gumroad draft workflow uses `AAE_WORKER_URL` and `AAE_QUEUE_TOKEN` to queue AI listing copy in this Worker's persistent D1 budget. This avoids resetting the local Python budget on every GitHub Actions run.
 
-The D1 database is provisioned. The Worker has not yet been deployed: the GitHub Actions secrets above are still required. The deployment workflow is manual-only and private-runtime-only; it forcibly writes both public commerce gates as `false` on every deployment.
+The D1 database and private Worker are provisioned. The Worker was deployed directly through the Cloudflare API; the GitHub Actions deployment workflow remains available for future repeatable deployments and has not itself been run. The deployed Worker has a five-minute scheduled trigger. Its deployment configuration keeps both public-commerce gates disabled. A successful deployment does not prove that live AI inference, checkout, payment settlement, or customer delivery has passed end-to-end testing.
 
 ## API
 
