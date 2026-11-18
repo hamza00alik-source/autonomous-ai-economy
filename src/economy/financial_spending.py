@@ -165,66 +165,68 @@ class AgentSpending:
             db.close()
 
     def settle(self, reservation_id: str) -> dict[str, Any]:
-        """Settle a reservation into the simulated journal exactly once."""
-        reservation = self.get(reservation_id)
-        if reservation is None:
-            raise FinancialSpendingError("unknown expense reservation")
-        if reservation["status"] == "settled":
-            return reservation
-        if reservation["status"] != "reserved":
-            raise FinancialSpendingError("only an active reservation can be settled")
-        now = self._now()
-        if datetime.fromisoformat(reservation["expires_at"]) <= now:
-            self._transition(reservation_id, "expired")
-            raise FinancialSpendingError("expense reservation expired")
-        policy = self._authorized_policy(reservation["agent_id"], reservation["policy_id"])
-        if policy["version"] != reservation["policy_version"]:
-            raise FinancialSpendingError("reservation policy was superseded")
-        # Recheck all signed limits and destination at execution time.
-        if (reservation["destination"] not in policy["allowed_destinations"]
-                or reservation["amount_minor"] > policy["per_transaction_limit_minor"]
-                or reservation["currency"] != policy["currency"]):
-            raise FinancialSpendingError("current financial policy no longer authorizes this expense")
-        key = f"agent-expense:{reservation_id}"
-        journal_id = self.ledger.post(
-            idempotency_key=key,
-            description=f"Simulated agent expense: {reservation['destination']}",
-            currency=reservation["currency"],
-            lines=[
-                {"account_id": f"operating-expense:{reservation['destination']}",
-                 "direction": "debit", "amount_minor": reservation["amount_minor"],
-                 "reference": reservation_id},
-                {"account_id": f"agent-budget:{reservation['agent_id']}",
-                 "direction": "credit", "amount_minor": reservation["amount_minor"],
-                 "reference": reservation_id},
-            ],
-            simulated=True,
-        )
+        """Settle under a durable reservation lock; journal retries remain idempotent."""
         db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
         try:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("BEGIN IMMEDIATE")
+            db.row_factory = sqlite3.Row
             row = db.execute(
-                "SELECT status,journal_transaction_id FROM agent_expense_reservations WHERE reservation_id=?",
+                """SELECT reservation_id,agent_id,policy_id,policy_version,destination,
+                          currency,amount_minor,status,expires_at,journal_transaction_id
+                   FROM agent_expense_reservations WHERE reservation_id=?""",
                 (reservation_id,),
             ).fetchone()
             if row is None:
-                raise FinancialSpendingError("reservation disappeared during settlement")
-            if row[0] == "settled":
-                if row[1] != journal_id:
-                    raise FinancialSpendingError("settled reservation journal mismatch")
-            elif row[0] != "reserved":
-                raise FinancialSpendingError("reservation is no longer active")
-            else:
+                raise FinancialSpendingError("unknown expense reservation")
+            reservation = dict(row)
+            if reservation["status"] == "settled":
+                db.commit()
+                return self.get(reservation_id)
+            if reservation["status"] != "reserved":
+                raise FinancialSpendingError("only an active reservation can be settled")
+            if datetime.fromisoformat(reservation["expires_at"]) <= self._now():
                 db.execute(
-                    """UPDATE agent_expense_reservations SET status='settled',
-                       journal_transaction_id=?,updated_at=? WHERE reservation_id=? AND status='reserved'""",
-                    (journal_id, self._now().isoformat(), reservation_id),
+                    "UPDATE agent_expense_reservations SET status='expired',updated_at=? WHERE reservation_id=?",
+                    (self._now().isoformat(), reservation_id),
                 )
+                db.commit()
+                raise FinancialSpendingError("expense reservation expired")
+
+            policy = self._authorized_policy(reservation["agent_id"], reservation["policy_id"])
+            if policy["version"] != reservation["policy_version"]:
+                raise FinancialSpendingError("reservation policy was superseded")
+            if (reservation["destination"] not in policy["allowed_destinations"]
+                    or reservation["amount_minor"] > policy["per_transaction_limit_minor"]
+                    or reservation["currency"] != policy["currency"]):
+                raise FinancialSpendingError("current financial policy no longer authorizes this expense")
+
+            journal_id = self.ledger.post(
+                idempotency_key=f"agent-expense:{reservation_id}",
+                description=f"Simulated agent expense: {reservation['destination']}",
+                currency=reservation["currency"],
+                lines=[
+                    {"account_id": f"operating-expense:{reservation['destination']}",
+                     "direction": "debit", "amount_minor": reservation["amount_minor"],
+                     "reference": reservation_id},
+                    {"account_id": f"agent-budget:{reservation['agent_id']}",
+                     "direction": "credit", "amount_minor": reservation["amount_minor"],
+                     "reference": reservation_id},
+                ],
+                simulated=True,
+            )
+            db.execute(
+                """UPDATE agent_expense_reservations SET status='settled',
+                   journal_transaction_id=?,updated_at=? WHERE reservation_id=? AND status='reserved'""",
+                (journal_id, self._now().isoformat(), reservation_id),
+            )
             db.commit()
         except sqlite3.Error as exc:
             db.rollback()
-            raise FinancialSpendingError("expense settlement state update failed; retry is safe") from exc
+            raise FinancialSpendingError("expense settlement state update failed; idempotent retry is safe") from exc
+        except Exception:
+            db.rollback()
+            raise
         finally:
             db.close()
         return self.get(reservation_id)
