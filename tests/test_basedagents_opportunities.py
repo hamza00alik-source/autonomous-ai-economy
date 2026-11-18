@@ -49,9 +49,10 @@ class BasedAgentsOpportunityTests(unittest.TestCase):
         self.assertEqual(self.store.list_review_required()[0]["payload"]["title"], "Updated title")
 
     def test_scanner_is_read_only_and_reports_no_external_actions(self):
+        lead = self.lead()
         class Provider:
             def search(self, *, limit):
-                return [self.lead()]
+                return [lead]
         result = BasedAgentsOpportunityScanner(self.store, Provider()).scan_once()
         self.assertEqual(result["fetched"], 1)
         self.assertEqual(result["review_required"], 1)
