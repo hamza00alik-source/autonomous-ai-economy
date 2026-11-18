@@ -12,7 +12,18 @@ import { privateKeyToAccount } from "viem/accounts";
 import { base, baseSepolia } from "viem/chains";
 
 export const BASE_MAINNET_CHAIN_ID = 8453;
+export const BASE_SEPOLIA_CHAIN_ID = 84532;
 export const BASE_USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+export const BASE_SEPOLIA_USDC_ADDRESS = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+export const BASE_NETWORKS = Object.freeze({
+  [BASE_MAINNET_CHAIN_ID]: Object.freeze({ chain: base, tokenAddress: BASE_USDC_ADDRESS, label: "Base mainnet" }),
+  [BASE_SEPOLIA_CHAIN_ID]: Object.freeze({ chain: baseSepolia, tokenAddress: BASE_SEPOLIA_USDC_ADDRESS, label: "Base Sepolia testnet" }),
+});
+function baseNetwork(chainId) {
+  const config = BASE_NETWORKS[Number(chainId)];
+  if (!config) throw new Error("unsupported Base chain ID; use 8453 or 84532");
+  return config;
+}
 export const BASE_INVOICE_DOMAIN = Object.freeze({
   name: "AAE Base USDC Checkout",
   version: "1",
