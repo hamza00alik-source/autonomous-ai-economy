@@ -144,10 +144,13 @@ class AgentExpenseScheduler:
                    ORDER BY next_run_at,schedule_id LIMIT ?""",
                 (current.isoformat(), limit),
             ).fetchall()
-        counts = {"settled": 0, "blocked": 0, "skipped": 0}
+        counts = {"settled": 0, "blocked": 0}
         for schedule in rows:
             result = self._run_one(dict(schedule), current)
-            counts[result] += 1
+            if result == "skipped":
+                counts["skipped"] = counts.get("skipped", 0) + 1
+            else:
+                counts[result] += 1
         return counts
 
     def _run_one(self, schedule: dict[str, Any], now: datetime) -> str:
