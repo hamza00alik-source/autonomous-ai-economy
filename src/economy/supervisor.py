@@ -27,6 +27,7 @@ def supervise(
     max_cycles: int | None = None,
     worker: Callable[[TaskStore], dict | None] = run_once,
     ai_worker: Callable[[TaskStore], dict | None] | None = None,
+    financial_scheduler: Callable[[], dict[str, int]] | None = None,
 ) -> dict[str, int]:
     """Poll until stopped; AI worker is opt-in for tests and enabled by the CLI."""
     if poll_seconds < 0.1 or poll_seconds > 300:
@@ -46,6 +47,20 @@ def supervise(
                 errors += 1
                 cycle_had_error = True
                 LOG.exception("Accepted-order dispatch failed; queue remains the recovery source")
+        if financial_scheduler is not None:
+            try:
+                financial_result = financial_scheduler()
+                if not isinstance(financial_result, dict) or any(
+                    key not in financial_result or isinstance(financial_result[key], bool)
+                    or not isinstance(financial_result[key], int) or financial_result[key] < 0
+                    for key in ("settled", "blocked")
+                ):
+                    raise ValueError("financial scheduler must return non-negative settled and blocked counts")
+                LOG.info("Simulated financial scheduler: settled=%d blocked=%d", financial_result["settled"], financial_result["blocked"])
+            except Exception:
+                errors += 1
+                cycle_had_error = True
+                LOG.exception("Simulated financial scheduler failed; continuing worker lanes")
         callbacks = [worker]
         if ai_worker is not None:
             callbacks.append(ai_worker)
