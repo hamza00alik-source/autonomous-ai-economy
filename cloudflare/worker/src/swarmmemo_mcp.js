@@ -58,7 +58,7 @@ function validateIdentityUrl(value) {
       !parsed.pathname.startsWith("/mcp") || parsed.username || parsed.password || parsed.hash) {
     throw new Error("SwarmMemo returned an identity URL outside the approved HTTPS MCP origin");
   }
-  return parsed.toString();
+  return parsed;
 }
 
 function identityResult(toolResult) {
@@ -127,7 +127,7 @@ export async function createHostedSwarmMemoIdentity(fetchImpl = fetch) {
   const fingerprint = typeof data.fingerprint === "string" ? data.fingerprint : "";
   if (!recoveryCode || !fingerprint) throw new Error("SwarmMemo identity response omitted recovery code or fingerprint");
   return {
-    mcp_url: mcpUrl,
+    mcp_url: mcpUrl.toString(),
     recovery_code: recoveryCode,
     fingerprint,
     handle: typeof data.handle === "string" ? data.handle : null,
