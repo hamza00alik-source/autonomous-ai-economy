@@ -14,6 +14,7 @@ from .basedagents_opportunities import BasedAgentsOpportunityScanner, PaidOpport
 from .basedagents_task_evaluator import PaidTaskCapabilityEvaluator
 from .jobbi_gigs import JobbiPublicGigs, JobbiGigStore
 from .taskmarket_marketplace import BaseEscrowReceiptVerifier, TaskmarketPublicTasks, TaskmarketTaskEvaluator, TaskmarketOpportunityStore
+from .source_board_verifier import GitHubSourceBoardVerifier
 
 
 def main() -> int:
@@ -70,11 +71,19 @@ def main() -> int:
     tm_list.add_argument("--qualified-only", action="store_true")
     tm_list.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/taskmarket-opportunities.sqlite3")
 
+    source_check = sub.add_parser("verify-source-url", help="read-only check a GitHub issue/PR source before drafting")
+    source_check.add_argument("--url", required=True)
+
     evaluated = sub.add_parser("list-task-evaluations", help="list persisted task scope/capability evaluations")
     evaluated.add_argument("--limit", type=int, default=20)
     evaluated.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
 
     args = parser.parse_args()
+    if args.command == "verify-source-url":
+        result = GitHubSourceBoardVerifier().verify(args.url)
+        print(json.dumps({**result.to_dict(), "external_actions": 0, "submission_allowed": False}, indent=2))
+        return 0 if result.verified else 2
+
     if args.command == "scan-jobbi-gigs":
         db_path = args.db or (args.data_dir / "jobbi-gigs.sqlite3")
         store = JobbiGigStore(db_path)
