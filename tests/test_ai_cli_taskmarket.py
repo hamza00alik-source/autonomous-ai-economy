@@ -35,13 +35,16 @@ class TaskmarketCliTests(unittest.TestCase):
                 return [TaskmarketLead(**lead)]
         with tempfile.TemporaryDirectory() as tmp:
             with patch("economy.ai_cli.TaskmarketPublicTasks", return_value=Provider()):
-                with patch.object(sys, "argv", [
-                    "economy-ai", "--data-dir", tmp, "scan-taskmarket-tasks",
-                ]):
-                    self.assertEqual(main(), 0)
+                with patch("economy.ai_cli.BaseEscrowReceiptVerifier") as verifier:
+                    verifier.return_value.verify_lead.side_effect = lambda item: item
+                    with patch.object(sys, "argv", [
+                        "economy-ai", "--data-dir", tmp, "scan-taskmarket-tasks",
+                    ]):
+                        self.assertEqual(main(), 0)
             store = TaskmarketOpportunityStore(Path(tmp) / "taskmarket-opportunities.sqlite3")
             rows = store.list_opportunities()
             self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["evaluation"]["state"], "qualified_for_local_draft")
             self.assertFalse(rows[0]["evaluation"]["claim_allowed"])
 
     def test_list_cli_can_show_only_qualified(self):
