@@ -21,12 +21,28 @@ const HARD_BLOCK_MARKERS = [
   /\b(?:send an email|contact the requester|direct message|dm the|publish|post publicly|social media post)\b/i,
 ];
 
+function hasExplicitCashReward(value) {
+  let reward = value;
+  if (typeof reward === "string") {
+    try { reward = JSON.parse(reward); } catch { return false; }
+  }
+  if (!reward || typeof reward !== "object" || Array.isArray(reward)) return false;
+  const candidates = [reward, reward.cash_reward, reward.cash, reward.payout, reward.crypto];
+  return candidates.some((candidate) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
+    const unit = String(candidate.unit || candidate.currency || candidate.asset || "").trim().toUpperCase();
+    const amount = Number(candidate.amount ?? candidate.value);
+    return (unit === "USD" || unit === "USDC") && Number.isFinite(amount) && amount > 0;
+  });
+}
+
 export function screenSwarmMemoTask(task) {
   if (!task || typeof task !== "object") return { allowed: false, reason: "invalid_task" };
   if (task.board_state !== "open") return { allowed: false, reason: "task_not_open" };
   if (task.eligible !== 1 && task.eligible !== true) return { allowed: false, reason: "platform_not_claimable" };
   if (task.simulated === 1 || task.simulated === true) return { allowed: false, reason: "simulated_task" };
   if (task.request_truncated === 1 || task.request_truncated === true) return { allowed: false, reason: "full_task_text_required" };
+  if (!hasExplicitCashReward(task.reward_json)) return { allowed: false, reason: "no_explicit_cash_reward" };
 
   const title = typeof task.title === "string" ? task.title : "";
   const body = typeof task.task_text === "string" ? task.task_text : "";
