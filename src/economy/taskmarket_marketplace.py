@@ -233,6 +233,8 @@ class BaseEscrowReceiptVerifier:
         receipt = response.get("result") if isinstance(response, dict) else None
         if not isinstance(receipt, dict):
             return {"verified": False, "status": "receipt_not_found"}
+        if str(receipt.get("transactionHash", "")).lower() != tx_hash.lower():
+            return {"verified": False, "status": "receipt_transaction_hash_mismatch"}
         if str(receipt.get("status", "")).lower() != "0x1":
             return {"verified": False, "status": "transaction_not_successful"}
         logs = receipt.get("logs") if isinstance(receipt.get("logs"), list) else []
