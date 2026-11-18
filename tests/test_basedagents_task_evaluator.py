@@ -62,7 +62,7 @@ class PaidTaskCapabilityEvaluatorTests(unittest.TestCase):
     def test_extracts_numbered_acceptance_evidence_from_description(self):
         detail = dict(self.detail)
         detail.pop("acceptance_criteria")
-        detail["description"] = "Scope\\nAcceptance evidence:\\n1. Include source links\\n2. Validate totals\\n\\nNotes"
+        detail["description"] = "Scope\nAcceptance evidence:\n1. Include source links\n2. Validate totals\n\nNotes"
         result = self.evaluator.evaluate(self.lead, detail)
         self.assertEqual(len(result.acceptance_criteria), 2)
 
@@ -70,9 +70,9 @@ class PaidTaskCapabilityEvaluatorTests(unittest.TestCase):
         detail = dict(self.detail)
         detail["required_capabilities"] = ["docker", "automation", "x402"]
         detail["description"] = (
-            "Install in a genuine external runtime.\\n"
-            "Reward follows at least 0.50 USDC of settled revenue and a paid cycle.\\n"
-            "Acceptance evidence:\\n1. Show install proof"
+            "Install in a genuine external runtime.\n"
+            "Reward follows at least 0.50 USDC of settled revenue and a paid cycle.\n"
+            "Acceptance evidence:\n1. Show install proof"
         )
         result = self.evaluator.evaluate(self.lead, detail)
         self.assertEqual(result.state, "needs_review")
