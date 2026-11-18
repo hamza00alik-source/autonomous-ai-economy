@@ -217,8 +217,9 @@ async function stableId(value) {
 
 export async function runDueCloudExpenseSchedules(db, ownerId, { now = new Date().toISOString(), limit = 10 } = {}) {
   if(!validId(ownerId)) return {settled:0,blocked:0,skipped:0};
+  const expiry=await expireCloudBudgetReservations(db,ownerId,{now});
   const control=await db.prepare("SELECT emergency_paused FROM financial_control_state WHERE owner_id=?").bind(ownerId).first();
-  if(!control || control.emergency_paused!==0) return {settled:0,blocked:0,skipped:0,paused:true};
+  if(!control || control.emergency_paused!==0) return {settled:0,blocked:0,skipped:0,expired:expiry.expired,paused:true};
   const rows=await db.prepare(
     "SELECT schedule_id,agent_id,policy_id,policy_version,destination,currency,amount_minor,interval_seconds,next_due_at " +
     "FROM financial_expense_schedules WHERE owner_id=? AND status='active' AND next_due_at<=? ORDER BY next_due_at,schedule_id LIMIT ?"
@@ -265,7 +266,7 @@ export async function runDueCloudExpenseSchedules(db, ownerId, { now = new Date(
     ]);
     settled++;
   }
-  return {settled,blocked,skipped};
+  return {settled,blocked,skipped,expired:expiry.expired};
 }
 
 export async function expireCloudBudgetReservations(db, ownerId, { now = new Date().toISOString() } = {}) {
