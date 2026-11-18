@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101827">
+<meta name="description" content="Private owner dashboard for Autonomous AI Economy operations.">
+<title>AAE Owner Console</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#0d1421;color:#edf2fb}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#24334b 0,#0d1421 58%);min-height:100vh}
+main{width:min(1040px,calc(100% - 28px));margin:auto;padding:24px 0 48px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:22px}
+.brand{font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;color:#a9bddc}
+h1{font-size:clamp(1.8rem,6vw,2.7rem);margin:8px 0 4px;letter-spacing:-.04em}
+.sub{color:#aebbd0;margin:0;line-height:1.5}
+.panel{background:#151f2f;border:1px solid #2b3a51;border-radius:16px;padding:17px;margin:14px 0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input{width:100%;min-width:0;background:#0d1624;color:#f4f7fc;border:1px solid #40516c;border-radius:10px;padding:13px;font-size:16px}
+button{border:0;border-radius:10px;padding:12px 15px;background:#c4d8ff;color:#122039;font-weight:750;font-size:.95rem;cursor:pointer}
+button.secondary{background:#2a3950;color:#e6eefb}
+button:disabled{opacity:.5}
+.authgrid{display:grid;grid-template-columns:1fr auto;gap:9px;margin-top:12px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.metric{background:#101a29;border:1px solid #293950;border-radius:13px;padding:14px;min-width:0}
+.metric small{display:block;color:#9fb0c8;font-size:.78rem}
+.metric strong{display:block;font-size:1.55rem;margin-top:7px;overflow-wrap:anywhere}
+h2{font-size:1.05rem;margin:0 0 12px}
+.muted{color:#9eacc1;font-size:.87rem;line-height:1.5}
+.status{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:6px 10px;background:#24354b;color:#dce9ff;font-size:.78rem}
+.status:before{content:"";width:7px;height:7px;border-radius:50%;background:#86c9a8}
+.status.offline:before{background:#e5ad70}
+.tablewrap{overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:.86rem;min-width:460px}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #2a394f;vertical-align:top}
+th{color:#aebdd2;font-weight:600}
+code{overflow-wrap:anywhere;color:#c6d9ff}
+.notice{border-left:3px solid #d2aa69;padding:10px 12px;background:#211f1b;color:#d9c9a8;border-radius:7px;font-size:.85rem;line-height:1.5}
+.hidden{display:none!important}
+#message{margin-top:10px;color:#c4d2e6;font-size:.88rem;min-height:1.3em}
+footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
+@media(min-width:700px){main{padding-top:38px}.cards{grid-template-columns:repeat(4,minmax(0,1fr))}.panel{padding:20px}}
+</style>
+</head>
+<body>
+<main>
+<header><div><div class="brand">Autonomous AI Economy</div><h1>Owner console</h1><p class="sub">Private operational visibility · mobile-ready</p></div><span id="connection" class="status offline">Disconnected</span></header>
+<section class="panel" id="authPanel">
+<h2>Connect securely</h2>
+<p class="muted">Enter the existing owner bearer token. It stays in this browser tab's session storage and is never put in the URL.</p>
+<div class="authgrid"><input id="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Owner access token" aria-label="Owner access token"><button id="connect">Connect</button></div>
+<div id="message" role="status" aria-live="polite"></div>
+</section>
+<section id="dashboard" class="hidden">
+<div class="row" style="justify-content:space-between;margin:14px 2px"><span class="muted" id="updated">Not refreshed yet</span><div class="row"><button id="refresh" class="secondary">Refresh</button><button id="logout" class="secondary">Disconnect</button></div></div>
+<div class="cards" id="metrics">
+<div class="metric"><small>AI tasks queued</small><strong id="queued">—</strong></div>
+<div class="metric"><small>AI tasks running</small><strong id="running">—</strong></div>
+<div class="metric"><small>Estimated AI neurons reserved today</small><strong id="neurons">—</strong></div>
+<div class="metric"><small>Daily safety budget</small><strong id="budget">—</strong></div>
+</div>
+<section class="panel"><h2>Worker status</h2><div id="workerStatus" class="muted">Loading…</div><p class="muted" id="workerNote"></p></section>
+<section class="panel"><h2>Agent revenue attribution</h2><p class="muted">Only provider-settled events recorded in Cloudflare D1 appear here. Pending reconciliation is not spendable agent income.</p><div class="tablewrap"><table><thead><tr><th>Agent</th><th>Sales</th><th>Gross USD</th><th>Awaiting reconciliation</th><th>Credited to agent</th></tr></thead><tbody id="revenueRows"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></section>
+<section class="panel"><h2>Recent AI tasks</h2><div class="tablewrap"><table><thead><tr><th>Task</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead><tbody id="taskRows"><tr><td colspan="4">Loading…</td></tr></tbody></table></div></section>
+<section class="panel"><h2>Financial controls status</h2><div class="notice">The owner-signed financial policies, budget reservations and recurring expense scheduler currently live in the local Python SQLite subsystem. They are not synchronized to Cloudflare D1, so this dashboard does not display or control those balances or schedules. No real transfers or payments can be initiated here.</div></section>
+</section>
+<footer>AAE prototype · Dashboard APIs are read-only. No checkout activation, policy signing, spending, publishing, wallet signing or fund transfers are available from this page. Disconnect clears the browser-tab token.</footer>
+</main>
+<script>
+(() => {
+ const $ = id => document.getElementById(id);
+ const tokenKey = "aae-owner-console-token";
+ let token = sessionStorage.getItem(tokenKey) || "";
+ $("token").value = token;
+ const setMessage = text => { $("message").textContent = text; };
+ const headers = () => ({ authorization: "Bearer " + token });
+ const number = value => Number(value || 0).toLocaleString();
+ const money = minor => "$" + (Number(minor || 0) / 100).toFixed(2);
+ const time = value => value ? new Date(value).toLocaleString() : "—";
+ async function get(path) {
+   const response = await fetch(path,{headers:headers(),cache:"no-store"});
+   const data = await response.json().catch(()=>({}));
+   if (!response.ok) throw new Error(data.error || "Request failed ("+response.status+")");
+   return data;
+ }
+ function showDashboard(connected) {
+   $("dashboard").classList.toggle("hidden",!connected);
+   $("authPanel").classList.toggle("hidden",connected);
+   $("connection").textContent=connected?"Connected":"Disconnected";
+   $("connection").classList.toggle("offline",!connected);
+ }
+ async function refresh() {
+   $("refresh").disabled=true;
+   try {
+     const [overview,tasks]=await Promise.all([get("/v1/owner/overview"),get("/v1/owner/tasks")]);
+     const counts=Object.fromEntries((overview.tasks||[]).map(row=>[row.status,row.total]));
+     $("queued").textContent=number(counts.queued);
+     $("running").textContent=number(counts.running);
+     $("neurons").textContent=number(overview.estimated_neurons_reserved);
+     $("budget").textContent=number(overview.daily_safety_budget_neurons);
+     $("workerStatus").textContent=overview.model+" · UTC day "+overview.utc_day;
+     $("workerNote").textContent=overview.note||"";
+     const revenue=$("revenueRows"); revenue.replaceChildren();
+     if (!(overview.agents||[]).length) revenue.innerHTML='<tr><td colspan="5">No provider-settled agent revenue events recorded.</td></tr>';
+     for(const row of overview.agents||[]){
+       const tr=document.createElement("tr");
+       for(const value of [row.agent_id,number(row.sales_count),money(row.gross_settled_minor),money(row.awaiting_reconciliation_minor),money(row.credited_to_agent_minor)]){
+         const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+       } revenue.appendChild(tr);
+     }
+     const taskBody=$("taskRows");taskBody.replaceChildren();
+     if (!(tasks.tasks||[]).length) taskBody.innerHTML='<tr><td colspan="4">No AI tasks recorded yet.</td></tr>';
+     for(const row of tasks.tasks||[]){
+       const tr=document.createElement("tr");
+       for(const value of [row.task_id,row.status,time(row.created_at),time(row.updated_at)]){
+         const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+       } taskBody.appendChild(tr);
+     }
+     $("updated").textContent="Last refreshed "+new Date().toLocaleTimeString();
+     setMessage("");
+     showDashboard(true);
+   } catch(error) {
+     if (/unauthorized/i.test(error.message)) { token="";sessionStorage.removeItem(tokenKey);showDashboard(false); }
+     setMessage(error.message);
+     $("connection").textContent="Connection error";
+     $("connection").classList.add("offline");
+   } finally { $("refresh").disabled=false; }
+ }
+ $("connect").addEventListener("click",async()=>{
+   token=$("token").value.trim();
+   if(!token){setMessage("Enter your owner token.");return;}
+   sessionStorage.setItem(tokenKey,token);
+   setMessage("Checking access…");
+   await refresh();
+ });
+ $("refresh").addEventListener("click",refresh);
+ $("logout").addEventListener("click",()=>{
+   token="";sessionStorage.removeItem(tokenKey);$("token").value="";
+   showDashboard(false);setMessage("Disconnected. The token was cleared from this tab.");
+ });
+ if(token) refresh();
+})();
+</script>
+</body>
+</html>
