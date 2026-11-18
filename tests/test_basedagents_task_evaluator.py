@@ -59,6 +59,11 @@ class PaidTaskCapabilityEvaluatorTests(unittest.TestCase):
         self.assertIn("bounty_below_minimum", result.reasons)
         self.assertIn("unsupported_or_missing_network", result.reasons)
 
+    def test_parses_display_amount_with_currency_suffix(self):
+        detail = dict(self.detail, bounty={"amount_display": "5.00 USDC", "network": "eip155:8453"})
+        result = self.evaluator.evaluate(self.lead, detail)
+        self.assertEqual(result.state, "qualified_for_local_draft")
+
     def test_no_evaluation_ever_authorizes_claim(self):
         result = self.evaluator.evaluate(self.lead, self.detail)
         self.assertFalse(result.to_dict()["claim_allowed"])
