@@ -308,14 +308,14 @@ class FakeBaseStatement {
       return { meta: { changes: 1 } };
     }
     if (this.sql.startsWith("UPDATE base_usdc_invoices SET status='settled'")) {
-      const [buyer, tx, logIndex, block, blockHash, settledAt, expiry, orderHash, eventTx, eventLog] = this.values;
+      const [buyer, tx, logIndex, block, blockHash, settledAt, expiry, updatedAt, orderHash, eventTx, eventLog] = this.values;
       const inv = this.db.invoice;
       const event = this.db.events.find(row => row.transaction_hash === eventTx && row.log_index === eventLog && row.transaction_status === "confirmed");
       if (inv?.order_id_hash === orderHash && inv.status === "pending" && !inv.transaction_hash && event) {
         Object.assign(inv, {
           status: "settled", buyer_address: buyer, transaction_hash: tx, log_index: logIndex,
           block_number: block, block_hash: blockHash, settled_at: settledAt,
-          download_expires_at: expiry
+          download_expires_at: expiry, updated_at: updatedAt
         });
         return { meta: { changes: 1 } };
       }
