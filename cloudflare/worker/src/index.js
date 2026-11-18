@@ -1,3 +1,4 @@
+import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -667,6 +668,15 @@ export default {
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
+    if (url.pathname === "/v1/swarmmemo/work" && request.method === "GET") {
+      const limit = Number(url.searchParams.get("limit") || 50);
+      return json(await listSwarmMemoWork(env, limit));
+    }
+    const swarmMemoApproval = url.pathname.match(/^\/v1\/swarmmemo\/work\/([A-Za-z0-9_-]{8,128})\/approve$/);
+    if (swarmMemoApproval && request.method === "POST") {
+      const result = await approveSwarmMemoTask(env, swarmMemoApproval[1]);
+      return result.approved ? json(result) : json({ error: "task is not open, eligible, or awaiting approval" }, 409);
+    }
     const revenueMatch = url.pathname.match(new RegExp("^/v1/agents/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})/revenue$"));
     if (revenueMatch && request.method === "GET") return agentRevenue(env, revenueMatch[1]);
     if (url.pathname === "/v1/tasks/product-copy" && request.method === "POST") return enqueueCopy(request, env);
@@ -681,6 +691,6 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(processOne(env));
+    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env)]));
   },
 };
