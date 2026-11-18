@@ -564,6 +564,7 @@ async function createBaseUsdcStoreCheckout(request, env) {
     token_address: BASE_USDC_ADDRESS,
     contract_address: env.BASE_CHECKOUT_CONTRACT_ADDRESS,
     merchant_address: env.BASE_MERCHANT_ADDRESS,
+    invoice_signer_address: invoice.invoiceSignerAddress,
     amount_minor: String(amountMinor),
     amount_usdc: "5.000000",
     price_amount: STORE_PRODUCT_PRICE_USD,
