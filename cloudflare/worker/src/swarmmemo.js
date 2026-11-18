@@ -110,7 +110,18 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
     const pageCursor = hasMore ? nextPageCursor(payload) : null;
     const tasks = await Promise.all(normalized.map(async (preview) => {
       try {
-        const fullWork = await fetchFullWork(preview.task_id, fetchImpl);
+        const fetchedWork = await fetchFullWork(preview.task_id, fetchImpl);
+        const fullWork = {
+          ...fetchedWork,
+          id: fetchedWork.id || preview.task_id,
+          simulated: typeof fetchedWork.simulated === "boolean" ? fetchedWork.simulated : preview.simulated === 1,
+          state: fetchedWork.state || preview.board_state,
+          eligibility: fetchedWork.eligibility || preview.eligibility_reason,
+          claimable: typeof fetchedWork.claimable === "boolean" ? fetchedWork.claimable : preview.eligible === 1,
+          request: fetchedWork.request && typeof fetchedWork.request === "object"
+            ? { ...fetchedWork.request, truncated: fetchedWork.request.truncated === true }
+            : { text: preview.task_text, truncated: preview.request_truncated === 1 },
+        };
         const fullRows = normalizeSwarmMemoFeed({ works: [fullWork] });
         if (fullRows.length && fullRows[0].request_truncated === 0) return fullRows[0];
       } catch {
