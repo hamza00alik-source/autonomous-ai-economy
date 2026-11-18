@@ -59,6 +59,22 @@ class BasedAgentsOpportunityTests(unittest.TestCase):
         self.assertEqual(result["external_claims"], 0)
         self.assertEqual(result["payments"], 0)
 
+    def test_evaluations_are_persisted_and_upserted(self):
+        evaluation = {
+            "task_id": "task-1", "state": "qualified_for_local_draft",
+            "score": 100, "claim_allowed": False,
+        }
+        self.store.save_evaluation(evaluation)
+        self.store.save_evaluation({**evaluation, "score": 90})
+        rows = self.store.list_evaluations()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["score"], 90)
+        self.assertFalse(rows[0]["claim_allowed"])
+
+    def test_evaluation_rejects_unsafe_state(self):
+        with self.assertRaises(ValueError):
+            self.store.save_evaluation({"task_id": "task-1", "state": "submitted"})
+
     def test_rejects_invalid_limits(self):
         with self.assertRaises(ValueError):
             self.store.list_review_required(0)
