@@ -58,7 +58,8 @@ export function normalizeSwarmMemoFeed(payload) {
       deadline: normalizeDeadline(row.deadline || row.deadline_at),
       board_state: safeString(row.state || "open", 40).toLowerCase(),
       eligible: row.simulated !== true && row.state === "open"
-        && (row.eligibility === "open" || row.claimable === true || row.eligible === true) ? 1 : 0,
+        && (typeof row.claimable === "boolean" ? row.claimable
+          : row.eligibility === "open" || row.eligible === true) ? 1 : 0,
       eligibility_reason: safeString(row.eligible_reason || row.eligibility, 500) || null,
     }];
   });
