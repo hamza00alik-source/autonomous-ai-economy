@@ -92,11 +92,11 @@ class AgentSpendingTests(unittest.TestCase):
 
     def test_reservations_prevent_overspending_and_daily_limit_exhaustion(self):
         self.reserve()
-        with self.assertRaisesRegex(FinancialSpendingError, "unreserved"):
-            self.reserve(amount_minor=800, idempotency_key="expense-2")
         self.reserve(amount_minor=500, idempotency_key="expense-2")
+        with self.assertRaisesRegex(FinancialSpendingError, "unreserved"):
+            self.reserve(amount_minor=300, idempotency_key="expense-3")
         with self.assertRaisesRegex(FinancialSpendingError, "daily"):
-            self.reserve(amount_minor=1, idempotency_key="expense-3")
+            self.reserve(amount_minor=1, idempotency_key="expense-4")
 
     def test_settlement_posts_expense_once_and_reduces_budget(self):
         reservation = self.reserve()
