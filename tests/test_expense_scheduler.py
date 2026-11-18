@@ -181,6 +181,16 @@ class ExpenseSchedulerTests(unittest.TestCase):
         self.assertEqual(len(self.scheduler.list_schedules(status="paused")), 2)
         self.assertEqual(self.scheduler.get(first["schedule_id"])["status"], "paused")
 
+
+    def test_stale_due_snapshot_is_skipped_after_emergency_pause(self):
+        schedule = self.create()
+        stale_snapshot = dict(schedule)
+        self.scheduler.pause_all()
+        result = self.scheduler._run_one(stale_snapshot, datetime.now(timezone.utc))
+        self.assertEqual(result, "skipped")
+        self.assertEqual(self.scheduler.run_due(now=datetime.now(timezone.utc)),
+                         {"settled": 0, "blocked": 0})
+
     def test_budget_summary_reports_cleared_budget_and_reservations(self):
         summary = self.spending.budget_summary("agent", "USD")
         self.assertEqual(summary["cleared_simulated_budget_minor"], 1000)
