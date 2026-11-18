@@ -96,7 +96,7 @@ class BasedAgentsEscrowVerifier:
             raise ValueError("unexpected discovery JSON")
         return result
 
-    def _rpc_request(self, method: str, params: dict, timeout: float) -> dict:
+    def _rpc_request(self, method: str, params: Any, timeout: float) -> dict:
         payload = json.dumps({"jsonrpc": "2.0", "id": 1,
                               "method": method, "params": params}).encode()
         request = Request(self.rpc_url, data=payload, method="POST",
@@ -173,7 +173,7 @@ class BasedAgentsEscrowVerifier:
                 raise ValueError("task_escrow_wallet_differs_from_live_config")
             expected_amount = _atomic_amount(task)
 
-            chain = self._rpc("eth_chainId", {}, self.timeout).get("result")
+            chain = self._rpc("eth_chainId", [], self.timeout).get("result")
             if chain != BASE_CHAIN_ID:
                 raise ValueError("rpc_endpoint_is_not_base_mainnet")
             response = self._rpc("eth_getTransactionReceipt", {"transactionHash": tx_hash}, self.timeout)
