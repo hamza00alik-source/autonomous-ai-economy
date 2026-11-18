@@ -192,3 +192,59 @@ export async function setCloudExpenseScheduleStatus(db, { ownerId, scheduleId, s
   if(result.meta?.changes!==1) return {ok:false,reason:"schedule_not_found_or_owner_inactive"};
   return {ok:true,schedule_id:scheduleId,status};
 }
+
+async function stableId(value) {
+  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+
+export async function runDueCloudExpenseSchedules(db, ownerId, { now = new Date().toISOString(), limit = 10 } = {}) {
+  if(!validId(ownerId)) return {settled:0,blocked:0,skipped:0};
+  const control=await db.prepare("SELECT emergency_paused FROM financial_control_state WHERE owner_id=?").bind(ownerId).first();
+  if(!control || control.emergency_paused!==0) return {settled:0,blocked:0,skipped:0,paused:true};
+  const rows=await db.prepare(
+    "SELECT schedule_id,agent_id,policy_id,policy_version,destination,currency,amount_minor,interval_seconds,next_due_at " +
+    "FROM financial_expense_schedules WHERE owner_id=? AND status='active' AND next_due_at<=? ORDER BY next_due_at,schedule_id LIMIT ?"
+  ).bind(ownerId,now,Math.min(25,Math.max(1,limit))).all();
+  let settled=0,blocked=0,skipped=0;
+  for(const schedule of rows.results||[]) {
+    const dueAt=schedule.next_due_at;
+    const key="schedule:"+await stableId(schedule.schedule_id+"|"+dueAt);
+    const occurrenceId="occ-"+(await stableId(key)).slice(0,48);
+    const reservationId="rsv-"+(await stableId(key+"|reservation")).slice(0,48);
+    await db.prepare(
+      "INSERT OR IGNORE INTO financial_expense_occurrences(occurrence_id,schedule_id,owner_id,agent_id,policy_id,policy_version,due_at,idempotency_key,status,created_at,updated_at) " +
+      "SELECT ?,schedule_id,owner_id,agent_id,policy_id,policy_version,next_due_at,?,'claimed',?,? FROM financial_expense_schedules " +
+      "WHERE schedule_id=? AND owner_id=? AND status='active' AND next_due_at=?"
+    ).bind(occurrenceId,key,now,now,schedule.schedule_id,ownerId,dueAt).run();
+    const occurrence=await db.prepare("SELECT occurrence_id,status FROM financial_expense_occurrences WHERE schedule_id=? AND due_at=?").bind(schedule.schedule_id,dueAt).first();
+    if(!occurrence || occurrence.status==="settled" || occurrence.status==="skipped") { skipped++; continue; }
+    const reservation=await reserveCloudAgentBudget(db,{
+      ownerId,agentId:schedule.agent_id,reservationId,idempotencyKey:key+":reservation",
+      destination:schedule.destination,currency:schedule.currency,amountMinor:schedule.amount_minor,
+      expiresAt:new Date(Date.parse(now)+3600000).toISOString()
+    },{now});
+    if(!reservation.ok) {
+      await db.prepare("UPDATE financial_expense_occurrences SET status='blocked',reason_code=?,updated_at=? WHERE occurrence_id=? AND status!='settled'")
+        .bind(reservation.reason,now,occurrence.occurrence_id).run();
+      blocked++; continue;
+    }
+    await db.prepare("UPDATE financial_expense_occurrences SET status='reserved',reservation_id=?,reason_code=NULL,updated_at=? WHERE occurrence_id=? AND status!='settled'")
+      .bind(reservation.reservation_id,now,occurrence.occurrence_id).run();
+    const expense=await settleCloudAgentExpense(db,{ownerId,reservationId:reservation.reservation_id,now});
+    if(!expense.ok) {
+      await db.prepare("UPDATE financial_expense_occurrences SET status='blocked',reason_code=?,updated_at=? WHERE occurrence_id=? AND status!='settled'")
+        .bind(expense.reason,now,occurrence.occurrence_id).run();
+      blocked++; continue;
+    }
+    const nextDue=new Date(Date.parse(dueAt)+schedule.interval_seconds*1000).toISOString();
+    await db.batch([
+      db.prepare("UPDATE financial_expense_occurrences SET status='settled',reason_code=NULL,updated_at=? WHERE occurrence_id=? AND status='reserved'")
+        .bind(now,occurrence.occurrence_id),
+      db.prepare("UPDATE financial_expense_schedules SET next_due_at=?,updated_at=? WHERE schedule_id=? AND owner_id=? AND status='active' AND next_due_at=?")
+        .bind(nextDue,now,schedule.schedule_id,ownerId,dueAt)
+    ]);
+    settled++;
+  }
+  return {settled,blocked,skipped};
+}
