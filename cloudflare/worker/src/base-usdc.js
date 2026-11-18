@@ -9,7 +9,7 @@ import {
   stringToHex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { base } from "viem/chains";
+import { base, baseSepolia } from "viem/chains";
 
 export const BASE_MAINNET_CHAIN_ID = 8453;
 export const BASE_USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -56,7 +56,7 @@ export async function signBaseUsdcInvoice({
   deadline,
   chainId = BASE_MAINNET_CHAIN_ID,
 }) {
-  if (chainId !== BASE_MAINNET_CHAIN_ID) throw new Error("Base mainnet chain ID 8453 is required");
+  const network = baseNetwork(chainId);
   const contract = assertAddress(contractAddress, "contractAddress");
   const merchant = assertAddress(merchantAddress, "merchantAddress");
   const expectedSigner = assertAddress(expectedSignerAddress, "expectedSignerAddress");
@@ -78,7 +78,7 @@ export async function signBaseUsdcInvoice({
   const orderIdHash = keccak256(stringToHex(orderId));
   const domain = {
     ...BASE_INVOICE_DOMAIN,
-    chainId: BASE_MAINNET_CHAIN_ID,
+    chainId,
     verifyingContract: contract,
   };
   const message = {
@@ -102,7 +102,7 @@ export async function signBaseUsdcInvoice({
     merchantAddress: merchant,
     invoiceSignerAddress: account.address,
     contractAddress: contract,
-    chainId: BASE_MAINNET_CHAIN_ID,
+    chainId,
     signature,
   };
 }
@@ -116,7 +116,7 @@ export async function recoverBaseUsdcInvoiceSigner({
   signature,
   chainId = BASE_MAINNET_CHAIN_ID,
 }) {
-  if (chainId !== BASE_MAINNET_CHAIN_ID) throw new Error("Base mainnet chain ID 8453 is required");
+  baseNetwork(chainId);
   if (typeof orderIdHash !== "string" || !/^0x[0-9a-f]{64}$/i.test(orderIdHash)) {
     throw new Error("orderIdHash must be bytes32");
   }
@@ -126,7 +126,7 @@ export async function recoverBaseUsdcInvoiceSigner({
   return recoverTypedDataAddress({
     domain: {
       ...BASE_INVOICE_DOMAIN,
-      chainId: BASE_MAINNET_CHAIN_ID,
+      chainId,
       verifyingContract: contract,
     },
     types: BASE_INVOICE_TYPES,
@@ -159,8 +159,8 @@ export const BASE_USDC_CHECKOUT_ABI = [{
 export function decodeBaseUsdcPaymentLog(log, expected) {
   const contract = assertAddress(expected?.contractAddress, "expected.contractAddress");
   const merchant = assertAddress(expected?.merchantAddress, "expected.merchantAddress");
-  const token = assertAddress(expected?.tokenAddress || BASE_USDC_ADDRESS, "expected.tokenAddress");
-  if (expected?.chainId !== BASE_MAINNET_CHAIN_ID) throw new Error("unexpected Base chain ID");
+  const network = baseNetwork(expected?.chainId);
+  const token = assertAddress(expected?.tokenAddress || network.tokenAddress, "expected.tokenAddress");
   if (!log || typeof log !== "object" || log.removed === true) throw new Error("removed or malformed chain log");
   if (typeof log.address !== "string" || log.address.toLowerCase() !== contract.toLowerCase()) {
     throw new Error("event emitter does not match the configured checkout contract");
@@ -197,7 +197,7 @@ export function decodeBaseUsdcPaymentLog(log, expected) {
     throw new Error("payment amount does not exactly match the invoice");
   }
   return {
-    chainId: BASE_MAINNET_CHAIN_ID,
+    chainId: Number(expected.chainId),
     orderIdHash: args.orderId,
     buyerAddress: args.buyer,
     merchantAddress: args.merchant,
@@ -246,14 +246,15 @@ export function verifyBaseUsdcFinality({ log, receipt, block, headBlock, confirm
 }
 
 
-export function createBasePublicClient(rpcUrl) {
+export function createBasePublicClient(rpcUrl, chainId = BASE_MAINNET_CHAIN_ID) {
+  const network = baseNetwork(chainId);
   let parsed;
   try { parsed = new URL(rpcUrl); } catch { throw new Error("BASE_RPC_URL must be a valid HTTPS URL"); }
   if (parsed.protocol !== "https:" || !parsed.hostname) {
     throw new Error("BASE_RPC_URL must use HTTPS");
   }
   return createPublicClient({
-    chain: base,
+    chain: network.chain,
     transport: http(parsed.toString(), { timeout: 10_000, retryCount: 1 }),
   });
 }
@@ -270,8 +271,10 @@ export async function fetchConfirmedBaseUsdcLogs({
   toBlock,
   confirmations,
   maxRange = 1000,
+  chainId = BASE_MAINNET_CHAIN_ID,
 }) {
   const contract = assertAddress(contractAddress, "contractAddress");
+  baseNetwork(chainId);
   if (!client || typeof client.getBlockNumber !== "function" ||
       typeof client.getLogs !== "function" ||
       typeof client.getTransactionReceipt !== "function" ||
@@ -371,8 +374,11 @@ export async function settleBaseUsdcInvoice({
   blockTimestamp,
   contractAddress,
   merchantAddress,
-  tokenAddress = BASE_USDC_ADDRESS,
+  tokenAddress,
+  chainId = BASE_MAINNET_CHAIN_ID,
 }) {
+  const network = baseNetwork(chainId);
+  tokenAddress = tokenAddress || network.tokenAddress;
   if (!db || typeof db.prepare !== "function" || typeof db.batch !== "function") {
     throw new Error("D1 database with batch transaction support is required");
   }
@@ -403,7 +409,7 @@ export async function settleBaseUsdcInvoice({
   let verified;
   try {
     verified = decodeBaseUsdcPaymentLog(log, {
-      chainId: BASE_MAINNET_CHAIN_ID,
+      chainId,
       contractAddress,
       merchantAddress: invoice.merchant_address,
       tokenAddress,
@@ -435,19 +441,19 @@ export async function settleBaseUsdcInvoice({
   const cryptoAmount = formatUnits(BigInt(invoice.amount_minor), 6);
   const statements = [
     db.prepare(
-      "INSERT INTO base_usdc_payment_events (chain_id,transaction_hash,log_index,order_id,buyer_address,merchant_address,token_address,amount_minor,block_number,block_hash,transaction_status,observed_at) SELECT 8453,?,?,?,?,?,?,?,?,?,'confirmed',? WHERE EXISTS (SELECT 1 FROM base_usdc_invoices WHERE order_id_hash=? AND status='pending' AND transaction_hash IS NULL AND invoice_deadline>=? AND amount_minor=? AND merchant_address=?)"
+      "INSERT INTO base_usdc_payment_events (chain_id,transaction_hash,log_index,order_id,buyer_address,merchant_address,token_address,amount_minor,block_number,block_hash,transaction_status,observed_at) SELECT ?,?,?,?,?,?,?,?,?,?,'confirmed',? WHERE EXISTS (SELECT 1 FROM base_usdc_invoices WHERE order_id_hash=? AND status='pending' AND transaction_hash IS NULL AND invoice_deadline>=? AND amount_minor=? AND merchant_address=?)"
     ).bind(
-      verified.transactionHash, verified.logIndex, invoice.order_id, verified.buyerAddress,
+      chainId, verified.transactionHash, verified.logIndex, invoice.order_id, verified.buyerAddress,
       verified.merchantAddress, verified.tokenAddress, Number(verified.amountMinor),
       Number(verified.blockNumber), verified.blockHash, now, invoice.order_id_hash,
       blockTimestamp, Number(invoice.amount_minor), invoice.merchant_address,
     ),
     db.prepare(
-      "UPDATE base_usdc_invoices SET status='settled',buyer_address=?,transaction_hash=?,log_index=?,block_number=?,block_hash=?,settled_at=?,download_expires_at=?,updated_at=? WHERE order_id_hash=? AND status='pending' AND transaction_hash IS NULL AND EXISTS (SELECT 1 FROM base_usdc_payment_events WHERE chain_id=8453 AND transaction_hash=? AND log_index=? AND transaction_status='confirmed')"
+      "UPDATE base_usdc_invoices SET status='settled',buyer_address=?,transaction_hash=?,log_index=?,block_number=?,block_hash=?,settled_at=?,download_expires_at=?,updated_at=? WHERE order_id_hash=? AND status='pending' AND transaction_hash IS NULL AND EXISTS (SELECT 1 FROM base_usdc_payment_events WHERE chain_id=? AND transaction_hash=? AND log_index=? AND transaction_status='confirmed')"
     ).bind(
       verified.buyerAddress, verified.transactionHash, verified.logIndex,
       Number(verified.blockNumber), verified.blockHash, settledAt, downloadExpiresAt, now,
-      invoice.order_id_hash, verified.transactionHash, verified.logIndex,
+      invoice.order_id_hash, chainId, verified.transactionHash, verified.logIndex,
     ),
     db.prepare(
       "INSERT OR IGNORE INTO base_usdc_agent_revenue_events (order_id,agent_id,product_id,gross_amount_minor,gross_currency,transaction_hash,crypto_received_amount,crypto_currency,status,net_amount_minor,agent_credit_minor,settled_at,reconciled_at,created_at,updated_at) SELECT order_id,agent_id,product_id,gross_amount_minor,'usd',transaction_hash,?,'USDC','settled_pending_reconciliation',NULL,NULL,settled_at,NULL,?,? FROM base_usdc_invoices WHERE order_id_hash=? AND status='settled' AND transaction_hash=?"
@@ -473,15 +479,18 @@ export async function settleBaseUsdcInvoice({
 
 
 /**
- * Scheduled D1-backed Base indexer. Disabled unless explicitly configured.
- * It rewinds a recent window on a detected cursor reorg and revokes affected
- * entitlements for manual review instead of silently trusting an orphaned log.
+ * Scheduled D1-backed Base indexer. Supports explicitly selected Base mainnet
+ * or Base Sepolia. Each environment must use its own D1 database and deployment.
  */
 export async function pollBaseUsdc(env, injectedClient = null) {
   if (env.AAE_BASE_USDC_INDEXER_ENABLED !== "true") return { enabled: false };
   if (!env.DB || typeof env.DB.prepare !== "function" || typeof env.DB.batch !== "function") {
     throw new Error("D1 database is required for the Base indexer");
   }
+  const chainId = Number(env.BASE_CHAIN_ID || BASE_MAINNET_CHAIN_ID);
+  const network = baseNetwork(chainId);
+  const tokenAddress = assertAddress(env.BASE_USDC_TOKEN_ADDRESS || network.tokenAddress, "BASE_USDC_TOKEN_ADDRESS");
+  if (tokenAddress.toLowerCase() !== network.tokenAddress.toLowerCase()) throw new Error("USDC token address does not match the selected Base network");
   const contractAddress = assertAddress(env.BASE_CHECKOUT_CONTRACT_ADDRESS, "BASE_CHECKOUT_CONTRACT_ADDRESS");
   const merchantAddress = assertAddress(env.BASE_MERCHANT_ADDRESS, "BASE_MERCHANT_ADDRESS");
   const deploymentBlock = Number(env.BASE_DEPLOYMENT_BLOCK);
@@ -492,7 +501,7 @@ export async function pollBaseUsdc(env, injectedClient = null) {
       !Number.isSafeInteger(maxBlocks) || maxBlocks < 1 || maxBlocks > 1000) {
     throw new Error("Base indexer block and confirmation settings are invalid");
   }
-  const client = injectedClient || createBasePublicClient(env.BASE_RPC_URL);
+  const client = injectedClient || createBasePublicClient(env.BASE_RPC_URL, chainId);
   const now = new Date().toISOString();
   await env.DB.prepare(
     "INSERT OR IGNORE INTO base_usdc_indexer_state (id,next_block,last_block_hash,updated_at) VALUES (1,?,NULL,?)"
@@ -553,6 +562,7 @@ export async function pollBaseUsdc(env, injectedClient = null) {
   const scan = await fetchConfirmedBaseUsdcLogs({
     client, contractAddress, fromBlock, toBlock, confirmations,
     maxRange: maxBlocks,
+    chainId,
   });
   if (scan.scannedToBlock === null) {
     return { enabled: true, scanned: 0, settled: 0, quarantined: 0, waiting_for_confirmations: true };
@@ -568,6 +578,8 @@ export async function pollBaseUsdc(env, injectedClient = null) {
       blockTimestamp: event.blockTimestamp,
       contractAddress,
       merchantAddress,
+      tokenAddress,
+      chainId,
     });
     if (result.status === "settled") settled += 1;
     if (result.status === "quarantined") quarantined += 1;
