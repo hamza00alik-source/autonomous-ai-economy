@@ -226,7 +226,7 @@ test("Base RPC scanner bounds ranges and returns only receipt-verified confirmed
     removed: false,
   };
   const receipt = { status: "success", transactionHash, blockHash, blockNumber: 100n };
-  const block = { hash: blockHash, number: 100n };
+  const block = { hash: blockHash, number: 100n, timestamp: 1_700_000_000n };
   const calls = [];
   const client = {
     async getBlockNumber() { return 120n; },
