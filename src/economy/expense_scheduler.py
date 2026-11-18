@@ -243,6 +243,42 @@ class AgentExpenseScheduler:
             db.commit()
         return self.get(schedule_id)
 
+    def list_schedules(self, *, agent_id: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
+        """Return schedule metadata only; no private credentials are stored here."""
+        if status is not None and status not in {"active", "paused", "cancelled"}:
+            raise ExpenseScheduleError("status must be active, paused or cancelled")
+        query = "SELECT * FROM agent_expense_schedules"
+        clauses: list[str] = []
+        params: list[object] = []
+        if agent_id is not None:
+            if not isinstance(agent_id, str) or not agent_id.strip():
+                raise ExpenseScheduleError("agent_id must be non-empty")
+            clauses.append("agent_id=?")
+            params.append(agent_id)
+        if status is not None:
+            clauses.append("status=?")
+            params.append(status)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at,schedule_id"
+        with sqlite3.connect(self.path) as db:
+            db.row_factory = sqlite3.Row
+            return [dict(row) for row in db.execute(query, params).fetchall()]
+
+    def pause_all(self) -> int:
+        """Emergency-stop all active recurring schedules in one local transaction."""
+        now = self._now().isoformat()
+        with sqlite3.connect(self.path, timeout=10, isolation_level=None) as db:
+            db.execute("PRAGMA busy_timeout=10000")
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(
+                "UPDATE agent_expense_schedules SET status='paused',updated_at=? WHERE status='active'",
+                (now,),
+            )
+            changed = int(cursor.rowcount)
+            db.commit()
+            return changed
+
     def get(self, schedule_id: str) -> dict[str, Any] | None:
         with sqlite3.connect(self.path) as db:
             db.row_factory = sqlite3.Row
