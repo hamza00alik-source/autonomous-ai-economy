@@ -26,7 +26,7 @@ class SourceBoardVerifierTests(unittest.TestCase):
         def fetch(url, timeout):
             return json.dumps({
                 "state": "closed", "title": "Already done", "comments": 20,
-                "pull_request": {"merged": True},
+                "merged": True,
             }).encode()
         result = GitHubSourceBoardVerifier(fetcher=fetch).verify(
             "https://github.com/acme/project/pull/9"
