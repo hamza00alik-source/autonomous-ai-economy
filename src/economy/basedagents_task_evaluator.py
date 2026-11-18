@@ -37,7 +37,7 @@ def _criteria(value: Any, description: str = "") -> tuple[str, ...]:
     if isinstance(value, list):
         items = [_text(item, 500) for item in value]
     elif isinstance(value, str):
-        items = [line.strip(" -*\\t")[:500] for line in value.splitlines()]
+        items = [line.strip(" -*\t")[:500] for line in value.splitlines()]
     else:
         items = []
     if not any(items) and description:
@@ -52,7 +52,7 @@ def _criteria(value: Any, description: str = "") -> tuple[str, ...]:
                     if items:
                         break
                     continue
-                if re.match(r"^\\s*(?:\\d+[.)]|[-*])\\s+", line):
+                if re.match(r"^\s*(?:\d+[.)]|[-*])\s+", line):
                     items.append(stripped[:500])
                 elif items:
                     break
