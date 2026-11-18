@@ -1,11 +1,14 @@
 import {
+  createPublicClient,
   decodeEventLog,
+  http,
   isAddress,
   keccak256,
   recoverTypedDataAddress,
   stringToHex,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { base } from "viem/chains";
 
 export const BASE_MAINNET_CHAIN_ID = 8453;
 export const BASE_USDC_ADDRESS = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -238,5 +241,92 @@ export function verifyBaseUsdcFinality({ log, receipt, block, headBlock, confirm
     blockNumber: log.blockNumber.toString(),
     blockHash: log.blockHash,
     transactionHash: log.transactionHash,
+  };
+}
+
+
+export function createBasePublicClient(rpcUrl) {
+  let parsed;
+  try { parsed = new URL(rpcUrl); } catch { throw new Error("BASE_RPC_URL must be a valid HTTPS URL"); }
+  if (parsed.protocol !== "https:" || !parsed.hostname) {
+    throw new Error("BASE_RPC_URL must use HTTPS");
+  }
+  return createPublicClient({
+    chain: base,
+    transport: http(parsed.toString(), { timeout: 10_000, retryCount: 1 }),
+  });
+}
+
+/**
+ * Retrieves only confirmed OrderPaid logs from a bounded block range.
+ * It never writes to D1 or grants downloads; the caller must match each event
+ * to a pending invoice and commit settlement atomically.
+ */
+export async function fetchConfirmedBaseUsdcLogs({
+  client,
+  contractAddress,
+  fromBlock,
+  toBlock,
+  confirmations,
+  maxRange = 1000,
+}) {
+  const contract = assertAddress(contractAddress, "contractAddress");
+  if (!client || typeof client.getBlockNumber !== "function" ||
+      typeof client.getLogs !== "function" ||
+      typeof client.getTransactionReceipt !== "function" ||
+      typeof client.getBlock !== "function") {
+    throw new Error("a complete Base public client is required");
+  }
+  if (!Number.isSafeInteger(confirmations) || confirmations < 1 || confirmations > 10000) {
+    throw new Error("confirmation threshold must be between 1 and 10000");
+  }
+  const start = BigInt(fromBlock);
+  const requestedEnd = BigInt(toBlock);
+  if (start < 0n || requestedEnd < start) throw new Error("invalid block range");
+  if (requestedEnd - start + 1n > BigInt(maxRange)) throw new Error("block range exceeds configured scan limit");
+  const headBlock = await client.getBlockNumber();
+  const finalizableEnd = headBlock - BigInt(confirmations) + 1n;
+  const end = requestedEnd < finalizableEnd ? requestedEnd : finalizableEnd;
+  if (end < start) return { headBlock: headBlock.toString(), scannedToBlock: null, events: [] };
+
+  const logs = await client.getLogs({
+    address: contract,
+    event: BASE_USDC_CHECKOUT_ABI[0],
+    fromBlock: start,
+    toBlock: end,
+  });
+  const events = [];
+  for (const log of logs) {
+    const decoded = decodeEventLog({
+      abi: BASE_USDC_CHECKOUT_ABI,
+      data: log.data,
+      topics: log.topics,
+      strict: true,
+    });
+    if (decoded.eventName !== "OrderPaid") throw new Error("unexpected event returned by Base RPC");
+    const [receipt, block] = await Promise.all([
+      client.getTransactionReceipt({ hash: log.transactionHash }),
+      client.getBlock({ blockNumber: log.blockNumber }),
+    ]);
+    const finality = verifyBaseUsdcFinality({
+      log, receipt, block, headBlock, confirmations,
+    });
+    events.push({
+      orderIdHash: decoded.args.orderId,
+      buyerAddress: decoded.args.buyer,
+      merchantAddress: decoded.args.merchant,
+      amountMinor: decoded.args.amount.toString(),
+      tokenAddress: decoded.args.token,
+      transactionHash: log.transactionHash,
+      logIndex: log.logIndex,
+      blockNumber: log.blockNumber.toString(),
+      blockHash: log.blockHash,
+      finality,
+    });
+  }
+  return {
+    headBlock: headBlock.toString(),
+    scannedToBlock: end.toString(),
+    events,
   };
 }
