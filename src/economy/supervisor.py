@@ -57,6 +57,8 @@ def supervise(
                 ):
                     raise ValueError("financial scheduler must return non-negative settled and blocked counts")
                 LOG.info("Simulated financial scheduler: settled=%d blocked=%d", financial_result["settled"], financial_result["blocked"])
+                if financial_result["settled"] or financial_result["blocked"]:
+                    cycle_had_result = True
             except Exception:
                 errors += 1
                 cycle_had_error = True
