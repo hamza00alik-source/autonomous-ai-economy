@@ -12,6 +12,7 @@ from .task_store import TaskStore
 from .basedagents_marketplace import BasedAgentsPublicTasks
 from .basedagents_opportunities import BasedAgentsOpportunityScanner, PaidOpportunityStore
 from .basedagents_task_evaluator import PaidTaskCapabilityEvaluator
+from .jobbi_gigs import JobbiPublicGigs, JobbiGigStore
 
 
 def main() -> int:
@@ -47,11 +48,38 @@ def main() -> int:
     evaluate.add_argument("--minimum-bounty", default="0.10")
     evaluate.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
 
+    jobbi_scan = sub.add_parser("scan-jobbi-gigs", help="discover public agent gigs from Jobbi; never claims work")
+    jobbi_scan.add_argument("--limit", type=int, default=100)
+    jobbi_scan.add_argument("--source", help="optional board key such as algora or agentbounties")
+    jobbi_scan.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/jobbi-gigs.sqlite3")
+
+    jobbi_list = sub.add_parser("list-jobbi-gigs", help="list locally stored Jobbi gigs awaiting manual review")
+    jobbi_list.add_argument("--limit", type=int, default=20)
+    jobbi_list.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/jobbi-gigs.sqlite3")
+
     evaluated = sub.add_parser("list-task-evaluations", help="list persisted task scope/capability evaluations")
     evaluated.add_argument("--limit", type=int, default=20)
     evaluated.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/paid-opportunities.sqlite3")
 
     args = parser.parse_args()
+    if args.command == "scan-jobbi-gigs":
+        db_path = args.db or (args.data_dir / "jobbi-gigs.sqlite3")
+        store = JobbiGigStore(db_path)
+        gigs = JobbiPublicGigs().search(limit=args.limit, source=args.source)
+        print(json.dumps({
+            "source": "jobbi",
+            "fetched": len(gigs),
+            **store.save_many(gigs),
+            "notice": "Jobbi is an index, not the payer. All listings remain unverified until checked at their original boards.",
+        }, indent=2))
+        return 0
+
+    if args.command == "list-jobbi-gigs":
+        db_path = args.db or (args.data_dir / "jobbi-gigs.sqlite3")
+        store = JobbiGigStore(db_path)
+        print(json.dumps(store.list_review_required(limit=args.limit), indent=2))
+        return 0
+
     if args.command == "status":
         print(json.dumps(runtime_status(args.data_dir), indent=2))
         return 0
