@@ -588,7 +588,9 @@ test("Base USDC storefront stays unpublished until every live checkout gate is c
   assert.equal(hidden.status, 404);
   const visible = await worker.fetch(new Request("https://worker.example/"), {
     ASSETS: assets,
-    DB: {},
+    DB: {
+      prepare: () => ({ first: async () => ({ halted_at: null }) })
+    },
     BASE_RPC_URL: "https://base.example/rpc",
     BASE_DEPLOYMENT_BLOCK: "100",
     BASE_CONFIRMATIONS: "6",
@@ -605,6 +607,22 @@ test("Base USDC storefront stays unpublished until every live checkout gate is c
   assert.match(visible.headers.get("content-security-policy"), /default-src 'self'/);
   assert.match(visible.headers.get("content-security-policy"), /connect-src 'self' https:\/\/mainnet\.base\.org/);
   assert.equal(await visible.text(), "<html>private storefront</html>");
+  const halted = await worker.fetch(new Request("https://worker.example/"), {
+    ASSETS: assets,
+    DB: { prepare: () => ({ first: async () => ({ halted_at: "2026-11-18T10:00:00.000Z" }) }) },
+    BASE_RPC_URL: "https://base.example/rpc",
+    BASE_DEPLOYMENT_BLOCK: "100",
+    BASE_CONFIRMATIONS: "6",
+    BASE_INVOICE_SIGNER_PRIVATE_KEY: "test-only",
+    BASE_INVOICE_SIGNER_ADDRESS: "0x1111111111111111111111111111111111111111",
+    BASE_MERCHANT_ADDRESS: "0x2222222222222222222222222222222222222222",
+    BASE_CHECKOUT_CONTRACT_ADDRESS: "0x3333333333333333333333333333333333333333",
+    AAE_BASE_USDC_CHECKOUT_ENABLED: "true",
+    AAE_BASE_USDC_INDEXER_ENABLED: "true",
+    AAE_CRYPTO_ENABLEMENT_APPROVED: "true",
+    AAE_BASE_USDC_LEGAL_REVIEW_APPROVED: "true"
+  });
+  assert.equal(halted.status, 404, "a halted indexer must hide the storefront");
 });
 
 
