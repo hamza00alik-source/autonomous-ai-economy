@@ -96,3 +96,6 @@ The existing global bearer token remains the API gate in this prototype; before 
 
 
 The policy registration endpoint accepts only the canonical policy object, canonical payload, Ed25519 signature and signer public-key fingerprint. It looks up the enrolled operator public key in D1, re-verifies the exact owner → operator → agent relationship and signature, enforces strictly increasing policy versions, supersedes the prior active version atomically, and appends an audit event. It never accepts or stores private key material. The Android dashboard provides a paste-in signed-envelope field; generating/signing that envelope still requires the owner's local signing workflow and an already enrolled public key.
+
+
+Important compatibility note: the existing local SQLite policy store is a separate subsystem and its current policy payload/signature format is not automatically a cloud policy envelope. Do not paste a local SQLite policy record into the cloud registration form unchanged. The cloud signer/export bridge must produce the exact cloud canonical policy schema and bind it to the enrolled cloud operator public key; that bridge and initial participant/account provisioning are still outstanding.
