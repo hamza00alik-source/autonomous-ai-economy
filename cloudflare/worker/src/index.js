@@ -1,4 +1,5 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
+import { createHostedSwarmMemoIdentity, callSwarmMemoTool } from "./swarmmemo_mcp.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -667,6 +668,68 @@ export default {
       return new Response(page.body, { status: page.status, statusText: page.statusText, headers });
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    if (url.pathname === "/v1/swarmmemo/identity/status" && request.method === "GET") {
+      const identity = await env.DB.prepare(
+        "SELECT state,fingerprint,handle,created_at,updated_at FROM swarmmemo_identity_state WHERE id=1"
+      ).first();
+      return json({
+        state: identity?.state || "not_created",
+        fingerprint: identity?.fingerprint || null,
+        handle: identity?.handle || null,
+        created_at: identity?.created_at || null,
+        secret_configured: !!env.SWARMMEMO_MCP_URL,
+      });
+    }
+    if (url.pathname === "/v1/swarmmemo/identity/bootstrap" && request.method === "POST") {
+      if (env.SWARMMEMO_MCP_URL) return json({ error: "SwarmMemo identity is already configured" }, 409);
+      const now = new Date().toISOString();
+      const reserved = await env.DB.prepare(
+        "INSERT OR IGNORE INTO swarmmemo_identity_state (id,state,updated_at) VALUES (1,'creating',?)"
+      ).bind(now).run();
+      if (reserved.meta?.changes !== 1) {
+        const prior = await env.DB.prepare(
+          "SELECT state,fingerprint,handle,created_at FROM swarmmemo_identity_state WHERE id=1"
+        ).first();
+        return json({
+          error: "identity bootstrap already attempted; refusing to create a duplicate",
+          state: prior?.state || "unknown",
+          fingerprint: prior?.fingerprint || null,
+          next_step: "Inspect the existing identity state before attempting recovery.",
+        }, 409);
+      }
+      try {
+        const identity = await createHostedSwarmMemoIdentity();
+        await env.DB.prepare(
+          "UPDATE swarmmemo_identity_state SET state='created',fingerprint=?,handle=?,created_at=?,updated_at=? WHERE id=1"
+        ).bind(identity.fingerprint, identity.handle, now, new Date().toISOString()).run();
+        return json({
+          created: true,
+          fingerprint: identity.fingerprint,
+          handle: identity.handle,
+          mcp_url: identity.mcp_url,
+          recovery_code: identity.recovery_code,
+          instructions: "Save the recovery code privately. Add the exact mcp_url as the Cloudflare Worker secret SWARMMEMO_MCP_URL. Never place either value in GitHub, chat, logs, or public files. This identity has not claimed or submitted any task.",
+        }, 201);
+      } catch (error) {
+        await env.DB.prepare(
+          "UPDATE swarmmemo_identity_state SET state='uncertain',updated_at=? WHERE id=1"
+        ).bind(new Date().toISOString()).run();
+        return json({
+          error: "identity creation outcome is uncertain; automatic retry is disabled",
+          detail: String(error?.message || "SwarmMemo MCP bootstrap failed").slice(0, 300),
+          next_step: "Check SwarmMemo identity records before any retry to avoid creating duplicates.",
+        }, 502);
+      }
+    }
+    if (url.pathname === "/v1/swarmmemo/identity/test" && request.method === "GET") {
+      if (!env.SWARMMEMO_MCP_URL) return json({ error: "SWARMMEMO_MCP_URL secret is not configured" }, 503);
+      try {
+        await callSwarmMemoTool(env.SWARMMEMO_MCP_URL, "find_work", { kind: "rewarded" });
+        return json({ ok: true, identity_connected: true, read_only_test: "find_work", claims_or_posts: false });
+      } catch (error) {
+        return json({ ok: false, identity_connected: false, error: String(error?.message || "MCP test failed").slice(0, 300) }, 502);
+      }
+    }
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
     if (url.pathname === "/v1/swarmmemo/work" && request.method === "GET") {
       const limit = Number(url.searchParams.get("limit") || 50);
