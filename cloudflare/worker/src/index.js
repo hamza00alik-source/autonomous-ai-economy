@@ -1,6 +1,6 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
-import { getCloudFinancialControls, setCloudEmergencyPause, createCloudExpenseSchedule, setCloudExpenseScheduleStatus } from "./financial_controls.js";
+import { getCloudFinancialControls, setCloudEmergencyPause, createCloudExpenseSchedule, setCloudExpenseScheduleStatus, runDueCloudExpenseSchedules } from "./financial_controls.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -881,6 +881,10 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env)]));
+    const tasks = [processOne(env), pollSwarmMemo(env)];
+    if (env.AAE_CLOUD_FINANCIAL_SCHEDULER_ENABLED === "true" && env.AAE_OWNER_ID) {
+      tasks.push(runDueCloudExpenseSchedules(env.DB, env.AAE_OWNER_ID));
+    }
+    ctx.waitUntil(Promise.allSettled(tasks));
   },
 };
