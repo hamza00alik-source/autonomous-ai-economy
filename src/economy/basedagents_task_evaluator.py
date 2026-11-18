@@ -120,7 +120,7 @@ class PaidTaskCapabilityEvaluator:
                 and ("hard spend cap" in combined_scope or "paid cycle" in combined_scope
                      or "at least " in combined_scope)):
             reasons.append("requires_prior_paid_usage_or_revenue_threshold")
-        claimable = detail.get("claimable", lead.get("claimable", True))
+        claimable = detail.get("claimable", lead.get("claimable", False))
         if not isinstance(claimable, bool) or not claimable:
             reasons.append("not_claimable")
         if len(description) >= self.maximum_description_chars:
