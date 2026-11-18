@@ -172,8 +172,8 @@ test("callback verification returns signed invoice metadata but never unlocks by
   assert.deepEqual(hint, { transactionId: "txn-11", orderNumber: "order-11",
     status: "completed", sourceCurrency: "USD", sourceAmount: "11.00" });
   assert.equal(hint.unlockAllowed, undefined);
-  assert.equal(await verifyAndNormalizePlisioCallback({ ...callback, status: "pending" }, SECRET)
-    .then(result => result.status), "pending");
+  // Changing a signed field without recomputing the signature must be rejected.
+  assert.equal(await verifyAndNormalizePlisioCallback({ ...callback, status: "pending" }, SECRET), null);
   assert.equal(await verifyAndNormalizePlisioCallback(signed({
     txn_id: "txn-11", status: "completed", order_number: "order-11",
     source_currency: "USD", source_amount: "11.00"
