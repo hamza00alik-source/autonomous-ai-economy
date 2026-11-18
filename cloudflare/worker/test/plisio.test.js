@@ -20,8 +20,9 @@ function jsonResponse(data, status = 200) {
 
 test("accepts documented JSON callback HMAC-SHA1 with incoming property order", async () => {
   const callback = signed({
-    txn_id: "txn-123", status: "completed", order_number: "aae-order-123",
-    source_currency: "USD", source_amount: "5.00", tx_urls: ["https://explorer.example/tx/abc"]
+    txn_id: "txn-123", ipn_type: "invoice", status: "completed",
+    order_number: "aae-order-123", source_currency: "USD", source_amount: "5.00",
+    tx_urls: ["https://explorer.example/tx/abc"]
   });
   assert.equal(await verifyPlisioJsonCallback(callback, SECRET), true);
 });
@@ -105,8 +106,7 @@ test("rejects unsafe invoice URL, bad inputs, and failed provider responses", as
 });
 
 test("fetches an operation by exact ID and rejects mismatched operation type or ID", async () => {
-  const operation = { id: "txn-7", type: "invoice", status: "completed",
-    params: { order_number: "order-7", source_currency: "USD", source_amount: "7.00" } };
+  const operation = { id: "txn-7", type: "invoice", status: "completed" };
   const result = await getPlisioOperation({
     apiKey: API_KEY, transactionId: "txn-7",
     fetchImpl: async url => {
@@ -122,29 +122,39 @@ test("fetches an operation by exact ID and rejects mismatched operation type or 
   }));
 });
 
-test("reconciliation requires completed status and exact order plus USD amount", async () => {
-  const operation = { id: "txn-9", type: "invoice", status: "completed",
-    params: { order_number: "order-9", source_currency: "USD", source_amount: "5.00" } };
-  const fetchImpl = async () => jsonResponse({ status: "success", data: operation });
-  const paid = await reconcilePlisioInvoice({
-    apiKey: API_KEY, transactionId: "txn-9", expectedOrderNumber: "order-9",
-    expectedSourceAmount: "5.0", fetchImpl
+test("reconciliation uses signed callback order data plus authoritative operation status", async () => {
+  const operation = { id: "txn-9", type: "invoice", status: "completed" };
+  const callbackPayload = signed({
+    txn_id: "txn-9", ipn_type: "invoice", status: "completed",
+    order_number: "order-9", source_currency: "USD", source_amount: "5.00"
   });
+  const fetchImpl = async () => jsonResponse({ status: "success", data: operation });
+  const common = { apiKey: API_KEY, transactionId: "txn-9", callbackPayload,
+    callbackSecret: SECRET, expectedSourceAmount: "5.0", fetchImpl };
+  const paid = await reconcilePlisioInvoice({ ...common, expectedOrderNumber: "order-9" });
   assert.equal(paid.paid, true);
   assert.equal(paid.unlockAllowed, true);
 
-  const wrongOrder = await reconcilePlisioInvoice({
-    apiKey: API_KEY, transactionId: "txn-9", expectedOrderNumber: "other-order",
-    expectedSourceAmount: "5.00", fetchImpl
-  });
+  const wrongOrder = await reconcilePlisioInvoice({ ...common, expectedOrderNumber: "other-order" });
   assert.equal(wrongOrder.paid, false);
   assert.equal(wrongOrder.unlockAllowed, false);
 
   const wrongAmount = await reconcilePlisioInvoice({
-    apiKey: API_KEY, transactionId: "txn-9", expectedOrderNumber: "order-9",
-    expectedSourceAmount: "6.00", fetchImpl
+    ...common, expectedOrderNumber: "order-9", expectedSourceAmount: "6.00"
   });
   assert.equal(wrongAmount.paid, false);
+
+  const notCompleted = await reconcilePlisioInvoice({
+    ...common, expectedOrderNumber: "order-9",
+    callbackPayload: signed({ ...callbackPayload, status: "pending" })
+  });
+  assert.equal(notCompleted.unlockAllowed, false);
+
+  const wrongOperation = await reconcilePlisioInvoice({
+    ...common, expectedOrderNumber: "order-9",
+    fetchImpl: async () => jsonResponse({ status: "success", data: { ...operation, type: "cash_out" } })
+  }).catch(error => error);
+  assert.ok(wrongOperation instanceof Error);
 });
 
 test("all non-completed and unknown states fail closed", async () => {
@@ -155,10 +165,17 @@ test("all non-completed and unknown states fail closed", async () => {
   assert.equal(normalizePlisioStatus("future-status"), "unknown");
 });
 
-test("callback verification returns a hint but never grants payment access", async () => {
-  const callback = signed({ txn_id: "txn-11", status: "completed", order_number: "order-11" });
+test("callback verification returns signed invoice metadata but never unlocks by itself", async () => {
+  const callback = signed({ txn_id: "txn-11", ipn_type: "invoice", status: "completed",
+    order_number: "order-11", source_currency: "USD", source_amount: "11.00" });
   const hint = await verifyAndNormalizePlisioCallback(callback, SECRET);
-  assert.deepEqual(hint, { transactionId: "txn-11", orderNumber: "order-11", status: "completed" });
+  assert.deepEqual(hint, { transactionId: "txn-11", orderNumber: "order-11",
+    status: "completed", sourceCurrency: "USD", sourceAmount: "11.00" });
   assert.equal(hint.unlockAllowed, undefined);
-  assert.equal(await verifyAndNormalizePlisioCallback({ ...callback, status: "pending" }, SECRET), null);
+  assert.equal(await verifyAndNormalizePlisioCallback({ ...callback, status: "pending" }, SECRET)
+    .then(result => result.status), "pending");
+  assert.equal(await verifyAndNormalizePlisioCallback(signed({
+    txn_id: "txn-11", status: "completed", order_number: "order-11",
+    source_currency: "USD", source_amount: "11.00"
+  }), SECRET), null);
 });
