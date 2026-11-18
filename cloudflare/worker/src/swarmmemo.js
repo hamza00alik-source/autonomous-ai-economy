@@ -1,3 +1,4 @@
+import { screenSwarmMemoTask } from "./swarmmemo_policy.js";
 const FEED_URL = "https://swarmmemo.com/api/works?kind=rewarded&limit=10";
 const MAX_FEED_BYTES = 1_000_000;
 const MAX_TASK_TEXT = 24_000;
@@ -209,4 +210,47 @@ export async function approveSwarmMemoTask(env, taskId) {
        AND execution_state='awaiting_owner_approval'`
   ).bind(now, taskId).run();
   return { approved: result.meta?.changes === 1 };
+}
+
+
+export async function autoApproveSafeSwarmMemoTasks(env, limit = 10) {
+  const bounded = Math.min(25, Math.max(1, Number(limit) || 10));
+  const candidates = await env.DB.prepare(
+    `SELECT task_id,title,task_text,board_state,eligible,simulated,request_truncated
+     FROM swarmmemo_work_items
+     WHERE execution_state='awaiting_owner_approval'
+       AND board_state='open' AND eligible=1 AND simulated=0 AND request_truncated=0
+     ORDER BY last_seen_at DESC LIMIT ?`
+  ).bind(bounded).all();
+
+  let approved = 0;
+  const screened = [];
+  for (const task of candidates.results || []) {
+    const decision = screenSwarmMemoTask(task);
+    if (!decision.allowed) {
+      screened.push({ task_id: task.task_id, approved: false, reason: decision.reason });
+      continue;
+    }
+    const now = new Date().toISOString();
+    const result = await env.DB.prepare(
+      `UPDATE swarmmemo_work_items
+       SET owner_approved=1,execution_state='approved_awaiting_executor',updated_at=?
+       WHERE task_id=? AND execution_state='awaiting_owner_approval'
+         AND board_state='open' AND eligible=1 AND simulated=0 AND request_truncated=0`
+    ).bind(now, task.task_id).run();
+    const changed = result.meta?.changes === 1;
+    if (changed) approved += 1;
+    screened.push({
+      task_id: task.task_id,
+      approved: changed,
+      reason: decision.reason,
+      external_action_required: decision.external_action_required,
+    });
+  }
+  return {
+    approved,
+    screened: screened.length,
+    items: screened,
+    notice: "Internal preparation approval only. This does not claim, submit, publish, spend, transfer funds, or create revenue.",
+  };
 }
