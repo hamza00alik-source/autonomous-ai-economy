@@ -13,6 +13,7 @@ import {
   createBasePublicClient,
   fetchConfirmedBaseUsdcLogs,
   settleBaseUsdcInvoice,
+  pollBaseUsdc,
 } from "../src/base-usdc.js";
 
 const TEST_ONLY_PRIVATE_KEY = "0x0123456789012345678901234567890123456789012345678901234567890123";
@@ -456,4 +457,10 @@ test("Base USDC settlement requires finality evidence for the same log", async (
     blockTimestamp: Math.floor(Date.now() / 1000),
     contractAddress: contract, merchantAddress: merchant,
   }), /finality evidence/);
+});
+
+
+test("scheduled Base indexer is dormant unless its explicit enablement gate is true", async () => {
+  assert.deepEqual(await pollBaseUsdc({}), { enabled: false });
+  assert.deepEqual(await pollBaseUsdc({ AAE_BASE_USDC_INDEXER_ENABLED: "false" }), { enabled: false });
 });
