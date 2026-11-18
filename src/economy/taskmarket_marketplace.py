@@ -305,9 +305,12 @@ class TaskmarketTaskEvaluator:
         reasons = []
         desc = str(task.get("description") or data.get("description") or "")
         reward_text = _usdc(task.get("reward", data.get("reward_base_units", "0")))
-        net_reward_text = _usdc(task.get("netReward", data.get("net_reward_usdc", "0")))
+        if "netReward" in task:
+            net_reward_text = _usdc(task.get("netReward"))
+        else:
+            net_reward_text = data.get("net_reward_usdc")
         reward = Decimal(reward_text) if reward_text is not None else None
-        net_reward = Decimal(net_reward_text) if net_reward_text is not None else None
+        net_reward = Decimal(str(net_reward_text)) if net_reward_text is not None else None
         escrow = task.get("escrow") if isinstance(task.get("escrow"), dict) else {}
         tx_hash = task.get("escrowTxHash", data.get("escrow_tx_hash"))
         booked = str(escrow.get("booked", data.get("escrow_booked_base_units", "")))
