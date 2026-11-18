@@ -1,3 +1,4 @@
+import { pollBaseUsdc } from "./base-usdc.js";
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
@@ -779,6 +780,6 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env)]));
+    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env), pollBaseUsdc(env)]));
   },
 };
