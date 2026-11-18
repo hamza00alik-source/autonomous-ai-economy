@@ -4,17 +4,17 @@
 
 ## Title
 
-MOBA Objective Props — 5 Low-Poly Fantasy 3D Models for Godot
+MOBA Objective Props — 10 Low-Poly Fantasy 3D Models for Godot
 
 ## Description
 
-Add five original low-poly fantasy props to a game prototype: a mana crystal, health vial, rune altar, supply chest, and ancient coin stack. Each asset is supplied as an individual glTF 2.0 binary model (.glb), with a combined preview scene and a Godot 4 demo scene.
+Add ten original low-poly fantasy props to a game prototype: Mana Crystal, Health Vial, Rune Altar, Supply Chest, Ancient Coin Stack, Arcane Ward Totem, Battle Banner, Jungle Brazier, Lane Turret, and Rune Gate. Each asset is supplied as an individual glTF 2.0 binary model (.glb), with a combined preview scene and a complete Godot 4.7+ demo project.
 
 ## Included
 
-- 5 individual GLB models
+- 10 individual GLB models
 - 1 combined preview GLB
-- 1 Godot 4 scene that instances the five models
+- 1 complete Godot 4.7+ project with a two-row camera-lit demo scene that instances all ten models
 - PBR material definitions
 - README and draft license
 
