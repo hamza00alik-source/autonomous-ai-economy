@@ -212,3 +212,5 @@ This is schema-only groundwork: no local SQLite balances are copied, no cloud fi
 
 
 The cloud financial foundation now also includes an isolated Ed25519 policy-verification service. It validates canonical signed policy bytes, exact destination allowlists, integer spending limits, public-key fingerprints, and the active owner → operator → agent relationship before treating a cloud policy as authorized. This verifier is covered by dedicated tests but is not yet exposed as an API or connected to financial writes. No owner private key is stored or uploaded. See [cloud financial source of truth](docs/cloud-financial-source-of-truth.md).
+
+The cloud layer also contains an internal double-entry journal writer. It validates balanced integer-minor-unit postings and active same-owner accounts, then writes the transaction, postings and audit record in one D1 batch with payload-hash idempotency. It is not routed publicly and is not yet connected to policy-enforced spending or provider settlement. SQLite schema-invariant tests cover the cloud migration and its database guards.
