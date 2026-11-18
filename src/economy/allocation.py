@@ -82,16 +82,22 @@ def allocate_reconciled_receipt(
         raise FinancialLedgerError("currency must be a three-letter code")
 
     treasury_account = "treasury:available"
-    if ledger.balance_minor(treasury_account, currency) < net_amount_minor:
+    resolved_accounts = [share.account_id.replace("{agent_id}", agent_id) for share in policy.shares]
+    if treasury_account in resolved_accounts or len(set(resolved_accounts)) != len(resolved_accounts):
+        raise FinancialLedgerError("allocation destinations must be distinct from the source account")
+
+    idempotency_key = f"allocation:{source_reference}:{policy.policy_id}:{policy.version}"
+    existing = ledger.find_by_idempotency(idempotency_key)
+    if existing is None and ledger.balance_minor(treasury_account, currency) < net_amount_minor:
         raise FinancialLedgerError("insufficient cleared treasury balance")
 
     amounts = _split_exact(net_amount_minor, policy.shares)
     lines = [{
-        "account_id": share.account_id.replace("{agent_id}", agent_id),
+        "account_id": resolved_accounts[index],
         "direction": "debit",
         "amount_minor": amount,
         "reference": source_reference,
-    } for share, amount in zip(policy.shares, amounts) if amount > 0]
+    } for index, amount in enumerate(amounts) if amount > 0]
     lines.append({
         "account_id": treasury_account,
         "direction": "credit",
@@ -99,7 +105,7 @@ def allocate_reconciled_receipt(
         "reference": source_reference,
     })
     return ledger.post(
-        idempotency_key=f"allocation:{source_reference}:{policy.policy_id}:{policy.version}",
+        idempotency_key=idempotency_key,
         description=f"Simulated allocation for agent {agent_id}",
         currency=currency,
         lines=lines,
