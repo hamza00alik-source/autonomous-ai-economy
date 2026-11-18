@@ -489,14 +489,20 @@ async function createStoreCheckout(request, env) {
 
 
 function baseUsdcCheckoutEnabled(env) {
-  return env.AAE_BASE_USDC_CHECKOUT_ENABLED === "true" &&
+  let rpc;
+  try { rpc = new URL(env.BASE_RPC_URL); } catch { return false; }
+  const deploymentBlock = Number(env.BASE_DEPLOYMENT_BLOCK);
+  const confirmations = Number(env.BASE_CONFIRMATIONS);
+  const configValid = rpc.protocol === "https:" &&
+    Number.isSafeInteger(deploymentBlock) && deploymentBlock >= 0 &&
+    Number.isSafeInteger(confirmations) && confirmations >= 1 && confirmations <= 10000;
+  return configValid &&
+    env.AAE_BASE_USDC_CHECKOUT_ENABLED === "true" &&
     env.AAE_BASE_USDC_INDEXER_ENABLED === "true" &&
     env.AAE_CRYPTO_ENABLEMENT_APPROVED === "true" &&
     env.AAE_BASE_USDC_LEGAL_REVIEW_APPROVED === "true" &&
-    Boolean(env.BASE_RPC_URL && env.BASE_DEPLOYMENT_BLOCK !== undefined &&
-      env.BASE_CONFIRMATIONS && env.BASE_INVOICE_SIGNER_PRIVATE_KEY &&
-      env.BASE_INVOICE_SIGNER_ADDRESS && env.BASE_MERCHANT_ADDRESS &&
-      env.BASE_CHECKOUT_CONTRACT_ADDRESS && env.ASSETS && env.DB);
+    Boolean(env.BASE_INVOICE_SIGNER_PRIVATE_KEY && env.BASE_INVOICE_SIGNER_ADDRESS &&
+      env.BASE_MERCHANT_ADDRESS && env.BASE_CHECKOUT_CONTRACT_ADDRESS && env.ASSETS && env.DB);
 }
 
 async function createBaseUsdcStoreCheckout(request, env) {
