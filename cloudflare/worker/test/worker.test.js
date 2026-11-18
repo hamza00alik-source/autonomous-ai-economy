@@ -651,6 +651,7 @@ test("Base USDC checkout creates a server-priced signed invoice only when all ga
   assert.equal(response.status, 201);
   const data = await response.json();
   assert.equal(data.chain_id, 8453);
+  assert.equal(data.invoice_signer_address.toLowerCase(), signerAddress.toLowerCase());
   assert.equal(data.token_address.toLowerCase(), BASE_USDC_ADDRESS.toLowerCase());
   assert.equal(data.amount_minor, "5000000");
   assert.equal(data.amount_usdc, "5.000000");
