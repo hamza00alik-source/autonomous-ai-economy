@@ -369,7 +369,11 @@ class TaskmarketTaskEvaluator:
             "reward_usdc": reward,
             "net_reward_usdc": net_reward,
             "submission_count": count,
-            "escrow_status": "platform_reported_only" if tx_hash and escrow.get("tracked", data.get("escrow_tracked")) else "not_reported",
+            "escrow_status": (
+                "onchain_verified" if data.get("escrow_verified_onchain") is True
+                else "platform_reported_only" if tx_hash and escrow.get("tracked", data.get("escrow_tracked"))
+                else "not_reported"
+            ),
             "payment_verified": False,
             "claim_allowed": False,
             "external_actions": 0,
@@ -398,10 +402,13 @@ class TaskmarketOpportunityStore:
     def save_many(self, leads: list[TaskmarketLead], evaluator: TaskmarketTaskEvaluator | None = None) -> dict:
         now = datetime.now(timezone.utc).isoformat()
         eligible = 0
+        onchain_verified = 0
         with sqlite3.connect(self.path) as db:
             for lead in leads:
                 payload = lead.to_dict()
                 evaluation = evaluator.evaluate(lead) if evaluator else None
+                if payload.get("escrow_verified_onchain") is True:
+                    onchain_verified += 1
                 if evaluation and evaluation["state"] == "qualified_for_local_draft":
                     eligible += 1
                 db.execute("""
@@ -414,8 +421,8 @@ class TaskmarketOpportunityStore:
                       evaluation_json=excluded.evaluation_json,discovered_at=excluded.discovered_at
                 """, (lead.task_id, lead.status, lead.reward_base_units, lead.submission_count,
                       json.dumps(payload, sort_keys=True), json.dumps(evaluation, sort_keys=True) if evaluation else None, now))
-        return {"fetched": len(leads), "saved": len(leads), "qualified_for_local_draft": eligible,
-                "claims": 0, "submissions": 0, "payments": 0}
+        return {"fetched": len(leads), "saved": len(leads), "onchain_escrows_verified": onchain_verified,
+                "qualified_for_local_draft": eligible, "claims": 0, "submissions": 0, "payments": 0}
 
     def list_opportunities(self, *, limit: int = 50, qualified_only: bool = False) -> list[dict]:
         if not 1 <= limit <= 100:
