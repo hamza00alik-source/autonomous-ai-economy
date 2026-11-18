@@ -162,3 +162,14 @@ The target layers are participant identity/trust, public discovery, agent runtim
 ## Safety and legal boundaries
 
 No autonomous borrowing, leverage, speculative trading, unlimited transfers, or bypassing KYC/legal restrictions. Receiving funds into an owner-controlled wallet is distinct from offering regulated custody or exchange services. Escrow, custody, exchange and money transmission are not enabled. Obtain qualified local advice before regulated financial activity.
+
+
+### Original GitHub source verification
+
+Before preparing a local work draft from a Jobbi/Algora GitHub listing, check the canonical source issue or pull request directly:
+
+```bash
+economy-ai verify-source-url --url https://github.com/owner/repo/issues/123
+```
+
+The command uses GitHub's public read-only API and reports whether the source item is still open, its latest title/update timestamp, and visible comment count. It flags closed or merged items and high/unknown competition. Only canonical GitHub issue/PR URLs are supported. API errors remain unverified. This check does not prove bounty payment, task acceptance, or that the listing permits AI-generated work; repository contribution rules and reward terms still require review. It never claims, comments, creates a branch, opens a PR, or submits work.
