@@ -13,7 +13,7 @@ from .basedagents_marketplace import BasedAgentsPublicTasks
 from .basedagents_opportunities import BasedAgentsOpportunityScanner, PaidOpportunityStore
 from .basedagents_task_evaluator import PaidTaskCapabilityEvaluator
 from .jobbi_gigs import JobbiPublicGigs, JobbiGigStore
-from .taskmarket_marketplace import TaskmarketPublicTasks, TaskmarketTaskEvaluator, TaskmarketOpportunityStore
+from .taskmarket_marketplace import BaseEscrowReceiptVerifier, TaskmarketPublicTasks, TaskmarketTaskEvaluator, TaskmarketOpportunityStore
 
 
 def main() -> int:
@@ -62,6 +62,7 @@ def main() -> int:
     tm_scan.add_argument("--limit", type=int, default=100)
     tm_scan.add_argument("--minimum-reward", default="1.00")
     tm_scan.add_argument("--maximum-submissions", type=int, default=5)
+    tm_scan.add_argument("--verify-limit", type=int, default=25, help="maximum tasks to verify against Base receipts per scan")
     tm_scan.add_argument("--db", type=Path, help="optional SQLite file; defaults to data-dir/taskmarket-opportunities.sqlite3")
 
     tm_list = sub.add_parser("list-taskmarket-tasks", help="list saved Taskmarket opportunities and conservative evaluations")
@@ -99,12 +100,17 @@ def main() -> int:
             minimum_reward_usdc=args.minimum_reward,
             maximum_submissions=args.maximum_submissions,
         )
+        if not 0 <= args.verify_limit <= 100:
+            raise ValueError("--verify-limit must be between 0 and 100")
         leads = TaskmarketPublicTasks().search(limit=args.limit)
-        summary = store.save_many(leads, evaluator)
+        verifier = BaseEscrowReceiptVerifier()
+        checked = [verifier.verify_lead(lead) if index < args.verify_limit else lead
+                   for index, lead in enumerate(leads)]
+        summary = store.save_many(checked, evaluator)
         print(json.dumps({
             "source": "taskmarket",
             **summary,
-            "note": "Escrow metadata is reported by Taskmarket, not independently verified on-chain. No identity, wallet, claim, submission or payment action was performed.",
+            "note": "Escrow is independently checked against Base receipts when within verify-limit; no identity, wallet, claim, submission or payment action was performed.",
         }, indent=2))
         return 0
 
