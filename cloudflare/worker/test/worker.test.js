@@ -56,7 +56,7 @@ test("draft validator reports exact missing and unexpected model fields", () => 
   delete malformed.title;
   assert.throws(
     () => validateDraft(malformed, facts),
-    /schema mismatch; missing=\\[title\\]; unexpected=\\[headline\\]/
+    error => error.message.includes("schema mismatch; missing=[title]; unexpected=[headline]")
   );
 });
 
