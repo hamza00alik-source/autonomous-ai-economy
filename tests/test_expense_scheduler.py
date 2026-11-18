@@ -170,5 +170,39 @@ class ExpenseSchedulerTests(unittest.TestCase):
             self.create(start_at=datetime(2026, 1, 1))
 
 
+    def test_schedule_inventory_and_emergency_pause_all(self):
+        first = self.create(idempotency_key="schedule-inventory-1")
+        second = self.create(idempotency_key="schedule-inventory-2")
+        self.scheduler.pause(second["schedule_id"])
+        self.assertEqual(len(self.scheduler.list_schedules(status="active")), 1)
+        self.assertEqual(self.scheduler.pause_all(), 1)
+        self.assertEqual(self.scheduler.pause_all(), 0)
+        self.assertEqual(self.scheduler.list_schedules(status="active"), [])
+        self.assertEqual(len(self.scheduler.list_schedules(status="paused")), 2)
+        self.assertEqual(self.scheduler.get(first["schedule_id"])["status"], "paused")
+
+    def test_budget_summary_reports_cleared_budget_and_reservations(self):
+        summary = self.spending.budget_summary("agent", "USD")
+        self.assertEqual(summary["cleared_simulated_budget_minor"], 1000)
+        self.assertEqual(summary["active_reservations_minor"], 0)
+        self.assertEqual(summary["available_simulated_budget_minor"], 1000)
+        self.assertEqual(summary["daily_limit_minor"], 600)
+        reservation = self.spending.reserve(
+            agent_id="agent", policy_id="ops", destination="service:compute",
+            currency="USD", amount_minor=150, idempotency_key="budget-summary-reservation")
+        summary = self.spending.budget_summary("agent", "USD")
+        self.assertEqual(summary["active_reservations_minor"], 150)
+        self.assertEqual(summary["available_simulated_budget_minor"], 850)
+        self.assertEqual(summary["daily_used_minor"], 150)
+        self.spending.release(reservation["reservation_id"])
+        self.assertEqual(self.spending.budget_summary("agent", "USD")["available_simulated_budget_minor"], 1000)
+
+    def test_policy_inventory_rechecks_current_owner_authorization(self):
+        policies = self.policies.list_for_agent("agent")
+        self.assertEqual(len(policies), 1)
+        self.assertEqual(policies[0]["policy_id"], "ops")
+        self.assertTrue(policies[0]["currently_authorized")
+
+
 if __name__ == "__main__":
     unittest.main()
