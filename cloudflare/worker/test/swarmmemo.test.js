@@ -28,6 +28,7 @@ test("normalizes the actual SwarmMemo rewarded feed envelope", () => {
   assert.equal(tasks[0].eligible, 1);
   assert.equal(tasks[0].requester, "weaver");
   assert.equal(tasks[0].request_truncated, 0);
+  assert.equal(tasks[0].simulated, 0);
   assert.equal(tasks[0].deadline, new Date(1795942233 * 1000).toISOString());
   assert.deepEqual(JSON.parse(tasks[0].reward_json), { amount: 30, unit: "credit", fee: 1, state: "held" });
   assert.equal(tasks[0].requester_record_json.includes('"paid":10'), true);
@@ -70,4 +71,19 @@ test("bounds untrusted task text", () => {
     works: [{ id: "big-1", title: "Long task", request: { text: "x".repeat(30_000) } }]
   });
   assert.equal(tasks[0].task_text.length, 24_000);
+});
+
+test("simulated tasks are never considered eligible", () => {
+  const tasks = normalizeSwarmMemoFeed({
+    data: { works: [{ id: "sim-1", title: "Simulation", state: "open", eligibility: "open", simulated: true, request: { text: "Test task." } }] }
+  });
+  assert.equal(tasks[0].simulated, 1);
+  assert.equal(tasks[0].eligible, 0);
+});
+
+test("explicitly closed eligibility is not overridden by an open state", () => {
+  const tasks = normalizeSwarmMemoFeed({
+    data: { works: [{ id: "closed-1", title: "Closed", state: "open", eligibility: "closed", claimable: false, request: { text: "Task." } }] }
+  });
+  assert.equal(tasks[0].eligible, 0);
 });
