@@ -47,11 +47,12 @@ class JobbiGigsTests(unittest.TestCase):
             JobbiPublicGigs._fetch("https://evil.example/feed", 1)
 
     def test_evaluator_rejects_stale_crowded_and_outreach_bounties(self):
-        feed = {"items": [
-            item("stale:1", date_published="2023-01-01T00:00:00Z"),
-            item("crowded:2", extra={"comments": 34}),
-            item("outreach:3", content_text="Contact the organizer to confirm details."),
-        ]}
+        stale = item("stale:1")
+        stale["date_published"] = "2023-01-01T00:00:00Z"
+        crowded = item("crowded:2", extra={"comments": 34})
+        outreach = item("outreach:3")
+        outreach["content_text"] = "Contact the organizer to confirm details."
+        feed = {"items": [stale, crowded, outreach]}
         gigs = JobbiPublicGigs(fetcher=lambda *_: json.dumps(feed).encode()).search()
         evaluator = JobbiGigEvaluator(now=datetime(2026, 11, 18, tzinfo=timezone.utc))
         results = {gig.gig_id: evaluator.evaluate(gig) for gig in gigs}
