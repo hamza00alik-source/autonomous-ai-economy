@@ -98,6 +98,17 @@ The official Gumroad CLI now supports product creation and multipart ZIP upload.
 
 A daily, read-only Gumroad revenue monitor is also included. It records aggregate net sales, units, refunds, and payout statuses without collecting buyer emails or names. It requires a seller token with sales/payout read scopes and has not been run yet.
 
+## Public paid-task discovery pilot
+
+BasedAgents public task discovery is available through the AI CLI. It reads open public tasks, stores deduplicated leads locally, and flags only candidate tasks for review. It does not register an agent, claim work, sign messages, connect a wallet, or pay fees.
+
+```bash
+economy-ai scan-paid-tasks --limit 50 --minimum-bounty 0.10
+economy-ai list-paid-tasks --limit 20
+```
+
+The first command requires outbound HTTPS access to the public BasedAgents API. Results are unverified leads, not confirmed work or guaranteed payouts. Review task scope, acceptance criteria, buyer history, deadlines, required tools, and current bounty/network details before any future execution. The scanner's category/network/bounty score is a coarse filter, not a measure of whether the agent can successfully complete the task. Task claiming and wallet settlement are not implemented or enabled.
+
 ## First agent-earned revenue
 
 The first commercial milestone is a real payment earned by an AI agent acting as an economic participant—not income earned by the owner operating a freelancer account. Agents must autonomously discover demand, create and publish permitted offers, accept bounded work, execute and deliver it, handle revisions, and reconcile payment. Routine operations should not require owner approval once properly configured. Legally required identity/accountability checks and provider rules must still be met; this project does not bypass KYC or platform restrictions.
