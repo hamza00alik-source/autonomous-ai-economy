@@ -67,7 +67,7 @@ class DoubleEntryLedger:
     @staticmethod
     def _validate(currency: str, description: str, idempotency_key: str,
                   lines: Iterable[Mapping[str, object]]) -> tuple[str, list[dict[str, object]]]:
-        if not isinstance(currency, str) or len(currency) != 3 or not currency.isalpha():
+        if not isinstance(currency, str) or len(currency) != 3 or not currency.isascii() or not currency.isalpha():
             raise FinancialLedgerError("currency must be a three-letter code")
         if not isinstance(description, str) or not description.strip():
             raise FinancialLedgerError("description is required")
@@ -81,10 +81,10 @@ class DoubleEntryLedger:
             reference = line.get("reference")
             if not isinstance(account_id, str) or not account_id.strip():
                 raise FinancialLedgerError("each line requires an account_id")
-            if direction not in {"debit", "credit"}:
+            if not isinstance(direction, str) or direction not in {"debit", "credit"}:
                 raise FinancialLedgerError("line direction must be debit or credit")
             if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:
-                raise FinancialLedgerError("line amount_minor must be a positive integer")
+                raise FinancialLedgerError("line amount_minor must be a positive signed-64-bit integer")
             if reference is not None and not isinstance(reference, str):
                 raise FinancialLedgerError("line reference must be text or null")
             normalized.append({
