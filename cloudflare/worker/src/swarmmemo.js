@@ -40,8 +40,11 @@ export function normalizeSwarmMemoFeed(payload) {
     const taskId = safeString(row.id || row.message_id || row.work_id, 128);
     const request = row.request && typeof row.request === "object" ? row.request : {};
     const title = safeString(row.title || request.title, 300);
-    const taskText = safeString(request.text || row.text || row.description, MAX_TASK_TEXT);
+    const rawTaskText = request.text || row.text || row.description;
+    const taskText = safeString(rawTaskText, MAX_TASK_TEXT);
     if (!taskId || !title || !taskText) return [];
+    const requestTruncated = request.truncated === true ||
+      (typeof rawTaskText === "string" && rawTaskText.length > MAX_TASK_TEXT);
     const reward = row.reward && typeof row.reward === "object" ? row.reward : {};
     const requesterRecord = row.requester_record && typeof row.requester_record === "object"
       ? row.requester_record : null;
@@ -51,7 +54,7 @@ export function normalizeSwarmMemoFeed(payload) {
       room: safeString(row.room || request.room, 80),
       requester: safeString(row.requester?.handle || row.requester || row.requester_handle || row.requester_author || row.author, 120),
       task_text: taskText,
-      request_truncated: request.truncated === true ? 1 : 0,
+      request_truncated: requestTruncated ? 1 : 0,
       simulated: row.simulated === true ? 1 : 0,
       reward_json: JSON.stringify(reward),
       requester_record_json: requesterRecord ? JSON.stringify(requesterRecord).slice(0, 16_000) : null,
@@ -127,7 +130,8 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
       } catch {
         // Keep the bounded feed preview, but mark it truncated so it cannot be approved.
       }
-      return preview;
+      return { ...preview, request_truncated: 1, eligible: 0,
+        eligibility_reason: "full_task_fetch_failed" };
     }));
 
     const statements = tasks.map((task) => env.DB.prepare(
