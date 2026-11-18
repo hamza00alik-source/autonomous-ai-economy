@@ -89,6 +89,20 @@ class PaidTaskCapabilityEvaluator:
             reasons.append("task_not_open")
         if category not in SUPPORTED_CATEGORIES:
             reasons.append("unsupported_category")
+        capabilities = detail.get("required_capabilities") or lead.get("required_capabilities") or []
+        if not isinstance(capabilities, list):
+            reasons.append("invalid_required_capabilities")
+            capabilities = []
+        unsupported = {"docker", "x402", "wallet", "external_runtime", "paid_cycle"}
+        if any(str(item).lower() in unsupported for item in capabilities):
+            reasons.append("requires_unavailable_infrastructure_or_payment_capability")
+        combined_scope = (title + "\\n" + description).lower()
+        if "genuine external runtime" in combined_scope or "external installation" in combined_scope:
+            reasons.append("requires_authorized_external_runtime")
+        if ("settled" in combined_scope and "revenue" in combined_scope
+                and ("hard spend cap" in combined_scope or "paid cycle" in combined_scope
+                     or "at least " in combined_scope)):
+            reasons.append("requires_prior_paid_usage_or_revenue_threshold")
         claimable = detail.get("claimable", lead.get("claimable", True))
         if not isinstance(claimable, bool) or not claimable:
             reasons.append("not_claimable")
