@@ -25,7 +25,7 @@ Migration `0006_financial_control_foundation.sql` is an additive schema foundati
 | Spending | `financial_budget_reservations`, `financial_expense_schedules` | Idempotent reservations, policy-version pinning and bounded recurring schedules |
 | Audit | `financial_audit_events` | Append-oriented record of owner/agent financial-control changes |
 
-The schema uses integer minor units, exact three-letter uppercase currency codes, foreign keys, unique idempotency/source references, constrained lifecycle states, and bounded schedule intervals. These database constraints are necessary but not sufficient: Worker code must still validate participant types, signatures, destination allowlists, policy state, balances and posting totals.
+The schema uses integer minor units, exact three-letter uppercase currency codes, foreign keys, unique idempotency/source references, constrained lifecycle states, and bounded schedule intervals. Database triggers reject updates/deletes to posted journal transactions, postings and audit events, and reject posting currency mismatches. These constraints are necessary but not sufficient: Worker code must still validate participant types, signatures, destination allowlists, policy state, balances and posting totals. The database does not independently prove that every transaction's posting group balances.
 
 ## Required transaction protocol before enabling writes
 
