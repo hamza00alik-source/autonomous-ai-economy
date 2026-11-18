@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS financial_journal_transactions (
   transaction_id TEXT PRIMARY KEY,
   owner_id TEXT NOT NULL,
   idempotency_key TEXT NOT NULL UNIQUE,
+  payload_hash TEXT NOT NULL,
   source_type TEXT NOT NULL CHECK (source_type IN (
     'settlement','allocation','expense','adjustment','reversal'
   )),
@@ -229,6 +230,8 @@ WHEN NOT EXISTS (
   WHERE t.transaction_id = NEW.transaction_id
     AND t.currency = NEW.currency
     AND a.currency = NEW.currency
+    AND a.owner_id = t.owner_id
+    AND a.status = 'active'
 )
 BEGIN
   SELECT RAISE(ABORT, 'posting currency must match transaction and account');
@@ -286,4 +289,31 @@ CREATE TRIGGER IF NOT EXISTS trg_financial_policy_no_delete
 BEFORE DELETE ON financial_policies
 BEGIN
   SELECT RAISE(ABORT, 'signed financial policies cannot be deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_journal_owner_active
+BEFORE INSERT ON financial_journal_transactions
+WHEN NOT EXISTS (
+  SELECT 1 FROM financial_participants p
+  WHERE p.participant_id = NEW.owner_id
+    AND p.participant_type = 'owner'
+    AND p.status = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'journal owner must be an active owner participant');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_audit_actor_active
+BEFORE INSERT ON financial_audit_events
+WHEN NOT EXISTS (
+  SELECT 1 FROM financial_participants actor
+  WHERE actor.participant_id = NEW.actor_id
+    AND actor.status = 'active'
+    AND (
+      actor.participant_id = NEW.owner_id OR
+      actor.owner_id = NEW.owner_id
+    )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'audit actor must be active and belong to owner');
 END;
