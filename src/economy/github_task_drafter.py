@@ -144,4 +144,4 @@ class GitHubTaskDraftBuilder:
         output.parent.mkdir(parents=True, exist_ok=True)
         with output.open("x", encoding="utf-8") as handle:
             json.dump(packet, handle, indent=2, ensure_ascii=False)
-            handle.write("\\n")
+            handle.write("\n")
