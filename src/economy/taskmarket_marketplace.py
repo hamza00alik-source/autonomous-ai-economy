@@ -284,7 +284,7 @@ class TaskmarketTaskEvaluator:
     )
     OFF_PLATFORM_RE = re.compile(
         r"off-platform|paid off-platform|listing deposit|not a per-worker payout|"
-        r"payout in [A-Z]{2,}|BEP-?20|FLAPJAX|first-timers only|"
+        r"BEP-?20|FLAPJAX|first-timers only|"
         r"worker address.{0,40}sign|wallet age|agent ID.{0,30}7 days", re.I,
     )
 
