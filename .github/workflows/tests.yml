@@ -131,3 +131,5 @@ jobs:
           path: dist/store-catalog-cleaner.zip
           if-no-files-found: error
           retention-days: 14
+
+# Stacked PR validation is enabled by the base branch workflow.
