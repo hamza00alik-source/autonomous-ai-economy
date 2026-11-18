@@ -176,7 +176,7 @@ class BasedAgentsEscrowVerifier:
             chain = self._rpc("eth_chainId", [], self.timeout).get("result")
             if chain != BASE_CHAIN_ID:
                 raise ValueError("rpc_endpoint_is_not_base_mainnet")
-            response = self._rpc("eth_getTransactionReceipt", {"transactionHash": tx_hash}, self.timeout)
+            response = self._rpc("eth_getTransactionReceipt", [tx_hash], self.timeout)
             receipt = response.get("result")
             if not isinstance(receipt, dict):
                 raise ValueError("transaction_receipt_not_found")
