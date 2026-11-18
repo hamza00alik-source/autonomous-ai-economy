@@ -4,7 +4,7 @@
 
 Do not enable the current NOWPayments-only storefront as a worldwide checkout. The current integration is technically useful, but provider terms exclude US, UK and EU residents/citizens. A single NOWPayments integration therefore conflicts with AAE's worldwide-buyer requirement.
 
-No provider reviewed in this pass is approved for production. Keep public checkout and outbound transfers disabled.
+No provider reviewed in this pass is approved for production. Keep public checkout and outbound transfers disabled. Pakistan's Virtual Assets Act, 2026 and PVARA regulations now create a specific licensing framework for Virtual Asset Service Providers; obtain a qualified Pakistan legal opinion or written PVARA clarification on whether AAE's exact merchant-receipt model and chosen processor arrangement fall within any regulated service before enabling live crypto checkout.
 
 ## Provider comparison
 
@@ -38,6 +38,10 @@ No provider reviewed in this pass is approved for production. Keep public checko
 - DePay Base support: https://depay.com/docs/payments/supported/blockchains/
 - DePay payment tracking/callbacks: https://depay.com/docs/apis/payments/tracking/
 
+## Pakistan regulatory gate
+
+The Virtual Assets Act, 2026 applies to VASPs providing virtual-asset services in or from Pakistan. Its Schedule I includes transfer and settlement services performed on behalf of customers, as well as custody, exchange and broker-dealer services. The Act also contains a narrow own-account dealing exemption where a person deals solely on its own account, does not execute customer orders and does not hold or control customer assets. This does not, by itself, settle whether AAE's proposed merchant checkout or a processor's role is regulated. The distinction depends on the actual flow, custody and contractual roles. Before accepting live crypto payments from Pakistan, obtain a qualified local legal opinion or written PVARA clarification; do not assume that a non-custodial marketing claim or a merchant label creates an exemption. Official sources: https://pvara.gov.pk/regulations and https://pvara.gov.pk/licensing. The Act text is at https://pvara.gov.pk/documents/Virtual%20assets%20Act%202026%20passed%20by%20NA.pdf.
+
 ## New finding: DePay retirement
 
 DePay's official documentation now announces that its services will be permanently discontinued on 2026-12-31. Although its technical model fits Base and direct wallet payments, it is not a viable foundation for AAE's production checkout with only weeks remaining. Do not build a new dependency on it. See https://depay.com/docs/payments/integrate/link.
@@ -58,6 +62,7 @@ DePay's official documentation now announces that its services will be permanent
 5. Do not add a payout signer or store the owner's wallet private key in Worker secrets. A wallet signature, smart-wallet creation or key delegation is a separate security-sensitive setup and must be explicitly authorized.
 6. Do not activate public checkout, run a live payment, publish a product, move funds, or deploy production code without separate owner approval.
 7. Do not report revenue until the on-chain receipt or provider settlement is verified and reconciled against fees/refunds.
+8. Treat the Pakistan Virtual Assets Act, 2026 / PVARA classification as a pre-launch legal gate for the exact merchant and processor arrangement. Do not provide virtual-asset services to third parties unless the applicable authorization is confirmed.
 
 ## Current readiness
 
@@ -67,4 +72,5 @@ DePay's official documentation now announces that its services will be permanent
 - Production test payment: not performed.
 - Product publication: not performed.
 - Verified sales/revenue: zero.
+- Pakistan legal classification for the proposed crypto checkout: not yet confirmed; no live crypto acceptance until reviewed.
 - Next engineering step: implement a provider-neutral payment state interface and automated tests, then add a provider only after the above eligibility and custody gates pass. DePay is disqualified by its announced shutdown; DepiPay remains an unverified candidate and must not be confused with DePay.
