@@ -139,6 +139,12 @@ function downloadRequest(jobId, token = "owner-token") {
   });
 }
 
+function challengeRequest(body = { idempotency_key: "internal-pack-v1" }, token = "owner-token") {
+  return new Request("https://aae.example/v1/owner/internal-products/moba-objective-props/approval-challenge", {
+    method: "POST", headers: { authorization: "Bearer " + token, origin: "https://aae.example", "content-type": "application/json" }, body: JSON.stringify(body)
+  });
+}
+
 function request(body = { idempotency_key: "internal-pack-v1" }, token = "owner-token") {
   return new Request("https://aae.example/v1/owner/internal-products/moba-objective-props/build", {
     method: "POST",
@@ -150,6 +156,19 @@ function request(body = { idempotency_key: "internal-pack-v1" }, token = "owner-
     body: JSON.stringify(body)
   });
 }
+
+test("owner approval challenge returns a scoped canonical payload and public key only", async () => {
+  const { env } = await makeEnv();
+  const response = await worker.fetch(challengeRequest(), env);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.payload.action, "execute_internal_product");
+  assert.equal(result.payload.execution_spec.kind, "moba_objective_props_v1");
+  assert.equal(result.payload.expires_at - result.payload.issued_at, 300);
+  assert.equal(typeof result.canonical_payload, "string");
+  assert.equal(typeof result.public_key_jwk.x, "string");
+  assert.equal("d" in result.public_key_jwk, false);
+});
 
 test("internal product execution requires owner authentication before touching D1", async () => {
   let touched = false;
