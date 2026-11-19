@@ -70,7 +70,7 @@ class ChainReorgReconciler:
                           (tx_hash>? OR (tx_hash=? AND transfer_ref>?))))
                        ORDER BY block_number,tx_hash,transfer_ref LIMIT ?""",
                     (self.network,self.token_contract,floor,last[0],last[0],
-                     last[1],last[1],last[2],self.batch_size),
+                     last[1],last[1],last[2],self.batch_size + 1),
                 ).fetchall()
             else:
                 rows = db.execute(
@@ -80,8 +80,10 @@ class ChainReorgReconciler:
                        WHERE network=? AND lower(token_contract)=? AND status='credited'
                          AND block_number>=?
                        ORDER BY block_number,tx_hash,transfer_ref LIMIT ?""",
-                    (self.network,self.token_contract,floor,self.batch_size),
+                    (self.network,self.token_contract,floor,self.batch_size + 1),
                 ).fetchall()
+        has_more = len(rows) > self.batch_size
+        rows = rows[:self.batch_size]
         checked = alerts = 0
         for row in rows:
             checked += 1
@@ -110,9 +112,9 @@ class ChainReorgReconciler:
                        transfer_ref=excluded.transfer_ref,updated_at=CURRENT_TIMESTAMP""",
                     (self.network,self.token_contract,row["block_number"],row["tx_hash"],row["transfer_ref"]),
                 )
-        if len(rows) < self.batch_size:
+        if not has_more:
             with closing(self.finance._connect()) as db:
                 db.execute("DELETE FROM chain_reorg_reconcile_cursors WHERE network=? AND token_contract=?",
                            (self.network,self.token_contract))
         return {"checked": checked, "reorg_alerts": alerts, "from_block": floor,
-                "finalized_block": finalized, "has_more": len(rows) == self.batch_size}
+                "finalized_block": finalized, "has_more": has_more}
