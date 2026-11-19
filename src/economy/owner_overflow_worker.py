@@ -8,6 +8,7 @@ verified finalized transfer evidence. Ambiguous provider outcomes stay uncertain
 from __future__ import annotations
 
 from contextlib import closing
+import uuid
 from typing import Protocol
 
 from .agent_finance import VerifiedTransfer
@@ -133,10 +134,11 @@ class OwnerOverflowSweepWorker:
                     "uncertain": 0, "remaining_excess_minor": 0}
         self.store.reserve_owner_overflow_sweep(
             network, asset, period_id=period_id,
-            idempotency_key=(
-                f"owner-overflow:{network}:{asset.upper()}:{period_id}:"
-                f"{capacity['balance_minor']}"
-            ),
+            # Each sweep is its own durable operation. Active reservations are
+            # subtracted transactionally by the store, so a fresh key permits a
+            # later same-sized deposit to be swept after an earlier sweep settles.
+            idempotency_key=f"owner-overflow:{network}:{asset.upper()}:{uuid.uuid4()}",
+
         )
         result = await self.run_once(
             network=network, asset=asset, period_id=period_id, limit=limit,
