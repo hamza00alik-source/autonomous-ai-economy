@@ -1,5 +1,6 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { registerAgentReceivingWallet, createAgentReceivingInvoice } from "./receiving_wallets.js";
+import { registerAgentApiKey, authenticateAgentRequest } from "./agent_api_identity.js";
 import { verifyBaseUsdcInvoicePayment } from "./base_chain_verifier.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 import { getCloudFinancialControls, setCloudEmergencyPause, createCloudExpenseSchedule, setCloudExpenseScheduleStatus, runDueCloudExpenseSchedules, registerCloudSignedFinancialPolicy, createCloudOwnerEnrollmentChallenge, completeCloudOwnerEnrollment } from "./financial_controls.js";
@@ -707,7 +708,48 @@ export default {
       headers.set("cache-control", "no-store");
       return new Response(page.body, { status: page.status, statusText: page.statusText, headers });
     }
+    const agentInvoiceMatch = url.pathname.match(/^\/v1\/agents\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\/receiving-invoices$/);
+    if (agentInvoiceMatch && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (!(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) return json({ error: "application/json required" }, 415);
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 2000) return json({ error: "request body too large" }, 413);
+      const auth = await authenticateAgentRequest(env.DB, {
+        agentId: agentInvoiceMatch[1], method: request.method, path: url.pathname, body: raw,
+        timestamp: request.headers.get("x-aae-timestamp"), nonce: request.headers.get("x-aae-nonce"),
+        signature: request.headers.get("x-aae-signature"), keyFingerprint: request.headers.get("x-aae-key")
+      });
+      if (!auth.ok || auth.ownerId !== env.AAE_OWNER_ID) return json({ error: auth.reason || "agent_identity_owner_mismatch" }, 401);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).some(key => !["order_id","amount","description","expires_in_minutes"].includes(key)) ||
+          typeof body.order_id !== "string" || typeof body.amount !== "string" || typeof body.description !== "string") return json({ error: "invalid receiving invoice fields" }, 400);
+      const result = await createAgentReceivingInvoice(env.DB, {
+        ownerId: auth.ownerId, agentId: auth.agentId, orderId: body.order_id,
+        amount: body.amount, description: body.description,
+        expiresInMinutes: body.expires_in_minutes === undefined ? 60 : body.expires_in_minutes
+      });
+      return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
+    }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    const agentKeyMatch = url.pathname.match(/^\/v1\/owner\/agents\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\/api-key$/);
+    if (agentKeyMatch && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) return json({ error: "same-origin application/json request required" }, 403);
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 4000) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== 3 || !["public_key_jwk","owner_signature","proof_signature"].every(key => key in body)) return json({ error: "public_key_jwk, owner_signature and proof_signature required" }, 400);
+      const result = await registerAgentApiKey(env.DB, {
+        ownerId: env.AAE_OWNER_ID, agentId: agentKeyMatch[1], publicKeyJwk: body.public_key_jwk,
+        ownerSignature: body.owner_signature, proofSignature: body.proof_signature
+      });
+      return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
+    }
     const receivingWalletMatch = url.pathname.match(/^\/v1\/owner\/agents\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\/receiving-wallet$/);
     if (receivingWalletMatch && request.method === "POST") {
       if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
