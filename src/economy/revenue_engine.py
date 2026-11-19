@@ -12,8 +12,12 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import json
+import os
 from pathlib import Path
 import sqlite3
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any
 
 
@@ -324,6 +328,71 @@ class RevenueEngine:
         )
 
 
+def sync_opportunities(
+    store: RevenueOpportunityStore,
+    *,
+    worker_url: str,
+    token: str,
+    limit: int = 25,
+    opener=urllib.request.urlopen,
+) -> dict:
+    """Push a bounded local shortlist to the private owner dashboard.
+
+    The cloud receiver deliberately downgrades every imported candidate to
+    owner-review-only and never trusts local escrow/payment verification.
+    """
+    if not token:
+        raise ValueError("AAE_QUEUE_TOKEN is required")
+    if not 1 <= limit <= 25:
+        raise ValueError("sync limit must be between 1 and 25")
+    parsed = urllib.parse.urlsplit(worker_url)
+    if (parsed.scheme != "https" or not parsed.netloc or parsed.username or
+            parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment):
+        raise ValueError("AAE_WORKER_URL must be an HTTPS origin without embedded credentials")
+    candidates = store.list(limit=limit)
+    if not candidates:
+        return {"imported": 0, "status": "empty_shortlist"}
+    allowed = (
+        "source", "external_id", "title", "url", "currency", "gross_reward",
+        "net_reward", "status", "priority_score", "fit_score",
+        "evidence_confidence", "escrow_verified", "reasons", "discovered_at",
+    )
+    payload = {"opportunities": [{key: item.get(key) for key in allowed} for item in candidates]}
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(body) > 48_000:
+        raise ValueError("shortlist exceeds the private worker's 48 KB import limit")
+    request = urllib.request.Request(
+        f"https://{parsed.netloc}/v1/owner/revenue-opportunities/import",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with opener(request, timeout=20) as response:
+            result = json.loads(response.read(1_000_000).decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"private worker opportunity import returned HTTP {exc.code}") from None
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("private worker returned invalid JSON") from exc
+    except Exception as exc:
+        if isinstance(exc, RuntimeError):
+            raise
+        raise RuntimeError(f"private worker opportunity import failed ({type(exc).__name__})") from None
+    if not isinstance(result, dict) or result.get("imported") != len(candidates):
+        raise RuntimeError("private worker did not confirm the complete opportunity import")
+    enforced = result.get("enforced") or {}
+    if (enforced.get("review_status") != "needs_owner_review" or
+            enforced.get("independent_escrow_verified") is not False or
+            enforced.get("payment_verified") is not False or
+            enforced.get("claim_allowed") is not False):
+        raise RuntimeError("private worker did not confirm safe owner-review-only import")
+    return {"imported": len(candidates), "status": "synced_owner_review_only"}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="AAE cross-marketplace revenue intelligence")
     parser.add_argument("--data-dir", type=Path, default=Path("./data"))
@@ -336,10 +405,19 @@ def main(argv: list[str] | None = None) -> int:
     listing = sub.add_parser("list", help="show the saved cross-marketplace shortlist")
     listing.add_argument("--limit", type=int, default=50)
     listing.add_argument("--ready-only", action="store_true")
+    sync = sub.add_parser("sync", help="send a bounded shortlist to the private owner dashboard (review-only)")
+    sync.add_argument("--limit", type=int, default=25)
     args = parser.parse_args(argv)
     store = RevenueOpportunityStore(args.data_dir / "revenue-opportunities.sqlite3")
     if args.command == "list":
         print(json.dumps(store.list(limit=args.limit, ready_only=args.ready_only), indent=2))
+        return 0
+    if args.command == "sync":
+        result = sync_opportunities(
+            store, worker_url=os.getenv("AAE_WORKER_URL", ""),
+            token=os.getenv("AAE_QUEUE_TOKEN", ""), limit=args.limit,
+        )
+        print(json.dumps(result, indent=2))
         return 0
     engine = RevenueEngine(store)
     print(json.dumps(engine.scan_once(
