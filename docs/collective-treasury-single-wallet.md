@@ -26,6 +26,8 @@ The current provider adapter is Coinbase Developer Platform (CDP) Server Wallets
 - `src/economy/evm_rpc.py` reads finalized transaction receipts and calculates execution gas plus Base L1-data and optional blob fees in wei, after chain-ID, finality and canonical-block checks.
 - `CollectiveTreasuryStore.record_gas_cost()` binds that verified fee to the exact settled spend reservation and records the externally supplied USDC valuation, price source and observation time. Gas is included in period expenses but does not incorrectly debit the USDC pool because it was paid in native ETH.
 - `src/economy/treasury_worker.py` adds a bounded one-shot worker that picks up only fresh reserved spends. The store's atomic compare-and-set claim prevents two workers from submitting the same reservation; uncertain transactions are never resubmitted by this worker.
+- `src/economy/collective_treasury_monitor.py` scans incoming finalized transfers, binds payment intents to expected payer addresses, attributes only unique exact matches, holds ambiguous receipts in suspense, and requires a strict-majority quorum of independent RPC pages.
+- `tests/test_collective_treasury_monitor.py` covers exact attribution, ambiguity, replay safety, changed block identity, and quorum disagreement.
 - `tests/test_collective_treasury.py`, `tests/test_evm_rpc.py` and `tests/test_treasury_worker.py` cover shared-wallet uniqueness, suspense attribution, receipt deduplication, spend controls, atomic claims, worker limits, settlement, gas fee finality, Base L1/blob fee arithmetic, valuation gating and profit allocation.
 
 ## Why attribution is mandatory
