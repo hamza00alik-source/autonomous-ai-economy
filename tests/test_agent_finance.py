@@ -9,6 +9,7 @@ class AgentFinanceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = AgentFinanceStore(Path(self.tmp.name) / "finance.sqlite3")
+        self.store.register_wallet(Wallet("agent-a", "agent", "base", "USDC", "0xAgent"))
         self.store.register_wallet(Wallet("master", "master", "base", "USDC", "0xMaster"))
 
     def tearDown(self):
@@ -39,7 +40,6 @@ class AgentFinanceTests(unittest.TestCase):
         # Expenses are represented as independently verified outgoing transfer events.
         # For this initial ledger, the chain adapter binds the agent's wallet as the
         # account whose balance decreased and supplies its normalized transfer proof.
-        self.store.register_wallet(Wallet("agent-a", "agent", "base", "USDC", "0xAgent"))
         expense = VerifiedTransfer("base", "USDC", "expense", "0", "0xVendor",
                                    20_000, 12, True, source="0xAgent")
         self.store.record_expense("agent-a", expense, period_id="nov")
