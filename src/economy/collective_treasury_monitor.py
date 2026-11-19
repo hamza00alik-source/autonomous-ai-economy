@@ -354,7 +354,7 @@ class CollectiveTreasuryReceiptMonitor:
                 continue
             with closing(self.store._connect()) as db:
                 prior_event = db.execute(
-                    """SELECT block_hash,status FROM treasury_receipt_monitor_events
+                    """SELECT block_hash,block_number,status FROM treasury_receipt_monitor_events
                        WHERE network=? AND tx_hash=? AND transfer_ref=?""",
                     (network, item.tx_hash, item.transfer_ref),
                 ).fetchone()
