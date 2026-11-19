@@ -38,6 +38,14 @@ class QuorumTreasuryReceiptSource:
             raise ValueError("at least two independent receipt sources are required")
         if len({id(source) for source in self.sources}) != len(self.sources):
             raise ValueError("the same receipt source cannot count as multiple providers")
+        configured_urls = [
+            getattr(getattr(source, "config", None), "rpc_url", None)
+            for source in self.sources
+        ]
+        if all(isinstance(url, str) and url for url in configured_urls):
+            normalized_urls = {url.rstrip("/").lower() for url in configured_urls}
+            if len(normalized_urls) != len(configured_urls):
+                raise ValueError("receipt RPC provider URLs must be distinct")
         minimum_majority = len(self.sources) // 2 + 1
         self.quorum = quorum if quorum is not None else minimum_majority
         if (isinstance(self.quorum, bool) or not isinstance(self.quorum, int)
