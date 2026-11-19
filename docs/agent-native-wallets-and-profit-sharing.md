@@ -53,3 +53,15 @@ References:
 - Official Python SDK: https://github.com/x402-foundation/x402/tree/main/python/x402
 - HTTP transport v2: https://github.com/x402-foundation/x402/blob/main/specs/transports-v2/http.md
 - Solana agentic payments overview: https://solana.com/docs/payments/agentic-payments/x402
+
+## Stage 4: provider-neutral wallet provisioning
+
+`src/economy/wallet_provisioning.py` adds the first executable wallet lifecycle boundary:
+
+- Each participant/role/network/asset tuple has one durable provisioning record.
+- The external provider receives a stable idempotency key, so a retry after a timeout or process restart must return the same wallet rather than create another.
+- Provider identity, network, asset and returned public address are checked before the address is registered in the finance ledger.
+- Only the provider wallet reference and public address are stored. Private keys, seed phrases and signatures are not accepted or persisted.
+- Repeated requests return the already-registered wallet; switching providers or silently replacing an address is rejected.
+
+The included fake-provider tests exercise creation, idempotent repeat, retry after a simulated provider outage, provider mismatch and network mismatch. No real custody provider is selected or connected. Before production, the adapter must be implemented against a provider with documented idempotent wallet creation, isolated per-agent accounts, withdrawal policy controls, recovery procedures and auditable API credentials. Caller authentication and owner authorization must be enforced by the application boundary before invoking provisioning.
