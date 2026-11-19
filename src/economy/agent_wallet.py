@@ -38,7 +38,7 @@ class AgentTreasuryWallet:
         self.receipt_monitor = receipt_monitor
 
     def wallet(self) -> dict:
-        """Return this agent's capped account view and the actual shared address."""
+        """Return this agent's uncapped virtual balance and shared wallet capacity."""
         return self.store.agent_wallet(self.agent_id, self.network, self.asset)
 
     def prepare_receive(
@@ -60,7 +60,8 @@ class AgentTreasuryWallet:
             "address": view["address"],
             "expected_amount_minor": amount_minor,
             "attribution_ref": attribution_ref,
-            "max_balance_minor": view["max_balance_minor"],
+            "shared_wallet_cap_minor": view["shared_wallet_cap_minor"],
+            "shared_wallet_remaining_minor": view["shared_wallet_remaining_minor"],
             "note": "Send the exact amount from the bound payer address; funds arrive at the shared treasury address and are credited only after finalized verification.",
         }
 
