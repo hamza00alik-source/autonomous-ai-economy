@@ -305,6 +305,19 @@ class CollectiveTreasuryStore:
             if not agent:
                 db.rollback()
                 raise ValueError("agent has no virtual treasury account")
+            existing = db.execute(
+                "SELECT * FROM treasury_payment_intents WHERE attribution_ref=?",
+                (attribution_ref,),
+            ).fetchone()
+            if existing:
+                expected = (existing["agent_id"], existing["network"], existing["asset"],
+                            existing["expected_amount_minor"])
+                actual = (agent_id, network, asset, expected_amount_minor)
+                if expected != actual:
+                    db.rollback()
+                    raise ValueError("payment intent reference already belongs to different terms")
+                db.commit()
+                return
             # Reserve incoming capacity when an invoice is created, so multiple
             # concurrent payment intents cannot overfill this agent's $500 wallet.
             account = db.execute(
@@ -327,19 +340,6 @@ class CollectiveTreasuryStore:
             if int(account["balance"]) + int(pending_intents["amount"]) + expected_amount_minor > int(policy["max_balance_minor"]):
                 db.rollback()
                 raise ValueError("agent wallet $500 balance cap would be exceeded")
-            existing = db.execute(
-                "SELECT * FROM treasury_payment_intents WHERE attribution_ref=?",
-                (attribution_ref,),
-            ).fetchone()
-            if existing:
-                expected = (existing["agent_id"], existing["network"], existing["asset"],
-                            existing["expected_amount_minor"])
-                actual = (agent_id, network, asset, expected_amount_minor)
-                if expected != actual:
-                    db.rollback()
-                    raise ValueError("payment intent reference already belongs to different terms")
-                db.commit()
-                return
             db.execute(
                 """INSERT INTO treasury_payment_intents
                    (attribution_ref,agent_id,network,asset,expected_amount_minor,status)
