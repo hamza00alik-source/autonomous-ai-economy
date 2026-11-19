@@ -19,3 +19,6 @@ build/
 
 # Generated protected Cloudflare Worker product delivery bundle
 cloudflare/worker/public/downloads/*.zip
+
+# Generated Python Worker package copied from canonical src/economy
+cloudflare/python-runtime/python_modules/
