@@ -66,6 +66,26 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
 <div class="row"><button id="buildInternalProduct" type="button" disabled>Build MOBA Objective Props</button><button id="downloadInternalProduct" class="secondary" type="button" disabled>Download private ZIP</button></div>
 <div id="internalProductStatus" class="muted" role="status" aria-live="polite">Load your enrolled owner key to enable approved builds.</div>
 </section>
+<section class="panel" id="businessPipelinePanel">
+<h2>Business pipeline</h2>
+<p class="muted">A read-only view across opportunity discovery, production, QA, listing drafts, checkout, customer delivery and payment reconciliation. A provider callback is not counted as reconciled revenue.</p>
+<div class="cards">
+<div class="metric"><small>Opportunity discovery</small><strong id="pipelineDiscovery">—</strong></div>
+<div class="metric"><small>Production</small><strong id="pipelineProduction">—</strong></div>
+<div class="metric"><small>Quality assurance</small><strong id="pipelineQA">—</strong></div>
+<div class="metric"><small>Listing</small><strong id="pipelineListing">—</strong></div>
+<div class="metric"><small>Checkout</small><strong id="pipelineCheckout">—</strong></div>
+<div class="metric"><small>Customer delivery</small><strong id="pipelineDelivery">—</strong></div>
+<div class="metric"><small>Payment reconciliation</small><strong id="pipelineReconciliation">—</strong></div>
+</div>
+<h3 style="margin-top:18px">Unpublished listing drafts</h3>
+<div class="tablewrap"><table><thead><tr><th>Task</th><th>Title</th><th>Status</th><th>Claims to verify</th><th>Published</th></tr></thead><tbody id="businessListingRows"><tr><td colspan="5">Loading…</td></tr></tbody></table></div>
+<h3 style="margin-top:18px">Customer orders</h3>
+<div class="tablewrap"><table><thead><tr><th>Order</th><th>Status</th><th>Price</th><th>Paid amount</th><th>Downloads</th><th>Updated</th></tr></thead><tbody id="businessOrderRows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div>
+<h3 style="margin-top:18px">Revenue reconciliation</h3>
+<div class="tablewrap"><table><thead><tr><th>Order</th><th>Status</th><th>Gross</th><th>Net</th><th>Agent credit</th><th>Reconciled</th></tr></thead><tbody id="businessRevenueRows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div>
+<p class="muted" id="businessPipelineNote">Opportunity discovery is not yet connected to this cloud console. Visual product review remains a human QA step. No listing is published by this dashboard.</p>
+</section>
 <section class="panel" id="executionOperationsPanel">
 <h2>Private execution queue</h2>
 <p class="muted">Read-only visibility into owner-approved internal product jobs, execution leases, attempts and append-only audit events. This does not start, retry, cancel or modify jobs.</p>
@@ -485,6 +505,50 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    try{await postJson("/v1/owner/financial-controls/schedules",payload);$("financialMessage").textContent="Schedule created under the active signed policy.";event.target.reset();$("scheduleCurrency").value="USD";$("scheduleInterval").value="86400";await loadFinancialControls();}
    catch(error){$("financialMessage").textContent=error.message;}
  });
+ function renderBusinessPipeline(data) {
+   const stages=data.stages||{};
+   const labels=[
+     ["pipelineDiscovery",stages.opportunity_discovery?.status],
+     ["pipelineProduction",stages.production?.status],
+     ["pipelineQA",stages.quality_assurance?.status],
+     ["pipelineListing",stages.listing?.status],
+     ["pipelineCheckout",stages.checkout?.status],
+     ["pipelineDelivery",stages.customer_delivery?.status],
+     ["pipelineReconciliation",stages.payment_reconciliation?.status],
+   ];
+   for(const [id,value] of labels) $(id).textContent=value||"unknown";
+   const listingRows=$("businessListingRows");listingRows.replaceChildren();
+   if(!(data.listing_drafts||[]).length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=5;td.textContent="No product-copy drafts recorded.";tr.appendChild(td);listingRows.appendChild(tr);}
+   for(const item of data.listing_drafts||[]){
+     const tr=document.createElement("tr");
+     for(const value of [item.task_id,item.title||"Draft not available",item.status,number((item.claims_to_verify||[]).length),"No"]){
+       const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+     }listingRows.appendChild(tr);
+   }
+   const orderRows=$("businessOrderRows");orderRows.replaceChildren();
+   if(!(data.orders||[]).length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.textContent="No customer orders recorded.";tr.appendChild(td);orderRows.appendChild(tr);}
+   for(const item of data.orders||[]){
+     const tr=document.createElement("tr");
+     const price=item.price_amount===null?"—":"$"+Number(item.price_amount||0).toFixed(2)+" "+String(item.price_currency||"").toUpperCase();
+     const paid=item.actually_paid===null?"—":String(item.actually_paid)+" "+String(item.pay_currency||"").toUpperCase();
+     for(const value of [item.order_id,item.status,price,paid,number(item.download_count),time(item.updated_at)]){
+       const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+     }orderRows.appendChild(tr);
+   }
+   const revenueRows=$("businessRevenueRows");revenueRows.replaceChildren();
+   if(!(data.revenue_events||[]).length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.textContent="No revenue events recorded.";tr.appendChild(td);revenueRows.appendChild(tr);}
+   for(const item of data.revenue_events||[]){
+     const tr=document.createElement("tr");
+     const gross=money(item.gross_amount_minor)+" "+String(item.gross_currency||"").toUpperCase();
+     const net=item.net_amount_minor===null?"Not reconciled":money(item.net_amount_minor)+" "+String(item.net_currency||"").toUpperCase();
+     const credit=item.agent_credit_minor===null?"Not credited":money(item.agent_credit_minor)+" "+String(item.agent_credit_currency||"").toUpperCase();
+     for(const value of [item.order_id,item.status,gross,net,credit,time(item.reconciled_at)]){
+       const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+     }revenueRows.appendChild(tr);
+   }
+   const reconciliation=stages.payment_reconciliation||{};
+   $("businessPipelineNote").textContent="Provider-settled gross: "+money(reconciliation.provider_settled_gross_minor)+" USD · Independently reconciled net: "+money(reconciliation.reconciled_net_minor)+" USD. Opportunity discovery remains separate; visual review is still required. Read-only controls: no publishing, checkout creation or customer contact.";
+ }
  function renderExecutionOperations(data) {
    const counts=data.counts||{};
    $("executionApproved").textContent=number(counts.approved);
@@ -549,9 +613,10 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
  async function refresh() {
    $("refresh").disabled=true;
    try {
-     const [overview,tasks,executionOperations]=await Promise.all([get("/v1/owner/overview"),get("/v1/owner/tasks"),get("/v1/owner/internal-products/operations")]);
+     const [overview,tasks,executionOperations,businessPipeline]=await Promise.all([get("/v1/owner/overview"),get("/v1/owner/tasks"),get("/v1/owner/internal-products/operations"),get("/v1/owner/business-pipeline")]);
      await loadFinancialControls();
      renderExecutionOperations(executionOperations);
+     renderBusinessPipeline(businessPipeline);
      const counts=Object.fromEntries((overview.tasks||[]).map(row=>[row.status,row.total]));
      $("queued").textContent=number(counts.queued);
      $("running").textContent=number(counts.running);
