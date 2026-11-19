@@ -350,6 +350,36 @@ class CollectiveTreasuryTests(unittest.TestCase):
             ).fetchone()["amount"]
         self.assertEqual(lifetime_receipts, 800_000_000)
 
+    def test_unexpected_deposit_overflow_blocks_agent_spending_and_flags_excess(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 400_000_000,
+            attribution_ref="invoice:reserved-400",
+        )
+        # Anyone can send tokens to a public EVM address; an unsolicited
+        # deposit may consume capacity that had been reserved for an invoice.
+        self.store.record_receipt(
+            self.transfer(tx="0x" + "4" * 64, ref="log:unsolicited", amount=200_000_000),
+            period_id="2026-11",
+        )
+        # Do not credit the later invoice to the agent if it would push the
+        # pooled on-chain holdings beyond the shared $500 cap.
+        result = self.store.record_receipt(
+            self.transfer(tx="0x" + "5" * 64, ref="log:reserved", amount=400_000_000),
+            period_id="2026-11", agent_id="agent-a",
+            attribution_ref="invoice:reserved-400",
+        )
+        self.assertEqual(result, "unallocated")
+        capacity = self.store.shared_wallet_capacity("base-sepolia", "USDC")
+        self.assertTrue(capacity["over_cap"])
+        self.assertTrue(capacity["spending_blocked"])
+        self.assertEqual(capacity["excess_minor"], 100_000_000)
+        self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 0)
+        with self.assertRaisesRegex(ValueError, r"above its \$500 total holding cap"):
+            self.store.reserve_spend(
+                "agent-a", "base-sepolia", "USDC", "0x" + "b" * 40, 1,
+                idempotency_key="agent-a:blocked-overflow", period_id="2026-11",
+            )
+
     def test_suspense_receipt_can_be_allocated_without_per_agent_earning_cap(self):
         self.store.create_payment_intent(
             "agent-a", "base-sepolia", "USDC", 500_000_000,
