@@ -89,6 +89,16 @@ class CollectiveTreasuryStore:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY(network, tx_hash, transfer_ref)
                 );
+                CREATE TABLE IF NOT EXISTS treasury_pool_events (
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    tx_hash TEXT NOT NULL,
+                    transfer_ref TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK(event_type IN ('receipt','expense')),
+                    amount_minor INTEGER NOT NULL CHECK(amount_minor > 0),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(network, asset, tx_hash, transfer_ref, event_type)
+                );
                 CREATE TABLE IF NOT EXISTS treasury_payment_intents (
                     attribution_ref TEXT PRIMARY KEY,
                     agent_id TEXT NOT NULL,
@@ -334,6 +344,13 @@ class CollectiveTreasuryStore:
                                    "receipt", "credit", transfer.amount_minor, period_id,
                                    "Verified on-chain treasury receipt", transfer.tx_hash,
                                    transfer.transfer_ref)
+                db.execute(
+                    """INSERT INTO treasury_pool_events
+                       (network,asset,tx_hash,transfer_ref,event_type,amount_minor)
+                       VALUES(?,?,?,?, 'receipt', ?)""",
+                    (transfer.network, transfer.asset.upper(), transfer.tx_hash,
+                     transfer.transfer_ref, transfer.amount_minor),
+                )
                 if agent_id and intent:
                     db.execute(
                         """UPDATE treasury_payment_intents
@@ -559,6 +576,13 @@ class CollectiveTreasuryStore:
                                    "Verified treasury payment for agent expense",
                                    transfer.tx_hash, transfer.transfer_ref)
                 db.execute(
+                    """INSERT INTO treasury_pool_events
+                       (network,asset,tx_hash,transfer_ref,event_type,amount_minor)
+                       VALUES(?,?,?,?, 'expense', ?)""",
+                    (transfer.network, transfer.asset.upper(), transfer.tx_hash,
+                     transfer.transfer_ref, transfer.amount_minor),
+                )
+                db.execute(
                     """UPDATE treasury_spend_reservations SET status='settled',tx_hash=?
                        WHERE reservation_id=?""",
                     (transfer.tx_hash, reservation_id),
@@ -567,6 +591,45 @@ class CollectiveTreasuryStore:
             except sqlite3.IntegrityError as exc:
                 db.rollback()
                 raise ValueError("duplicate or conflicting treasury settlement") from exc
+
+    def pool_balance(self, network: str, asset: str) -> int:
+        """Ledger-tracked pooled cash: verified receipts minus verified external spends."""
+        with closing(self._connect()) as db:
+            row = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN event_type='receipt'
+                           THEN amount_minor ELSE -amount_minor END),0) AS amount
+                   FROM treasury_pool_events WHERE network=? AND asset=?""",
+                (network, asset.upper()),
+            ).fetchone()
+        return int(row["amount"])
+
+    def reconciliation_snapshot(self, network: str, asset: str) -> dict:
+        """Compare pooled cash events with the sum of all agent/treasury virtual accounts."""
+        with closing(self._connect()) as db:
+            row = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN direction='credit'
+                           THEN amount_minor ELSE -amount_minor END),0) AS amount
+                   FROM treasury_entries WHERE network=? AND asset=?""",
+                (network, asset.upper()),
+            ).fetchone()
+            counts = db.execute(
+                """SELECT
+                     COALESCE(SUM(CASE WHEN event_type='receipt' THEN amount_minor ELSE 0 END),0) AS receipts,
+                     COALESCE(SUM(CASE WHEN event_type='expense' THEN amount_minor ELSE 0 END),0) AS expenses
+                   FROM treasury_pool_events WHERE network=? AND asset=?""",
+                (network, asset.upper()),
+            ).fetchone()
+        pool = int(counts["receipts"]) - int(counts["expenses"])
+        virtual = int(row["amount"])
+        return {
+            "network": network, "asset": asset.upper(),
+            "verified_receipts_minor": int(counts["receipts"]),
+            "verified_external_expenses_minor": int(counts["expenses"]),
+            "pool_balance_minor": pool,
+            "virtual_accounts_total_minor": virtual,
+            "difference_minor": pool - virtual,
+            "balanced": pool == virtual,
+        }
 
     def close_period(self, agent_id: str, network: str, asset: str, period_id: str, *,
                      reserve_bps: int, owner_share_bps: int,
