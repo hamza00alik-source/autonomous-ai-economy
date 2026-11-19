@@ -153,6 +153,29 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed block identity"):
             self.monitor.poll_once(network="base-sepolia", asset="USDC", period_id="2026-11")
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 5000)
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            self.store.reserve_spend(
+                "agent-a", "base-sepolia", "USDC", "0x" + "e" * 40, 100,
+                idempotency_key="reorg-blocked", period_id="2026-11",
+            )
+
+    def test_noncanonical_reappearance_opens_alert_and_pauses_all_agents(self):
+        self.intent()
+        self.monitor.bind_payer("invoice:1", PAYER)
+        self.monitor.poll_once(network="base-sepolia", asset="USDC", period_id="2026-11")
+        self.source.transfers = (observation(canonical=False),)
+        result = self.monitor.poll_once(
+            network="base-sepolia", asset="USDC", period_id="2026-11"
+        )
+        self.assertEqual(result["orphaned"], 1)
+        self.assertEqual(self.monitor.open_reorg_alerts(
+            network="base-sepolia", asset="USDC"
+        ), 1)
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            self.store.reserve_spend(
+                "agent-a", "base-sepolia", "USDC", "0x" + "e" * 40, 100,
+                idempotency_key="reorg-blocked-2", period_id="2026-11",
+            )
 
 
 if __name__ == "__main__":
