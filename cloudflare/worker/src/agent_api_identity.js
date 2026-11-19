@@ -74,3 +74,21 @@ export async function authenticateAgentRequest(db,{agentId,method,path,body,time
   } catch { return {ok:false,reason:"agent_request_replay_detected"}; }
   return {ok:true,ownerId:key.owner_id,agentId:key.agent_id,keyId:key.key_id};
 }
+
+export async function revokeAgentApiKey(db,{ownerId,agentId,keyId,ownerSignature,now=new Date().toISOString()}={}) {
+  if(!ID.test(ownerId||"")||!ID.test(agentId||"")||typeof keyId!=="string"||keyId.length>64) return {ok:false,reason:"invalid_revocation_identity"};
+  const owner=await db.prepare("SELECT status,participant_type,public_key_jwk FROM financial_participants WHERE participant_id=?").bind(ownerId).first();
+  const key=await db.prepare("SELECT key_id,status FROM financial_agent_api_keys WHERE key_id=? AND owner_id=? AND agent_id=?").bind(keyId,ownerId,agentId).first();
+  if(!owner||owner.status!=="active"||owner.participant_type!=="owner"||!owner.public_key_jwk||!key) return {ok:false,reason:"owner_or_agent_key_not_found"};
+  if(key.status==="revoked") return {ok:true,idempotent:true,key_id:keyId,status:"revoked"};
+  const payload=canonicalAgentKeyPayload({version:1,action:"revoke_agent_api_key",owner_id:ownerId,agent_id:agentId,key_id:keyId});
+  const signature=decode64(ownerSignature);
+  if(!signature||signature.length!==64) return {ok:false,reason:"invalid_owner_revocation_signature"};
+  let ownerKey;
+  try { ownerKey=await crypto.subtle.importKey("jwk",JSON.parse(owner.public_key_jwk),{name:"Ed25519"},false,["verify"]); }
+  catch { return {ok:false,reason:"invalid_owner_public_key"}; }
+  if(!await verify(ownerKey,signature,payload)) return {ok:false,reason:"invalid_owner_revocation_signature"};
+  await db.prepare("UPDATE financial_agent_api_keys SET status='revoked',revoked_at=? WHERE key_id=? AND owner_id=? AND agent_id=? AND status='active'")
+    .bind(now,keyId,ownerId,agentId).run();
+  return {ok:true,idempotent:false,key_id:keyId,status:"revoked"};
+}
