@@ -13,7 +13,7 @@ export function inspectBaseUsdcReceipt({chainId,receipt,receiptBlock,finalizedBl
   const finalizedNumber=hexBigInt(finalizedBlock?.number);
   if(blockNumber===null||finalizedNumber===null) return {ok:false,reason:"finality_unavailable"};
   if(finalizedNumber<blockNumber) return {ok:false,reason:"pending_finality"};
-  if(!receiptBlock||String(receiptBlock.hash||"").toLowerCase()!==String(receipt.blockHash).toLowerCase()) return {ok:false,reason:"receipt_block_not_canonical"};
+  if(!receiptBlock||String(receiptBlock.hash||"").toLowerCase()!==String(receipt.blockHash).toLowerCase()||hexBigInt(receiptBlock.number)!==blockNumber) return {ok:false,reason:"receipt_block_not_canonical"};
   const invoiceAddress=String(invoice?.receiving_address||"").toLowerCase();
   if(!/^0x[a-f0-9]{40}$/.test(invoiceAddress)||!Number.isSafeInteger(invoice?.amount_minor)||invoice.amount_minor<=0) return {ok:false,reason:"invalid_invoice"};
   const recipientTopic="0x"+invoiceAddress.slice(2).padStart(64,"0");
