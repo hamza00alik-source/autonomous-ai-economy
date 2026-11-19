@@ -28,6 +28,7 @@ class SpendPolicy:
     agent_id: str
     network: str
     asset: str
+    wallet_address: str
     daily_limit_minor: int
     per_transaction_limit_minor: int
     allowed_destinations: tuple[str, ...]
@@ -100,8 +101,10 @@ class WalletSpendController:
 
     def configure_policy(self, policy: SpendPolicy) -> None:
         if not all(isinstance(v, str) and v.strip() for v in
-                   (policy.agent_id, policy.network, policy.asset)):
+                   (policy.agent_id, policy.network, policy.asset, policy.wallet_address)):
             raise ValueError("agent, network and asset are required")
+        if not isinstance(policy.wallet_address, str) or not policy.wallet_address.strip():
+            raise ValueError("agent wallet address is required")
         if not policy.allowed_destinations or any(
             not isinstance(v, str) or not v.strip() for v in policy.allowed_destinations
         ):
@@ -218,20 +221,23 @@ class WalletSpendController:
                 raise ValueError("reservation is not in reserved state or transaction hash is reused")
 
     def mark_settled(self, reservation_id: str, *, tx_hash: str,
-                     verified: bool, source: str, destination: str,
+                     verified: bool, source_address: str, destination: str,
                      amount_minor: int) -> None:
         if verified is not True:
             raise ValueError("settlement must be independently verified on-chain")
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT * FROM agent_spend_reservations WHERE reservation_id=?",
+                """SELECT r.*, p.wallet_address FROM agent_spend_reservations r
+                   JOIN agent_spend_policies p
+                     ON p.agent_id=r.agent_id AND p.network=r.network AND p.asset=r.asset
+                   WHERE r.reservation_id=?""",
                 (reservation_id,),
             ).fetchone()
             if not row or row["status"] != "broadcast":
                 db.rollback()
                 raise ValueError("broadcast reservation not found")
-            if (row["tx_hash"] != tx_hash or row["agent_id"] != source
+            if (row["tx_hash"] != tx_hash or row["wallet_address"] != source_address
                     or row["destination"] != destination
                     or row["amount_minor"] != amount_minor):
                 db.rollback()
