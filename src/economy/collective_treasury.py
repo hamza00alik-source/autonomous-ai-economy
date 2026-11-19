@@ -753,6 +753,13 @@ class CollectiveTreasuryStore:
                     "destination_address": payout["destination_address"],
                     "amount_minor": amount, "status": "reserved", "period_id": period_id}
 
+    def get_owner_overflow_sweep(self, sweep_id: str) -> dict | None:
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT * FROM treasury_owner_overflow_sweeps WHERE sweep_id=?", (sweep_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
     def claim_owner_overflow_sweep(self, sweep_id: str) -> bool:
         with closing(self._connect()) as db:
             cur = db.execute(
