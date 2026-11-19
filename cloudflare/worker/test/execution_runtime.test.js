@@ -147,6 +147,9 @@ function downloadRequest(jobId, token = "owner-token") {
   });
 }
 
+function statusRequest(jobId, token = "owner-token") {
+  return new Request("https://aae.example/v1/owner/internal-products/jobs/" + jobId, { headers: { authorization: "Bearer " + token } });
+}
 function challengeRequest(body = { idempotency_key: "internal-pack-v1" }, token = "owner-token") {
   return new Request("https://aae.example/v1/owner/internal-products/moba-objective-props/approval-challenge", {
     method: "POST", headers: { authorization: "Bearer " + token, origin: "https://aae.example", "content-type": "application/json" }, body: JSON.stringify(body)
@@ -226,6 +229,11 @@ test("owner-approved product execution stores a verified private artifact and is
   assert.equal(DB.state.events.length, 3);
 
   const result = { job_id: queued.job_id };
+  const statusResponse = await worker.fetch(statusRequest(result.job_id), env);
+  assert.equal(statusResponse.status, 200);
+  const status = await statusResponse.json();
+  assert.equal(status.status, "delivery_ready");
+  assert.equal(status.artifact_sha256, await sha256(bytes));
   const download = await worker.fetch(downloadRequest(result.job_id), env);
   assert.equal(download.status, 200);
   assert.equal(download.headers.get("content-type"), "application/zip");
