@@ -123,6 +123,13 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "same receipt source"):
             QuorumTreasuryReceiptSource([first, first])
 
+    def test_receipt_quorum_rejects_duplicate_rpc_urls(self):
+        first, second = FakeSource([observation()]), FakeSource([observation()])
+        first.config = type("Config", (), {"rpc_url": "https://rpc.example/"})()
+        second.config = type("Config", (), {"rpc_url": "https://rpc.example"})()
+        with self.assertRaisesRegex(ValueError, "URLs must be distinct"):
+            QuorumTreasuryReceiptSource([first, second])
+
     def test_quorum_source_requires_matching_provider_pages(self):
         page_a = FakeSource([observation()])
         page_b = FakeSource([observation()])
