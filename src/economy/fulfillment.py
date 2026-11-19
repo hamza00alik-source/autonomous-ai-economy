@@ -146,6 +146,27 @@ class FulfillmentStore:
             db.execute("COMMIT")
         return self._row(row)
 
+    def create_from_candidate(
+        self, candidate: dict[str, Any], *, agent_id: str,
+        agent_key_fingerprint: str, idempotency_key: str,
+    ) -> FulfillmentJob:
+        """Convert only a verified-escrow shortlist candidate into a local job."""
+        if not isinstance(candidate, dict):
+            raise FulfillmentError("revenue candidate must be an object")
+        if (candidate.get("status") != "ready_for_owner_review" or
+            candidate.get("escrow_verified") is not True or
+            candidate.get("claim_allowed") is not False or
+            candidate.get("payment_verified") is not False):
+            raise FulfillmentError("candidate is not eligible for owner review")
+        source, external_id = candidate.get("source"), candidate.get("external_id")
+        if not isinstance(source, str) or not isinstance(external_id, str):
+            raise FulfillmentError("candidate source and external ID are required")
+        return self.create_job(
+            source=source, external_id=external_id, agent_id=agent_id,
+            agent_key_fingerprint=agent_key_fingerprint, payload=candidate,
+            idempotency_key=idempotency_key,
+        )
+
     @staticmethod
     def _row(row: sqlite3.Row) -> FulfillmentJob:
         return FulfillmentJob(
