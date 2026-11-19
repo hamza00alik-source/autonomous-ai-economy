@@ -1,3 +1,4 @@
+export { AgentKeyVault } from "./agent_key_vault.js";
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { registerAgentReceivingWallet, createAgentReceivingInvoice } from "./receiving_wallets.js";
 import { registerAgentApiKey, revokeAgentApiKey, authenticateAgentRequest } from "./agent_api_identity.js";
