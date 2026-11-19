@@ -52,7 +52,7 @@ test("posts a balanced USDC journal into pending custody, never an available acc
   const journal=db.batches[1];
   assert.equal(journal.length,4);
   assert.match(journal[0].sql,/financial_asset_journal_transactions/);
-  assert.match(journal[1].sql,/agent_pending_custody|financial_asset_journal_postings/);
+  assert.match(journal[1].sql,/financial_asset_journal_postings/);
   assert.match(journal[2].sql,/financial_asset_journal_postings/);
   assert.deepEqual(journal[1].args.slice(0,2),[result.transaction_id,"pending-wallet-account"]);
   assert.deepEqual(journal[2].args.slice(0,2),[result.transaction_id,"pending-revenue-account"]);
