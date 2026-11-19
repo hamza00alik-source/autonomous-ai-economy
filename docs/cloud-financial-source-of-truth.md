@@ -4,7 +4,7 @@
 
 Cloudflare D1 is the intended authoritative persistence layer for **remote owner visibility and controls**. The existing Python SQLite subsystem remains the local simulation/reference implementation until a separately reviewed migration is complete. There is no bidirectional sync and no balance mirroring.
 
-Migration `0006_financial_control_foundation.sql` and `0007_financial_control_enforcement.sql` create the additive cloud schema and enforcement triggers. Worker modules now read and write these tables through authenticated owner routes and an opt-in simulated scheduler. They remain unprovisioned in production until an owner/operator enrollment ceremony, accounts, signed policies, and an explicit production deployment are completed.
+Migrations `0006_financial_control_foundation.sql`, `0007_financial_control_enforcement.sql`, and `0008_owner_key_enrollment.sql` create the additive cloud schema, enforcement triggers, and one-time owner enrollment challenge store. Worker modules now read and write these tables through authenticated owner routes and an opt-in simulated scheduler. They remain unprovisioned in production until an owner/operator enrollment ceremony, accounts, signed policies, and an explicit production deployment are completed.
 
 ## Source-of-truth boundary
 
