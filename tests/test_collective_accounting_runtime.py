@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from economy.agent_finance import VerifiedTransfer
 from economy.chain_monitor import ChainTransferObservation, TransferPage
 from economy.collective_treasury import CollectiveTreasuryStore, TreasuryWallet
 from economy.collective_treasury_monitor import CollectiveTreasuryReceiptMonitor
@@ -82,6 +83,17 @@ class CollectiveTreasuryReorgGuardTests(unittest.TestCase):
             )
 
     def test_reorg_guard_persists_batch_cursor_until_scan_finishes(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 1000, attribution_ref="invoice:second"
+        )
+        self.store.record_receipt(
+            VerifiedTransfer(
+                "base-sepolia", "USDC", "0x" + "e" * 64, "log:1",
+                WALLET, 1000, 20, True, source=PAYER,
+            ),
+            period_id="2026-11", agent_id="agent-a",
+            attribution_ref="invoice:second",
+        )
         guard = CollectiveTreasuryReorgGuard(
             self.monitor, Verifier(canonical=True), batch_size=1
         )
@@ -89,7 +101,7 @@ class CollectiveTreasuryReorgGuardTests(unittest.TestCase):
         self.assertEqual(first["checked"], 1)
         self.assertTrue(first["has_more"])
         second = guard.reconcile_once(network="base-sepolia", asset="USDC")
-        self.assertEqual(second["checked"], 0)
+        self.assertEqual(second["checked"], 1)
         self.assertFalse(second["has_more"])
 
     def test_canonical_receipt_remains_healthy(self):
