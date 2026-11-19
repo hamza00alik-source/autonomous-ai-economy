@@ -74,6 +74,34 @@ class ReorgReconcilerTests(unittest.TestCase):
             status = db.execute("SELECT status FROM chain_monitor_events").fetchone()["status"]
         self.assertEqual(status, "credited")
 
+
+    def test_keyset_cursor_resumes_large_batches_without_starvation(self):
+        with self.finance._connect() as db:
+            for suffix in ("a", "b"):
+                db.execute(
+                    """INSERT INTO chain_monitor_events
+                       (network,tx_hash,transfer_ref,participant_id,asset,token_contract,
+                        source_address,destination_address,amount_minor,block_number,block_hash,
+                        confirmations,period_id,status)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    ("testnet", "0x" + suffix * 64, "log:1", "agent-a", "USDC",
+                     "0xToken", "0xCustomer", "0xAgent", 123, 100, "0xBlock",
+                     20, "2026-11", "credited"),
+                )
+        verifier = Verifier(True)
+        reconciler = ChainReorgReconciler(
+            self.finance, verifier, network="testnet", token_contract="0xToken",
+            lookback_blocks=50, batch_size=1,
+        )
+        first = reconciler.reconcile_once()
+        second = reconciler.reconcile_once()
+        third = reconciler.reconcile_once()
+        self.assertTrue(first["has_more"])
+        self.assertTrue(second["has_more"])
+        self.assertFalse(third["has_more"])
+        self.assertEqual(len(verifier.calls), 3)
+        self.assertEqual(len({call["tx_hash"] for call in verifier.calls}), 3)
+
     def test_old_transfer_outside_rolling_window_is_not_queried(self):
         verifier = Verifier()
         result = ChainReorgReconciler(
