@@ -737,7 +737,7 @@ class CollectiveTreasuryStore:
                 (network, asset),
             ).fetchone()
             payout = db.execute(
-                "SELECT destination_address FROM treasury_owner_payout_config WHERE network=? AND asset=?",
+                "SELECT destination_address,owner_principal_id FROM treasury_owner_payout_config WHERE network=? AND asset=?",
                 (network, asset),
             ).fetchone()
             if not wallet:
@@ -746,6 +746,9 @@ class CollectiveTreasuryStore:
             if not payout:
                 db.rollback()
                 raise ValueError("owner payout address is not configured; overflow spending remains blocked")
+            if not self.owner_principal_id or payout["owner_principal_id"] != self.owner_principal_id:
+                db.rollback()
+                raise PermissionError("owner payout destination must be revalidated by the configured owner")
             pool = db.execute(
                 """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
                            ELSE -amount_minor END),0) AS amount
@@ -818,12 +821,15 @@ class CollectiveTreasuryStore:
                 db.rollback()
                 return None
             payout = db.execute(
-                "SELECT destination_address FROM treasury_owner_payout_config WHERE network=? AND asset=?",
+                "SELECT destination_address,owner_principal_id FROM treasury_owner_payout_config WHERE network=? AND asset=?",
                 (network, asset),
             ).fetchone()
             if not payout:
                 db.rollback()
                 raise ValueError("owner payout address is not configured")
+            if not self.owner_principal_id or payout["owner_principal_id"] != self.owner_principal_id:
+                db.rollback()
+                raise PermissionError("owner payout destination must be revalidated by the configured owner")
             master_balance = db.execute(
                 """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
                            ELSE -amount_minor END),0) AS amount
