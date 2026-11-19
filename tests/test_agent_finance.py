@@ -9,7 +9,6 @@ class AgentFinanceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = AgentFinanceStore(Path(self.tmp.name) / "finance.sqlite3")
-        self.store.register_wallet(Wallet("agent-a", "agent", "base", "USDC", "0xAgent"))
         self.store.register_wallet(Wallet("master", "master", "base", "USDC", "0xMaster"))
 
     def tearDown(self):
@@ -24,6 +23,10 @@ class AgentFinanceTests(unittest.TestCase):
             self.store.record_receipt("agent-a", self.transfer("tx1", 100, verified=False), period_id="2026-11")
         with self.assertRaisesRegex(ValueError, "destination"):
             self.store.record_receipt("agent-a", self.transfer("tx2", 100, "0xAttacker"), period_id="2026-11")
+        bad_expense = VerifiedTransfer("base", "USDC", "tx3", "0", "0xVendor",
+                                       100, 12, True, source="0xAttacker")
+        with self.assertRaisesRegex(ValueError, "source"):
+            self.store.record_expense("agent-a", bad_expense, period_id="2026-11")
 
     def test_duplicate_chain_transfer_is_rejected(self):
         transfer = self.transfer("tx1", 100)
@@ -37,8 +40,8 @@ class AgentFinanceTests(unittest.TestCase):
         # For this initial ledger, the chain adapter binds the agent's wallet as the
         # account whose balance decreased and supplies its normalized transfer proof.
         self.store.register_wallet(Wallet("agent-a", "agent", "base", "USDC", "0xAgent"))
-        expense = VerifiedTransfer("base", "USDC", "expense", "0", "0xAgent",
-                                   20_000, 12, True)
+        expense = VerifiedTransfer("base", "USDC", "expense", "0", "0xVendor",
+                                   20_000, 12, True, source="0xAgent")
         self.store.record_expense("agent-a", expense, period_id="nov")
         result = self.store.close_profit_period(
             "agent-a", "master", network="base", asset="USDC", period_id="nov",
