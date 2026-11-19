@@ -115,6 +115,14 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 5000)
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 5000)
 
+    def test_quorum_cannot_be_lowered_below_strict_majority(self):
+        first = FakeSource([observation()])
+        second = FakeSource([observation()])
+        with self.assertRaisesRegex(ValueError, "strict majority"):
+            QuorumTreasuryReceiptSource([first, second], quorum=1)
+        with self.assertRaisesRegex(ValueError, "same receipt source"):
+            QuorumTreasuryReceiptSource([first, first])
+
     def test_quorum_source_requires_matching_provider_pages(self):
         page_a = FakeSource([observation()])
         page_b = FakeSource([observation()])
