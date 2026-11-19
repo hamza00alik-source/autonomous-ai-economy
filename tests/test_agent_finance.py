@@ -73,19 +73,28 @@ class AgentFinanceTests(unittest.TestCase):
             "agent-a", "master", network="base", asset="USDC", period_id="nov",
             reserve_bps=0, owner_share_bps=5000,
         )
+        unverified = VerifiedTransfer("base", "USDC", "out1", "0", "0xMaster",
+                                      500, 12, False, source="0xAgent")
         with self.assertRaisesRegex(ValueError, "verified"):
             self.store.mark_owner_distribution_paid(
-                "agent-a", "base", "USDC", "nov", tx_hash="out1",
-                destination="0xMaster", verified=False,
+                "agent-a", "base", "USDC", "nov", transfer=unverified,
             )
+        wrong_destination = VerifiedTransfer("base", "USDC", "out1", "0", "0xAttacker",
+                                              500, 12, True, source="0xAgent")
         with self.assertRaisesRegex(ValueError, "destination"):
             self.store.mark_owner_distribution_paid(
-                "agent-a", "base", "USDC", "nov", tx_hash="out1",
-                destination="0xAttacker", verified=True,
+                "agent-a", "base", "USDC", "nov", transfer=wrong_destination,
             )
+        wrong_amount = VerifiedTransfer("base", "USDC", "out1", "0", "0xMaster",
+                                         499, 12, True, source="0xAgent")
+        with self.assertRaisesRegex(ValueError, "amount"):
+            self.store.mark_owner_distribution_paid(
+                "agent-a", "base", "USDC", "nov", transfer=wrong_amount,
+            )
+        payout = VerifiedTransfer("base", "USDC", "out1", "0", "0xMaster",
+                                  500, 12, True, source="0xAgent")
         self.store.mark_owner_distribution_paid(
-            "agent-a", "base", "USDC", "nov", tx_hash="out1",
-            destination="0xMaster", verified=True,
+            "agent-a", "base", "USDC", "nov", transfer=payout,
         )
         self.assertEqual(self.store.get_profit_period("agent-a", "base", "USDC", "nov")["status"], "paid")
 
