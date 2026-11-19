@@ -744,6 +744,20 @@ class CollectiveTreasuryStore:
             db.execute("BEGIN IMMEDIATE")
             existing = db.execute("SELECT * FROM treasury_period_closes WHERE close_key=?", (key,)).fetchone()
             if existing:
+                missing_legacy_gas = db.execute(
+                    """SELECT 1 FROM treasury_spend_reservations r
+                       LEFT JOIN treasury_gas_costs g
+                         ON g.reservation_id=r.reservation_id
+                       WHERE r.agent_id=? AND r.network=? AND r.asset=? AND r.period_id=?
+                         AND r.status='settled' AND g.reservation_id IS NULL LIMIT 1""",
+                    (agent_id, network, asset.upper(), period_id),
+                ).fetchone()
+                if missing_legacy_gas:
+                    db.rollback()
+                    raise ValueError(
+                        "existing period close is missing gas-cost evidence; "
+                        "an audited accounting adjustment is required"
+                    )
                 db.commit()
                 return dict(existing)
             pending = db.execute(
