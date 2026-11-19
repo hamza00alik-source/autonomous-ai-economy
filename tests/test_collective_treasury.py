@@ -374,7 +374,7 @@ class CollectiveTreasuryTests(unittest.TestCase):
         self.assertTrue(capacity["spending_blocked"])
         self.assertEqual(capacity["excess_minor"], 100_000_000)
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 0)
-        with self.assertRaisesRegex(ValueError, r"above its \$500 total holding cap"):
+        with self.assertRaisesRegex(ValueError, r"above its configured total holding cap"):
             self.store.reserve_spend(
                 "agent-a", "base-sepolia", "USDC", "0x" + "b" * 40, 1,
                 idempotency_key="agent-a:blocked-overflow", period_id="2026-11",
