@@ -71,7 +71,23 @@ The account is EVM-address based and may be used on Base Sepolia or Base. The lo
 - The treasury's on-chain balance is the actual pooled asset balance. AAE's `pool_balance()` is only the ledger-tracked pool (verified receipts minus verified external expenses); `reconciliation_snapshot()` checks that this matches the sum of virtual agent/treasury accounts. A separate live RPC/CDP balance check is still required to reconcile the ledger against the actual on-chain USDC balance. Virtual agent balances are internal accounting claims against that pool, not separate segregated assets or legal ownership rights.
 - Never allow the sum of virtual liabilities, reserves and pending obligations to exceed reconciled treasury assets. Add a periodic full-balance reconciliation and alerting before production operation.
 - A common wallet creates commingling and concentration risk. Use strict policies, independent transaction monitoring, a master emergency pause, protected database backups, dual control for policy/address changes, and a documented recovery process.
-- The implementation provides the core ledger, exact payment-intent matching, CDP wallet provisioning/transfer adapter, and callable `CollectiveTreasuryPaymentExecutor`. The executor reserves/holds an agent spend before contacting CDP, persists known transaction hashes, and settles only after an injected verifier confirms the exact on-chain transfer. Its reconciliation path verifies an existing transaction without resubmitting. An ambiguous provider response remains held and is never blindly retried. It does **not** yet connect the live chain monitor/payment-intent adapter end to end, create customer invoices, run a continuous accounting agent, schedule the executor as an always-on worker, or perform an always-on treasury balance reconciliation daemon.
+- The implementation provides the core ledger, exact payment-intent matching, CDP wallet provisioning/transfer adapter, and callable `CollectiveTreasuryPaymentExecutor`. The executor reserves/holds an agent spend before contacting CDP, persists known transaction hashes, and settles only after an injected verifier confirms the exact on-chain transfer. Its reconciliation path verifies an existing transaction without resubmitting. An ambiguous provider response remains held and is never blindly retried. It does **not** yet connect the live chain monitor/payment-intent adapter end to end, create customer invoices, run a continuous accounting agent, schedule the executor as an always-on worker, or perform a continuously scheduled treasury balance reconciliation daemon.
+
+## On-chain balance reconciliation
+
+The ledger's own pool/virtual-account equality is necessary but not sufficient: it cannot detect an unrecorded external transfer or an incoming deposit that has not yet been ingested. The read-only reconciliation command queries `balanceOf(treasury_address)` from at least two configured RPC endpoints and compares the agreed raw USDC amount to the internal pool ledger.
+
+Configure `AAE_EVM_RPC_URLS` as a comma-separated list of at least two independently operated RPC endpoints, then run:
+
+```bash
+economy-treasury-reconcile \
+  --network base-sepolia \
+  --chain-id 84532 \
+  --asset USDC \
+  --token-contract 0xYOUR_BASE_SEPOLIA_USDC_CONTRACT
+```
+
+For Base mainnet, use chain ID `8453` and the official Base USDC contract address. The token contract must match the actual asset you use. The command is read-only; it never signs or broadcasts. It exits non-zero if providers disagree or if the chain balance, pool ledger and virtual accounts do not reconcile. Run it under an external scheduler and alert on non-zero exit status. Multiple RPC URLs do not guarantee independent infrastructure; choose providers with separate operators/infrastructure.
 
 ## Important provider limitation
 
