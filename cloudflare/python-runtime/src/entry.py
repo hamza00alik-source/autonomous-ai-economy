@@ -8,15 +8,14 @@ class Default(WorkerEntrypoint):
         if request.method != "POST" or request.url.split("?", 1)[0].endswith("/internal/execute") is False:
             return Response("Not found", status=404)
         try:
-            raw = await request.array_buffer()
-            body = bytes(raw)
+            body = (await request.text()).encode("utf-8")
             payload = verify_execution_request(
                 body,
                 request.headers.get("x-aae-execution-timestamp", ""),
                 request.headers.get("x-aae-execution-signature", ""),
                 self.env.AAE_EXECUTION_BRIDGE_SECRET,
             )
-            artifact, digest, qa = build_verified_artifact()
+            artifact, digest, _qa = build_verified_artifact()
             headers = {
                 "content-type": "application/zip",
                 "cache-control": "no-store",
@@ -28,4 +27,5 @@ class Default(WorkerEntrypoint):
             return Response(artifact, status=200, headers=headers)
         except Exception:
             # Never return source paths, secrets, or internal exception details.
-            return Response('{"error":"execution rejected"}', status=400, headers={"content-type":"application/json","cache-control":"no-store"})
+            return Response('{"error":"execution rejected"}', status=400,
+                            headers={"content-type": "application/json", "cache-control": "no-store"})
