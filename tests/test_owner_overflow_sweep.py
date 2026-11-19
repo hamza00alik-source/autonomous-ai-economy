@@ -96,6 +96,11 @@ class OwnerOverflowSweepTests(unittest.TestCase):
         )["balanced"])
         self.assertEqual(self.store.get_owner_overflow_sweep(sweep["sweep_id"])["status"],
                          "settled")
+        with self.assertRaisesRegex(ValueError, "idempotency key reused for different terms"):
+            self.store.reserve_owner_overflow_sweep(
+                "base-sepolia", "USDC", period_id="2026-12",
+                idempotency_key="overflow-1",
+            )
 
     def test_suspense_cannot_be_attributed_while_over_cap(self):
         self.store.create_payment_intent(
@@ -185,6 +190,11 @@ class OwnerOverflowSweepTests(unittest.TestCase):
         self.assertEqual(result["amount_minor"], 50_000_000)
         self.assertEqual(result["accounting_reason"], "owner_net_profit_share")
         self.assertEqual(self.store.balance("master:owner", "base-sepolia", "USDC"), 0)
+        with self.assertRaisesRegex(ValueError, "idempotency key reused for different terms"):
+            self.store.reserve_owner_profit_payout(
+                "agent-a", "base-sepolia", "USDC", "2026-12",
+                idempotency_key="owner-profit:agent-a:2026-11",
+            )
         self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 50_000_000)
         self.assertTrue(self.store.reconciliation_snapshot(
             "base-sepolia", "USDC"
