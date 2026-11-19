@@ -304,17 +304,17 @@ class ChainMonitor:
 
     def resolve_reorg_alert(self, network: str, tx_hash: str, transfer_ref: str,
                              *, resolution_note: str) -> None:
-        """Acknowledge an alert after external accounting reconciliation.
+        """Record an operator note without clearing the safety hold.
 
-        This records an audit note only. It does not reverse an already-credited
-        receipt; the operator must post a compensating adjustment separately.
+        This does not reverse an already-credited receipt. Keep the alert active
+        until a separately audited compensating ledger adjustment is implemented.
         """
         if not isinstance(resolution_note, str) or len(resolution_note.strip()) < 12:
             raise ValueError("resolution_note must explain the reconciliation (12+ characters)")
         with closing(self._connect()) as db:
             cur = db.execute(
-                """UPDATE chain_monitor_events SET status='orphaned',
-                   resolution_note=?,updated_at=CURRENT_TIMESTAMP
+                """UPDATE chain_monitor_events SET resolution_note=?,
+                   updated_at=CURRENT_TIMESTAMP
                    WHERE network=? AND tx_hash=? AND transfer_ref=? AND status='reorg_alert'""",
                 (resolution_note.strip(),network,tx_hash,transfer_ref),
             )
