@@ -551,7 +551,8 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    try {
      const [overview,tasks,executionOperations]=await Promise.all([get("/v1/owner/overview"),get("/v1/owner/tasks"),get("/v1/owner/internal-products/operations")]);
      await loadFinancialControls();
-     renderExecutionOperations(executionOperations);\n     const counts=Object.fromEntries((overview.tasks||[]).map(row=>[row.status,row.total]));
+     renderExecutionOperations(executionOperations);
+     const counts=Object.fromEntries((overview.tasks||[]).map(row=>[row.status,row.total]));
      $("queued").textContent=number(counts.queued);
      $("running").textContent=number(counts.running);
      $("neurons").textContent=number(overview.estimated_neurons_reserved);
