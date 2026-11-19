@@ -734,6 +734,41 @@ export default {
       return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    const vaultBootstrapMatch = url.pathname.match(/^\/v1\/owner\/agents\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\/api-key\/vault-bootstrap$/);
+    if (vaultBootstrapMatch && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (!env.AGENT_KEY_VAULT) return json({ error: "agent key vault binding is not configured" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 256) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 0) {
+        return json({ error: "empty JSON object required" }, 400);
+      }
+      const agentId = vaultBootstrapMatch[1];
+      const stub = env.AGENT_KEY_VAULT.getByName(agentId);
+      const vaultResponse = await stub.fetch(new Request("https://agent-key-vault.internal/", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ operation: "create_enrollment_proof", agent_id: agentId }),
+      }));
+      if (!vaultResponse.ok) return json({ error: "agent key vault could not initialize identity" }, 503);
+      const vaultResult = await vaultResponse.json();
+      const result = vaultResult?.result;
+      if (!result?.public_key_jwk || !result?.proof_signature ||
+          result.public_key_jwk.d !== undefined) return json({ error: "invalid vault identity response" }, 502);
+      return json({
+        agent_id: agentId,
+        public_key_jwk: result.public_key_jwk,
+        proof_signature: result.proof_signature,
+        owner_authorization_required: true,
+        next_step: "Sign the canonical owner/agent/public-key enrollment payload with the owner's locally held Ed25519 key, then submit the signed envelope to the existing api-key registration route.",
+      }, 201);
+    }
     const agentKeyMatch = url.pathname.match(/^\/v1\/owner\/agents\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\/api-key$/);
     if (agentKeyMatch && request.method === "POST") {
       if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
