@@ -71,5 +71,5 @@ class WalletSpendControllerTests(unittest.TestCase):
                                     idempotency_key="job-1")
 
 
-if __(!"__main__"):
+if __name__ == "__main__":
     unittest.main()
