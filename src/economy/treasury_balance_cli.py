@@ -16,13 +16,16 @@ def main() -> None:
     )
     parser.add_argument("--rpc-urls", default=os.getenv("AAE_EVM_RPC_URLS", ""))
     parser.add_argument("--network", choices=("base-sepolia", "base"), default="base-sepolia")
-    parser.add_argument("--chain-id", type=int, default=84532)
+    parser.add_argument("--chain-id", type=int, default=None)
     parser.add_argument("--asset", default="USDC")
     parser.add_argument("--token-contract", required=True)
     parser.add_argument("--minimum-native-balance-wei", type=int, default=0,
                         help="Optional minimum native ETH balance required for gas.")
     parser.add_argument("--data-dir", type=Path, default=Path("./data"))
     args = parser.parse_args()
+    if args.minimum_native_balance_wei < 0:
+        parser.error("--minimum-native-balance-wei must be non-negative")
+    chain_id = args.chain_id or {"base-sepolia": 84532, "base": 8453}[args.network]
 
     urls = tuple(dict.fromkeys(part.strip() for part in args.rpc_urls.split(",") if part.strip()))
     if len(urls) < 2:
@@ -37,7 +40,7 @@ def main() -> None:
     native_balances = []
     for url in urls:
         source = EVMJSONRPCSource(EVMRPCConfig(
-            rpc_url=url, network=args.network, chain_id=args.chain_id,
+            rpc_url=url, network=args.network, chain_id=chain_id,
             asset=args.asset, token_contract=args.token_contract,
             start_block=0,
         ))
