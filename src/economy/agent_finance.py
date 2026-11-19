@@ -238,6 +238,20 @@ class AgentFinanceStore:
             if not agent_wallet:
                 db.rollback()
                 raise ValueError("agent wallet is not registered")
+            # If the chain monitor has flagged a previously credited transfer as
+            # reorganized, do not finalize profit while its accounting is unresolved.
+            monitor_table = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='chain_monitor_events'"
+            ).fetchone()
+            if monitor_table:
+                unresolved_reorg = db.execute(
+                    """SELECT 1 FROM chain_monitor_events
+                       WHERE participant_id=? AND period_id=? AND status='reorg_alert' LIMIT 1""",
+                    (agent_id, period_id),
+                ).fetchone()
+                if unresolved_reorg:
+                    db.rollback()
+                    raise ValueError("profit period is blocked by an unresolved chain reorganization alert")
             totals = db.execute(
                 """SELECT
                     COALESCE(SUM(CASE WHEN event_type='income' THEN amount_minor ELSE 0 END),0) AS income,
