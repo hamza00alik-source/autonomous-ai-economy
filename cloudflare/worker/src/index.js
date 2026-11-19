@@ -625,7 +625,7 @@ async function ownerBusinessPipeline(env, url) {
     owner_id: env.AAE_OWNER_ID,
     product: { product_id: STORE_PRODUCT_ID, agent_id: STORE_AGENT_ID, currency: "USD" },
     stages: {
-      opportunity_discovery: { status: opportunityRows.length ? "imported_shortlist_available" : "no_imported_opportunities", counts_by_source: opportunitySourceCounts, total: opportunityRows.length, note: "Imported shortlist records are untrusted source data. Every record remains owner-review-only; imported escrow claims are not independently verified." },
+      opportunity_discovery: { status: Object.values(opportunitySourceCounts).reduce((sum,value) => sum + value,0) ? "imported_shortlist_available" : "no_imported_opportunities", counts_by_source: opportunitySourceCounts, total: Object.values(opportunitySourceCounts).reduce((sum,value) => sum + value,0), returned: opportunityRows.length, note: "Imported shortlist records are untrusted source data. Every record remains owner-review-only; imported escrow claims are not independently verified." },
       production: { status: executionStatus.delivery_ready ? "has_delivery_ready_builds" : "no_delivery_ready_builds", counts: executionStatus },
       quality_assurance: { status: executionStatus.delivery_ready ? "structural_qa_recorded_visual_review_required" : "no_qa_passed_build", structural_qa_passed: executionStatus.delivery_ready || 0, visual_review_required: true },
       listing: { status: taskStatus.completed ? "unpublished_drafts_available" : "no_completed_listing_drafts", counts: taskStatus, publication_enabled: false },
