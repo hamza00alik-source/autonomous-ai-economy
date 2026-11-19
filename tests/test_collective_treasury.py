@@ -404,6 +404,82 @@ class CollectiveTreasuryTests(unittest.TestCase):
 
 
 
+    def test_owner_cap_increase_requires_authenticated_owner_and_is_audited(self):
+        owner_store = CollectiveTreasuryStore(
+            Path(self.tmp.name) / "owner.sqlite3", owner_principal_id="owner-1"
+        )
+        owner_store.register_treasury_wallet(TreasuryWallet(
+            "coinbase-cdp", "cdp-owner", "base-sepolia", "USDC", "0x" + "a" * 40
+        ))
+        with self.assertRaises(PermissionError):
+            owner_store.increase_shared_wallet_cap(
+                "base-sepolia", "USDC", 750_000_000,
+                owner_principal_id="agent-a", reason="agent requested",
+            )
+        result = owner_store.increase_shared_wallet_cap(
+            "base-sepolia", "USDC", 750_000_000,
+            owner_principal_id="owner-1", reason="verified retained earnings",
+        )
+        self.assertEqual(result["old_cap_minor"], 500_000_000)
+        self.assertEqual(result["new_cap_minor"], 750_000_000)
+        with owner_store._connect() as db:
+            audit = db.execute(
+                "SELECT * FROM treasury_wallet_policy_audit"
+            ).fetchone()
+        self.assertEqual(audit["owner_principal_id"], "owner-1")
+        with self.assertRaisesRegex(ValueError, "must be increases"):
+            owner_store.increase_shared_wallet_cap(
+                "base-sepolia", "USDC", 700_000_000,
+                owner_principal_id="owner-1", reason="lower",
+            )
+
+    def test_owner_overflow_sweep_only_moves_unallocated_excess_and_is_verified(self):
+        owner_store = CollectiveTreasuryStore(
+            Path(self.tmp.name) / "sweep.sqlite3", owner_principal_id="owner-1"
+        )
+        owner_store.register_treasury_wallet(TreasuryWallet(
+            "coinbase-cdp", "cdp-owner", "base-sepolia", "USDC", "0x" + "a" * 40
+        ))
+        owner_store.record_receipt(
+            self.transfer(amount=600_000_000), period_id="2026-11"
+        )
+        with self.assertRaisesRegex(ValueError, "owner payout address is not configured"):
+            owner_store.reserve_owner_overflow_sweep(
+                "base-sepolia", "USDC", period_id="2026-11",
+                idempotency_key="overflow:missing-owner",
+            )
+        owner_address = "0x" + "e" * 40
+        owner_store.configure_owner_payout_address(
+            "base-sepolia", "USDC", owner_address,
+            owner_principal_id="owner-1", reason="owner-controlled payout address",
+        )
+        sweep = owner_store.reserve_owner_overflow_sweep(
+            "base-sepolia", "USDC", period_id="2026-11",
+            idempotency_key="overflow:100",
+        )
+        self.assertEqual(sweep["amount_minor"], 100_000_000)
+        self.assertEqual(sweep["destination_address"], owner_address)
+        self.assertTrue(owner_store.claim_owner_overflow_sweep(sweep["sweep_id"]))
+        tx_hash = "0x" + "9" * 64
+        owner_store.record_owner_overflow_sweep_tx(sweep["sweep_id"], tx_hash)
+        owner_store.settle_owner_overflow_sweep(
+            sweep["sweep_id"],
+            self.transfer(
+                tx=tx_hash, ref="log:overflow", amount=100_000_000,
+                source="0x" + "a" * 40, destination=owner_address,
+            ),
+        )
+        self.assertEqual(
+            owner_store.balance("treasury:unallocated", "base-sepolia", "USDC"),
+            500_000_000,
+        )
+        self.assertEqual(owner_store.pool_balance("base-sepolia", "USDC"), 500_000_000)
+        self.assertEqual(
+            owner_store.get_owner_overflow_sweep(sweep["sweep_id"])["status"],
+            "settled",
+        )
+
+
 class CDPAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_transfer_usdc_uses_policy_bound_account_and_atomic_amount(self):
         class Account:
