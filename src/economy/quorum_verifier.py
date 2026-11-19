@@ -23,9 +23,13 @@ class QuorumEVMVerifier:
             raise ValueError("all RPC providers must target the same network")
         if len({p.config.token_contract.lower() for p in self.providers}) != 1:
             raise ValueError("all RPC providers must target the same token contract")
-        self.quorum = quorum if quorum is not None else (len(self.providers) // 2 + 1)
-        if isinstance(self.quorum, bool) or not isinstance(self.quorum, int) or not 1 <= self.quorum <= len(self.providers):
-            raise ValueError("quorum must be between one and provider count")
+        if len({id(provider) for provider in self.providers}) != len(self.providers):
+            raise ValueError("the same RPC provider cannot count as multiple sources")
+        minimum_majority = len(self.providers) // 2 + 1
+        self.quorum = quorum if quorum is not None else minimum_majority
+        if (isinstance(self.quorum, bool) or not isinstance(self.quorum, int)
+                or not minimum_majority <= self.quorum <= len(self.providers)):
+            raise ValueError("quorum must be a strict majority of independent providers")
 
     def finalized_block_number(self) -> int:
         heights = []
