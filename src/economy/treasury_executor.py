@@ -58,6 +58,7 @@ class CollectiveTreasuryPaymentExecutor:
                 amount_minor=reservation["amount_minor"],
                 network=reservation["network"],
             )
+            self.store.mark_uncertain(reservation_id, tx_hash=str(tx_hash))
         except Exception:
             return {"reservation_id": reservation_id, "status": "uncertain",
                     "reason": "provider outcome must be reconciled before retry"}
@@ -76,6 +77,34 @@ class CollectiveTreasuryPaymentExecutor:
                     "reason": "settlement is not yet independently verified"}
         return {"reservation_id": reservation_id, "status": "settled",
                 "tx_hash": str(tx_hash)}
+
+    async def reconcile(self, reservation_id: str, *, tx_hash: str | None = None) -> dict:
+        """Verify a previously held payment; never broadcasts or retries it."""
+        reservation = self._reservation(reservation_id)
+        if not reservation:
+            raise ValueError("spend reservation not found")
+        if reservation["status"] not in {"uncertain", "broadcast"}:
+            raise ValueError("only an uncertain or broadcast payment can be reconciled")
+        known_hash = reservation["tx_hash"]
+        if tx_hash and known_hash and tx_hash != known_hash:
+            raise ValueError("reconciliation hash conflicts with the recorded transaction hash")
+        selected_hash = known_hash or tx_hash
+        if not selected_hash:
+            raise ValueError("transaction hash is unknown; discover it from CDP or chain history before reconciliation")
+        if not known_hash:
+            self.store.mark_uncertain(reservation_id, tx_hash=selected_hash)
+        wallet = self.store.treasury_wallet(reservation["network"], reservation["asset"])
+        if not wallet:
+            raise ValueError("collective treasury wallet is not registered")
+        verified = await self.verifier.verify_transfer(
+            network=reservation["network"], asset=reservation["asset"],
+            tx_hash=selected_hash, source_address=wallet.address,
+            destination_address=reservation["destination"],
+            amount_minor=reservation["amount_minor"],
+        )
+        self.store.settle_spend(reservation_id, verified)
+        return {"reservation_id": reservation_id, "status": "settled",
+                "tx_hash": selected_hash}
 
 
 __all__ = ["CollectiveTreasuryPaymentExecutor", "TreasuryTransferVerifier"]
