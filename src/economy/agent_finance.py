@@ -125,7 +125,7 @@ class AgentFinanceStore:
             raise ValueError("participant, network, asset and address are required")
         if wallet.role not in {"agent", "master"}:
             raise ValueError("wallet role must be agent or master")
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             existing = db.execute(
                 """SELECT address FROM finance_wallets
                    WHERE participant_id=? AND role=? AND network=? AND asset=?""",
@@ -141,7 +141,7 @@ class AgentFinanceStore:
             )
 
     def wallet(self, participant_id: str, role: str, network: str, asset: str) -> Wallet | None:
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             row = db.execute(
                 """SELECT * FROM finance_wallets
                    WHERE participant_id=? AND role=? AND network=? AND asset=?""",
@@ -177,7 +177,16 @@ class AgentFinanceStore:
         if event_type == "expense" and wallet.address != transfer.source:
             raise ValueError("expense source does not match the agent wallet")
         event_id = "fin_" + uuid.uuid4().hex
-        with self._connect() as db:
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            closed = db.execute(
+                """SELECT 1 FROM profit_periods
+                   WHERE agent_id=? AND network=? AND asset=? AND period_id=?""",
+                (participant_id, transfer.network, transfer.asset.upper(), period_id),
+            ).fetchone()
+            if closed:
+                db.rollback()
+                raise ValueError("profit period is already closed; late events require an adjustment period")
             try:
                 db.execute(
                     """INSERT INTO finance_events VALUES(?,?,?,?,?,?,?,?,?,?)""",
@@ -185,7 +194,9 @@ class AgentFinanceStore:
                      transfer.asset.upper(), transfer.amount_minor, transfer.tx_hash,
                      transfer.transfer_ref, period_id, _now()),
                 )
+                db.commit()
             except sqlite3.IntegrityError as exc:
+                db.rollback()
                 raise ValueError("duplicate on-chain transfer or conflicting event") from exc
         return event_id
 
@@ -213,7 +224,7 @@ class AgentFinanceStore:
             raise ValueError("agent, master, network, asset and period are required")
         asset = asset.upper()
         key = f"{agent_id}:{network}:{asset}:{period_id}"
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             existing = db.execute("SELECT * FROM profit_periods WHERE period_key=?", (key,)).fetchone()
             if existing:
@@ -263,7 +274,7 @@ class AgentFinanceStore:
     def get_profit_period(self, agent_id: str, network: str,
                           asset: str, period_id: str) -> dict | None:
         key = f"{agent_id}:{network}:{asset.upper()}:{period_id}"
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             row = db.execute("SELECT * FROM profit_periods WHERE period_key=?", (key,)).fetchone()
         return dict(row) if row else None
 
@@ -284,7 +295,7 @@ class AgentFinanceStore:
             raise ValueError("payout destination does not match the registered master wallet")
         if transfer.amount_minor != period["master_due_minor"]:
             raise ValueError("payout amount does not match the master's calculated share")
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             cur = db.execute(
                 """UPDATE profit_periods SET status='paid', payout_tx_hash=?
                    WHERE period_key=? AND status='pending_payout'""",
