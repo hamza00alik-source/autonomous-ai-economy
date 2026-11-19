@@ -17,13 +17,15 @@ The current provider adapter is Coinbase Developer Platform (CDP) Server Wallets
   - Payment-attribution reference matching before an unallocated receipt can be assigned to an agent.
   - Spend reservation before signing; exact source, destination, asset and amount must match independently verified settlement.
   - Ambiguous broadcast outcomes are held as `uncertain`; they cannot be cancelled or blindly retried.
-  - Period close calculates net realized profit, reserves and owner share, then moves virtual ledger balances.
+  - Period close calculates net realized profit, reserves and owner share, then moves virtual ledger balances. It refuses to close while any settled agent spend lacks a finalized gas receipt and a timestamped USDC valuation.
 - `CDPServerTreasuryWallet`
   - Reuses one stable named CDP EVM account, binds the required restrictive CDP account policy, and returns its public address.
   - Sends USDC from the shared account using CDP's server-managed signer.
   - Never reads, exports or stores private keys.
 - `economy-treasury` CLI provisions/retrieves and registers the one shared wallet.
-- `tests/test_collective_treasury.py` covers shared-wallet uniqueness, suspense attribution, receipt deduplication, virtual spend controls, settlement checks, emergency pause, profit allocation and the CDP adapter boundary.
+- `src/economy/evm_rpc.py` reads finalized transaction receipts and calculates execution gas plus Base L1-data and optional blob fees in wei, after chain-ID, finality and canonical-block checks.
+- `CollectiveTreasuryStore.record_gas_cost()` binds that verified fee to the exact settled spend reservation and records the externally supplied USDC valuation, price source and observation time. Gas is included in period expenses but does not incorrectly debit the USDC pool because it was paid in native ETH.
+- `tests/test_collective_treasury.py` and `tests/test_evm_rpc.py` cover shared-wallet uniqueness, suspense attribution, receipt deduplication, spend controls, settlement, gas fee finality, Base L1/blob fee arithmetic, valuation gating and profit allocation.
 
 ## Why attribution is mandatory
 
@@ -88,7 +90,7 @@ economy-treasury-reconcile \
   --minimum-native-balance-wei 1000000000000000
 ```
 
-For Base mainnet, use chain ID `8453` and the official Base USDC contract address. The token contract must match the actual asset you use. The command is read-only; it never signs or broadcasts. It exits non-zero if providers disagree, if the chain balance, pool ledger and virtual accounts do not reconcile, or if native ETH is below the configured gas reserve. A single EVM address can hold both USDC and ETH, so this remains one shared wallet. USDC transfers from this server-managed EOA require native ETH for network gas. Gas costs are not yet converted into USDC operating expenses for profit-sharing; they must be separately captured and valued before production profit distributions are enabled. Run reconciliation under an external scheduler and alert on non-zero exit status. Multiple RPC URLs do not guarantee independent infrastructure; choose providers with separate operators/infrastructure.
+For Base mainnet, use chain ID `8453` and the official Base USDC contract address. The token contract must match the actual asset you use. The command is read-only; it never signs or broadcasts. It exits non-zero if providers disagree, if the chain balance, pool ledger and virtual accounts do not reconcile, or if native ETH is below the configured gas reserve. A single EVM address can hold both USDC and ETH, so this remains one shared wallet. USDC transfers from this server-managed EOA require native ETH for network gas. Successful AAE treasury spends now have a gas-fee accounting path: `transaction_fee_wei()` verifies a finalized canonical receipt and includes execution gas, Base `l1Fee` and optional blob fee; a trusted backend must then provide the USDC valuation and timestamp to `record_gas_cost()`. Profit close is blocked if a settled spend is missing either record. This does not yet reconcile every possible wallet-originated transaction (for example, unrelated/manual or failed transactions); keep production distributions disabled until the transaction inventory and valuation source are independently operated and audited. Run reconciliation under an external scheduler and alert on non-zero exit status. Multiple RPC URLs do not guarantee independent infrastructure; choose providers with separate operators/infrastructure.
 
 ## Important provider limitation
 
