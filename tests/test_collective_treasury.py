@@ -115,6 +115,10 @@ class CollectiveTreasuryTests(unittest.TestCase):
         self.assertEqual(snapshot["pool_balance_minor"], 5500)
         self.assertEqual(snapshot["virtual_accounts_total_minor"], 5500)
         self.assertTrue(snapshot["balanced"])
+        onchain = self.store.reconcile_onchain_balance("base-sepolia", "USDC", 5500)
+        self.assertTrue(onchain["fully_reconciled"])
+        mismatch = self.store.reconcile_onchain_balance("base-sepolia", "USDC", 5499)
+        self.assertFalse(mismatch["onchain_balanced"])
 
     def test_spend_policy_and_balance_are_enforced(self):
         self.store.record_receipt(
