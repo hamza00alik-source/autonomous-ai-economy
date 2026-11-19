@@ -37,6 +37,10 @@ These are manual owner-controlled prerequisites. This PR does not create resourc
 - Measure actual CPU use against the account's plan before relying on cloud generation. Python Workers run in Pyodide; the geometry generation and ZIP QA may exceed the Free plan's CPU budget. Do not upgrade or incur charges without explicit approval.
 - Run a private end-to-end test and verify the R2 object is private, the D1 event trail is complete, and no public route can retrieve the artifact.
 
+## Owner authorization distinction
+
+The current API treats a successful request authenticated by the private `AAE_QUEUE_TOKEN`, with a same-origin check, as the owner's explicit approval to build this one internal product. The HMAC token between the JavaScript and Python Workers authenticates the service-to-service execution request; it is **not** a cryptographic signature by the owner. The local `OwnerApprovalStore` and `ApprovedExecutionWorker` approval verifier from the earlier prototype are not yet connected to this Cloudflare route. Before broader autonomous execution or production use, replace this shared-bearer approval boundary with a fresh, expiring, single-use owner approval bound to the job ID and action, verified and replay-protected in the cloud. Keep all other external and financial actions separately gated.
+
 ## Current limitations
 
 - This is an owner-triggered internal product build, not an always-on queue consumer or autonomous marketplace fulfillment service.
