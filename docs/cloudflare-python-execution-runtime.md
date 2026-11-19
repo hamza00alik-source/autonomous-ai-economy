@@ -23,7 +23,7 @@ The runtime package is prepared from the canonical `src/economy/game_asset_pack.
 6. The fixed Python producer builds the ZIP in ephemeral Worker memory/filesystem. Structural QA verifies required files, safe ZIP paths, manifest hashes and GLB headers.
 7. The JavaScript Worker checks the returned job ID, QA marker, size and SHA-256, then writes the ZIP to a private R2 bucket and records `delivery_ready` in D1.
 
-The artifact is not published, submitted, delivered to a customer, or counted as revenue. The API currently returns private artifact metadata; a separate owner-authenticated artifact download route is still required.
+The artifact is not published, submitted, delivered to a customer, or counted as revenue. The owner can retrieve it through the bearer-authenticated `GET /v1/owner/internal-products/jobs/{job_id}/artifact` route; the route re-checks D1 ownership/state and verifies the R2 object size and SHA-256 before returning it.
 
 ## Required configuration before any deployment
 
@@ -42,6 +42,6 @@ These are manual owner-controlled prerequisites. This PR does not create resourc
 - This is an owner-triggered internal product build, not an always-on queue consumer or autonomous marketplace fulfillment service.
 - It supports exactly one built-in product capability.
 - No general-purpose code execution, external task claims, submission, customer communication, storefront publication, checkout activation, wallet signing, transfer or spending is connected.
-- R2 artifact retrieval endpoint and artifact retention/deletion policy remain to be implemented.
+- Artifact retention/deletion policy and automated orphan cleanup remain to be implemented.
 - No visual human review is performed. The archive's structural QA does not prove visual quality or marketplace acceptance.
 - Cloudflare's in-memory filesystem is ephemeral. R2 is the durable artifact store; no artifact is stored on the Worker filesystem after the request ends.
