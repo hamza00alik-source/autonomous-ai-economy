@@ -68,6 +68,7 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
                 self.item = ChainTransferObservation(
                     "base", "USDC", "0xToken", "0xchain-income", "log:1",
                     "0xCustomer", "0xAgent", 1000, 10, "0xBlock", 12, True, True,
+                    "2026-11-19T12:00:00+00:00",
                 )
             def fetch_transfers(self, **kwargs):
                 return TransferPage((self.item,), "c1")
@@ -86,6 +87,7 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
         chain.item = ChainTransferObservation(
             "base", "USDC", "0xToken", "0xchain-income", "log:1",
             "0xCustomer", "0xAgent", 1000, 10, "0xOrphanedBlock", 0, False, False,
+            "2026-11-19T12:00:00+00:00",
         )
         monitor.poll_once(period_id="p2")
         worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier(amount=500))
