@@ -113,9 +113,18 @@ class CollectiveTreasuryReorgGuardTests(unittest.TestCase):
         self.assertEqual(result["open_alerts"], 0)
 
 
+class FakeTreasuryStore:
+    def __init__(self, over_cap=False):
+        self.over_cap = over_cap
+
+    def shared_wallet_capacity(self, network, asset):
+        return {"over_cap": self.over_cap}
+
+
 class FakeReceiptMonitor:
     def __init__(self, events):
         self.events = events
+        self.store = FakeTreasuryStore()
 
     def poll_once(self, **kwargs):
         self.events.append("receipts")
@@ -152,6 +161,44 @@ class CollectiveAccountingRuntimeTests(unittest.IsolatedAsyncioTestCase):
         result = await runtime.run_once(period_id="2026-11")
         self.assertEqual(result["status"], "completed")
         self.assertEqual(events, ["receipts", "reorgs", "balances", "spend"])
+
+    async def test_runtime_runs_owner_overflow_before_agent_spending_and_reconciles_again(self):
+        events = []
+        monitor = FakeReceiptMonitor(events)
+        monitor.store.over_cap = True
+
+        async def owner_sweep():
+            events.append("owner-overflow")
+            monitor.store.over_cap = False
+            return {"status": "settled"}
+
+        runtime = CollectiveTreasuryAccountingRuntime(
+            receipt_monitor=monitor,
+            reorg_guard=FakeReorgGuard(events),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+            owner_overflow_sweep_cycle=owner_sweep,
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(events, [
+            "receipts", "reorgs", "balances", "owner-overflow", "balances", "spend"
+        ])
+
+    async def test_runtime_blocks_over_cap_when_owner_sweep_is_not_wired(self):
+        events = []
+        monitor = FakeReceiptMonitor(events)
+        monitor.store.over_cap = True
+        runtime = CollectiveTreasuryAccountingRuntime(
+            receipt_monitor=monitor,
+            reorg_guard=FakeReorgGuard(events),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "payouts_blocked")
+        self.assertIn("no owner overflow worker", result["reason"])
+        self.assertEqual(events, ["receipts", "reorgs", "balances"])
 
     async def test_runtime_blocks_spending_when_balance_check_fails(self):
         events = []
