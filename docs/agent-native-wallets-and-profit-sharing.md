@@ -88,3 +88,12 @@ Reorg boundary: the adapter marks a returned log noncanonical when its block has
 **Important limitation:** the monitor deliberately does not reverse a credited receipt automatically after a deep reorganization. The alert remains active, and an operator note does not clear the hold. A separately audited compensating ledger adjustment and reconciliation workflow is still required before the alert can safely be cleared. The monitor supports a `period_resolver` callback that maps each observation's ISO-8601 block timestamp to its accounting period. The `period_id` argument is only a fallback for controlled tests or bounded scans; production must configure the resolver so historical pages cannot be assigned to the current period.
 
 No production RPC endpoint is connected and no live money is moved by this stage.
+
+
+## Stage 6: rolling canonical-history reorganisation reconciliation
+
+`src/economy/reorg_reconciler.py` adds a bounded rolling verifier for already-credited receipts. On each run it obtains the RPC's finalized height, selects credited events in a configurable recent block window, and asks the chain adapter to verify the exact transaction receipt, canonical block hash, token contract, Transfer log index, sender, recipient and amount. A definitive mismatch changes the event to `reorg_alert`; it does not silently reverse accounting. RPC errors or malformed responses abort the run and leave event state unchanged.
+
+The EVM adapter implements receipt verification using `eth_getTransactionReceipt` and `eth_getBlockByNumber`. It checks the receipt transaction hash and block identity, successful receipt status, exact ERC-20 log identity and transfer fields. The reconciler is a separate scheduled task: production must run it frequently enough for the chosen lookback window and monitor its health. Events older than the rolling window are not checked by each run; operators need a periodic deep audit or a longer lookback appropriate to the chain's reorg risk. A single RPC provider remains a trust boundary, and this component does not independently reverse ledger entries or clear alerts.
+
+Tests cover canonical receipts, missing receipts, changed block hashes, definitive mismatch alerting, RPC failure fail-closed behavior and rolling-window bounds. No live endpoint, signer, private key or transfer is configured.
