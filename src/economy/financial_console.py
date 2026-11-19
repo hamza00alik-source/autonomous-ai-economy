@@ -99,6 +99,85 @@ def _cloud_policy_envelope(registry, payload: dict, key, operator_id: str) -> di
         "signer_key_fingerprint": fingerprint,
     }
 
+def _cloud_enrollment_envelope(registry, challenge: dict, key, agent_ids: list[str],
+                               currencies: list[str]) -> dict:
+    """Sign the one-time cloud enrollment proof locally."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    if not isinstance(key, Ed25519PrivateKey):
+        raise ValueError("private key must be Ed25519")
+    required = {"challenge_id", "challenge", "expires_at", "owner_id", "operator_id"}
+    if not isinstance(challenge, dict) or not required.issubset(challenge):
+        raise ValueError("enrollment challenge response is incomplete")
+    if not isinstance(challenge["expires_at"], str):
+        raise ValueError("enrollment challenge expiry is invalid")
+    from datetime import datetime, timezone
+    expiry = datetime.fromisoformat(challenge["expires_at"].replace("Z", "+00:00"))
+    if expiry <= datetime.now(timezone.utc):
+        raise ValueError("enrollment challenge has expired")
+    identifier = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$")
+    for field in ("challenge_id", "owner_id", "operator_id"):
+        if not isinstance(challenge[field], str) or not identifier.fullmatch(challenge[field]):
+            raise ValueError(f"invalid enrollment {field}")
+    if not isinstance(challenge["challenge"], str) or len(challenge["challenge"]) < 32:
+        raise ValueError("invalid enrollment challenge proof")
+    if not isinstance(agent_ids, list) or not 1 <= len(agent_ids) <= 25:
+        raise ValueError("provide 1-25 local agent IDs")
+    if len(set(agent_ids)) != len(agent_ids) or any(not identifier.fullmatch(item) for item in agent_ids):
+        raise ValueError("agent IDs must be unique valid identifiers")
+    if not isinstance(currencies, list) or not 1 <= len(currencies) <= 5:
+        raise ValueError("provide 1-5 supported currency codes")
+    if len(set(currencies)) != len(currencies) or any(not re.fullmatch(r"[A-Z]{3}", item) for item in currencies):
+        raise ValueError("currencies must be unique three-letter uppercase codes")
+
+    owner = registry.get(challenge["owner_id"])
+    if (not owner or owner.get("status") != "active"
+            or owner.get("participant_type") not in {"human", "organization"}
+            or not owner.get("public_key")):
+        raise ValueError("active local owner with an enrolled public key is required")
+    public_raw = key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+    )
+    public_x = base64.urlsafe_b64encode(public_raw).decode("ascii").rstrip("=")
+    if public_x != owner["public_key"]:
+        raise ValueError("private key does not match the enrolled local owner public key")
+    for agent_id in agent_ids:
+        agent = registry.get(agent_id)
+        if (not agent or agent.get("status") != "active"
+                or agent.get("participant_type") != "agent"
+                or agent.get("operator_id") != challenge["owner_id"]):
+            raise ValueError(f"agent {agent_id} is not active under this local owner")
+
+    public_jwk = {"kty": "OKP", "crv": "Ed25519", "x": public_x}
+    fingerprint_input = json.dumps(
+        {"crv": "Ed25519", "kty": "OKP", "x": public_x},
+        separators=(",", ":"), ensure_ascii=False,
+    )
+    fingerprint = hashlib.sha256(fingerprint_input.encode("utf-8")).hexdigest()
+    signed_payload = {
+        "version": 1,
+        "owner_id": challenge["owner_id"],
+        "operator_id": challenge["operator_id"],
+        "challenge_id": challenge["challenge_id"],
+        "challenge": challenge["challenge"],
+        "public_key_fingerprint": fingerprint,
+        "agent_ids": sorted(agent_ids),
+        "currencies": sorted(currencies),
+    }
+    canonical_payload = json.dumps(
+        signed_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    signature = base64.urlsafe_b64encode(
+        key.sign(canonical_payload.encode("utf-8"))
+    ).decode("ascii").rstrip("=")
+    return {
+        "challenge_id": challenge["challenge_id"],
+        "public_key_jwk": public_jwk,
+        "signature_base64url": signature,
+        "agent_ids": sorted(agent_ids),
+        "currencies": sorted(currencies),
+    }
+
 def _print_json(value) -> None:
     print(json.dumps(value, indent=2, sort_keys=True))
 
@@ -149,6 +228,16 @@ def main() -> int:
     cloud_sign_cmd.add_argument("--output", type=Path, required=True,
                                 help="new envelope file; existing files are never overwritten")
 
+    enrollment_sign_cmd = sub.add_parser(
+        "cloud-enrollment-sign",
+        help="sign a cloud owner enrollment challenge locally; never uploads private key",
+    )
+    enrollment_sign_cmd.add_argument("challenge", type=Path)
+    enrollment_sign_cmd.add_argument("--private-key", type=Path, required=True)
+    enrollment_sign_cmd.add_argument("--agent-id", action="append", required=True)
+    enrollment_sign_cmd.add_argument("--currency", action="append", default=None)
+    enrollment_sign_cmd.add_argument("--output", type=Path, required=True)
+
     args = parser.parse_args()
     try:
         registry, policies, ledger, spending, scheduler = _services(args.data_dir)
@@ -185,6 +274,28 @@ def main() -> int:
                 stream.write("\n")
             _print_json({"output": str(args.output), "status": "unsigned",
                          "next_step": "Review the exact terms, then owner-sign with policy-sign."})
+        elif args.command == "cloud-enrollment-sign":
+            try:
+                from cryptography.hazmat.primitives.serialization import load_pem_private_key
+                from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            except ImportError as exc:
+                raise SystemExit("Install identity support: pip install -e '.[identity]'") from exc
+            key = load_pem_private_key(args.private_key.read_bytes(), password=None)
+            if not isinstance(key, Ed25519PrivateKey):
+                raise ValueError("private key must be an unencrypted Ed25519 PEM key")
+            challenge = json.loads(args.challenge.read_text(encoding="utf-8"))
+            envelope = _cloud_enrollment_envelope(
+                registry, challenge, key, args.agent_id, args.currency or ["USD"]
+            )
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            with args.output.open("x", encoding="utf-8") as stream:
+                json.dump(envelope, stream, indent=2, sort_keys=True, ensure_ascii=False)
+                stream.write("\\n")
+            _print_json({
+                "output": str(args.output), "status": "signed_enrollment_proof",
+                "private_key_uploaded": False,
+                "next_step": "Submit this proof through the authenticated owner enrollment endpoint.",
+            })
         elif args.command == "cloud-policy-sign":
             try:
                 from cryptography.hazmat.primitives.serialization import load_pem_private_key
