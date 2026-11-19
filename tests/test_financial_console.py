@@ -130,10 +130,11 @@ class FinancialConsoleTests(unittest.TestCase):
             "per_transaction_limit_minor": 250, "daily_spend_limit_minor": 500,
             "allowed_destinations": ["service:compute"],
         }
-        with self.assertRaisesRegex(ValueError, "does not match"):
-            _cloud_policy_envelope(Registry(), payload, wrong_key, "operator-01")
         with self.assertRaisesRegex(ValueError, "operated by this owner"):
             _cloud_policy_envelope(Registry(), payload, enrolled_key, "operator-01")
+        agent["operator_id"] = "owner-01"
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            _cloud_policy_envelope(Registry(), payload, wrong_key, "operator-01")
 
 if __name__ == "__main__":
     unittest.main()
