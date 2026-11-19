@@ -98,6 +98,44 @@ class OwnerOverflowWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["remaining_excess_minor"], 0)
         self.assertEqual(signer.calls, 1)
 
+    async def test_later_same_sized_overflow_can_be_swept_again(self):
+        first_hash = "0x" + "4" * 64
+        first_transfer = VerifiedTransfer(
+            "base-sepolia", "USDC", first_hash, "log:first-overflow",
+            self.owner_address, 100_000_000, 18, True,
+            source=self.wallet_address,
+        )
+        signer = FakeSigner(first_hash)
+        worker = OwnerOverflowSweepWorker(
+            self.store, signer, FakeVerifier(transfer=first_transfer),
+        )
+        first = await worker.run_cycle(
+            network="base-sepolia", asset="USDC", period_id="2026-11",
+        )
+        self.assertEqual(first["status"], "settled")
+        self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 500_000_000)
+
+        second_receipt = VerifiedTransfer(
+            "base-sepolia", "USDC", "0x" + "2" * 64, "log:second-incoming",
+            self.wallet_address, 100_000_000, 19, True,
+            source="0x" + "c" * 40,
+        )
+        self.store.record_receipt(second_receipt, period_id="2026-11")
+        second_hash = "0x" + "5" * 64
+        second_transfer = VerifiedTransfer(
+            "base-sepolia", "USDC", second_hash, "log:second-overflow",
+            self.owner_address, 100_000_000, 20, True,
+            source=self.wallet_address,
+        )
+        signer.tx_hash = second_hash
+        worker.verifier = FakeVerifier(transfer=second_transfer)
+        second = await worker.run_cycle(
+            network="base-sepolia", asset="USDC", period_id="2026-11",
+        )
+        self.assertEqual(second["status"], "settled")
+        self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 500_000_000)
+        self.assertEqual(signer.calls, 2)
+
     async def test_unverified_transfer_stays_uncertain_and_is_never_rebroadcast(self):
         sweep = self.reserve()
         tx_hash = "0x" + "8" * 64
