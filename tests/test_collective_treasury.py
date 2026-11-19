@@ -357,5 +357,63 @@ class CDPAdapterTests(unittest.IsolatedAsyncioTestCase):
         ])
 
 
+    def test_each_agent_has_shared_real_address_and_hard_500_usdc_cap(self):
+        view = self.store.agent_wallet("agent-a", "base-sepolia", "USDC")
+        self.assertEqual(view["address"], "0x" + "a" * 40)
+        self.assertEqual(view["custody_model"], "shared_treasury")
+        self.assertEqual(view["max_balance_usd"], 500)
+        self.assertEqual(view["max_balance_minor"], 500_000_000)
+
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 500_000_000,
+            attribution_ref="invoice:cap-full",
+        )
+        # Replaying the same exact intent is idempotent and does not reserve
+        # the same capacity twice.
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 500_000_000,
+            attribution_ref="invoice:cap-full",
+        )
+        with self.assertRaisesRegex(ValueError, r"\$500 balance cap"):
+            self.store.create_payment_intent(
+                "agent-a", "base-sepolia", "USDC", 1,
+                attribution_ref="invoice:cap-over",
+            )
+
+        self.store.record_receipt(
+            self.transfer(amount=500_000_000), period_id="2026-11",
+            agent_id="agent-a", attribution_ref="invoice:cap-full",
+        )
+        view = self.store.agent_wallet("agent-a", "base-sepolia", "USDC")
+        self.assertEqual(view["balance_minor"], 500_000_000)
+        self.assertEqual(view["available_minor"], 500_000_000)
+        self.assertEqual(view["address"], self.store.agent_wallet(
+            "agent-b", "base-sepolia", "USDC"
+        )["address"])
+        with self.assertRaisesRegex(ValueError, r"\$500 balance cap"):
+            self.store.create_payment_intent(
+                "agent-a", "base-sepolia", "USDC", 1,
+                attribution_ref="invoice:after-cap",
+            )
+
+    def test_suspense_attribution_cannot_overfill_agent_wallet(self):
+        self.store.record_receipt(
+            self.transfer(amount=500_000_001), period_id="2026-11",
+            tx="0x" + "9" * 64,
+        )
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 500_000_001,
+            attribution_ref="invoice:suspense-cap",
+        )
+        with self.assertRaisesRegex(ValueError, r"\$500 balance cap"):
+            self.store.attribute_receipt(
+                "base-sepolia", "USDC", "0x" + "9" * 64, "log:1", "agent-a",
+                expected_attribution_ref="invoice:suspense-cap",
+            )
+        self.assertEqual(
+            self.store.balance("treasury:unallocated", "base-sepolia", "USDC"),
+            500_000_001,
+        )
+
 if __name__ == "__main__":
     unittest.main()
