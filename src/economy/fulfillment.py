@@ -64,13 +64,13 @@ class FulfillmentStore:
         *,
         identity_verifier: Callable[[str, str], bool] | None = None,
         owner_approval_verifier: Callable[[str, str, str], bool] | None = None,
-        settlement_verifier: Callable[[str, str], dict[str, Any] | None] | None = None,
+        settlement_verifier: Callable[[str, str], dict[str, Any] | None] | None = None,\n        acceptance_verifier: Callable[[str, str, dict[str, Any]], bool] | None = None,
     ):
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self.identity_verifier = identity_verifier
         self.owner_approval_verifier = owner_approval_verifier
-        self.settlement_verifier = settlement_verifier
+        self.settlement_verifier = settlement_verifier\n        self.acceptance_verifier = acceptance_verifier
         with self._db() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS fulfillment_jobs (
@@ -186,7 +186,7 @@ class FulfillmentStore:
             if target not in TRANSITIONS[current]:
                 db.execute("ROLLBACK")
                 raise FulfillmentError(f"transition {current} -> {target} is not allowed")
-            if target in {"owner_approved", "submission_approved"}:
+            if target == "accepted" and (self.acceptance_verifier is None or\n                not self.acceptance_verifier(row["source"], row["external_id"], evidence)):\n                db.execute("ROLLBACK")\n                raise FulfillmentError("independent acceptance evidence is required")\n            if target in {"owner_approved", "submission_approved"}:
                 if (not owner_approval or self.owner_approval_verifier is None or
                     not self.owner_approval_verifier(owner_approval, job_id, target)):
                     db.execute("ROLLBACK")
