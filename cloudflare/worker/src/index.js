@@ -291,7 +291,7 @@ async function downloadInternalProduct(request, env, jobId) {
   const digestBytes = await crypto.subtle.digest("SHA-256", bytes);
   const digest = [...new Uint8Array(digestBytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
   if (digest !== row.artifact_sha256) return json({ error: "private product artifact integrity check failed" }, 503);
-  return new Response(object.body, {
+  return new Response(bytes, {
     status: 200,
     headers: {
       "content-type": "application/zip",
