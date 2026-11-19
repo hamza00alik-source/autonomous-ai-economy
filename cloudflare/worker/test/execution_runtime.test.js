@@ -84,7 +84,7 @@ function makeEnv() {
         const signature = request.headers.get("x-aae-execution-signature");
         assert.ok(Math.abs(Date.now() / 1000 - Number(timestamp)) <= 300);
         const expected = createHmac("sha256", env.AAE_EXECUTION_BRIDGE_SECRET)
-          .update(timestamp + "\\n" + raw).digest("hex");
+          .update(timestamp + "\n" + raw).digest("hex");
         assert.equal(signature, expected);
         const payload = JSON.parse(raw);
         return new Response(bytes, {
