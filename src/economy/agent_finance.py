@@ -466,10 +466,39 @@ class AgentFinanceStore:
         if transfer.amount_minor != period["master_due_minor"]:
             raise ValueError("payout amount does not match the master's calculated share")
         with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            monitor_table = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='chain_monitor_events'"
+            ).fetchone()
+            if monitor_table:
+                blocked = db.execute(
+                    """SELECT 1 FROM chain_monitor_events c
+                       WHERE c.participant_id=? AND c.period_id=? AND c.status='reorg_alert'
+                         AND (
+                           NOT EXISTS (
+                             SELECT 1 FROM reorg_alert_resolutions r
+                             WHERE r.network=c.network AND r.tx_hash=c.tx_hash
+                               AND r.transfer_ref=c.transfer_ref
+                           )
+                           OR EXISTS (
+                             SELECT 1 FROM reorg_alert_resolutions r
+                             JOIN finance_adjustments a ON a.adjustment_id=r.adjustment_id
+                             WHERE r.network=c.network AND r.tx_hash=c.tx_hash
+                               AND r.transfer_ref=c.transfer_ref
+                               AND a.adjustment_period_id<>c.period_id
+                           )
+                         ) LIMIT 1""",
+                    (agent_id, period_id),
+                ).fetchone()
+                if blocked:
+                    db.rollback()
+                    raise ValueError("master payout is held by a reorg or closed-period reconciliation")
             cur = db.execute(
                 """UPDATE profit_periods SET status='paid', payout_tx_hash=?
                    WHERE period_key=? AND status='pending_payout'""",
                 (transfer.tx_hash, period["period_key"]),
             )
             if cur.rowcount != 1:
+                db.rollback()
                 raise ValueError("distribution was already finalized or changed concurrently")
+            db.commit()
