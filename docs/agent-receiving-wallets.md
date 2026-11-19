@@ -91,3 +91,16 @@ No USDC is currently marked available or spendable, no budget is funded, no prod
 ## Activation boundary
 
 This code is not deployed. The existing production Worker and D1 database are unchanged. No live checkout is enabled and no payment provider account is created. Owner/operator enrollment, migrations, wallet registration, RPC configuration, legal review, and production approval remain separate gates.
+
+
+### Persistent agent API signing vault (implementation preview)
+
+The follow-on branch adds `AgentKeyVault`, a SQLite-backed Durable Object configured as one deterministic vault per agent. It stores the non-exportable Ed25519 private `CryptoKey` in that object's private structured-clone storage and returns only the public JWK/fingerprint. It can produce the agent proof-of-possession and signs only the exact `POST /v1/agents/{agent_id}/receiving-invoices` request shape; it is not a general-purpose signing oracle.
+
+Important boundaries:
+- The Durable Object binding and class migration are code/configuration only. They have **not** been deployed and no production namespace or storage was created.
+- Tests exercise restart behavior using Node's structured-clone implementation. A Cloudflare runtime integration test is still required to verify CryptoKey persistence in the actual Durable Objects runtime before any production use.
+- The Worker has not yet been wired to provision or call the vault, and no live agent key has been enrolled.
+- This is an API-authentication key, not a Base wallet key. It cannot sign blockchain transactions or move USDC.
+- A Durable Object is persistent state, not an always-running agent process. Scheduling, model execution, task orchestration, owner approval, monitoring, and disaster recovery remain separate work.
+- Before deployment, review Cloudflare access controls, backup/PITR implications for key material, key rotation/revocation, restore procedures, and account spending limits. Never expose the vault RPC methods to an unauthenticated public route.
