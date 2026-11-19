@@ -378,6 +378,8 @@ class AgentFinanceStore:
             ).fetchone()
             if (not original or original["participant_id"] != alert["participant_id"]
                     or original["event_type"] != "income"
+                    or original["asset"].upper() != alert["asset"].upper()
+                    or original["period_id"] != alert["period_id"]
                     or int(original["amount_minor"]) != int(alert["amount_minor"])):
                 db.rollback()
                 raise ValueError("alert does not match an original credited income event")
