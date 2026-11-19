@@ -37,6 +37,16 @@ class CollectiveTreasuryReorgGuard:
             raise ValueError("batch_size must be between 1 and 5000")
         self.monitor, self.verifier = monitor, verifier
         self.lookback_blocks, self.batch_size = lookback_blocks, batch_size
+        with closing(monitor.store._connect()) as db:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS treasury_reorg_guard_cursors (
+                    network TEXT NOT NULL, asset TEXT NOT NULL,
+                    block_number INTEGER NOT NULL, tx_hash TEXT NOT NULL,
+                    transfer_ref TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(network, asset)
+                )
+            """)
 
     def reconcile_once(self, *, network: str, asset: str) -> dict:
         finalized = self.verifier.finalized_block_number()
@@ -47,17 +57,30 @@ class CollectiveTreasuryReorgGuard:
         if not wallet:
             raise ValueError("collective treasury wallet is not registered")
         with closing(self.monitor.store._connect()) as db:
+            cursor = db.execute(
+                """SELECT block_number,tx_hash,transfer_ref
+                   FROM treasury_reorg_guard_cursors WHERE network=? AND asset=?""",
+                (network, asset.upper()),
+            ).fetchone()
+            last = (cursor["block_number"], cursor["tx_hash"], cursor["transfer_ref"]) if cursor else None
+            if last and last[0] < floor:
+                last = None
+            base_sql = """SELECT e.tx_hash,e.transfer_ref,e.block_hash,e.block_number,
+                                 r.source_address,r.destination_address,r.amount_minor
+                          FROM treasury_receipt_monitor_events e
+                          JOIN treasury_receipts r
+                            ON r.network=e.network AND r.tx_hash=e.tx_hash
+                           AND r.transfer_ref=e.transfer_ref AND r.asset=?
+                          WHERE e.network=? AND e.status IN ('allocated','unallocated')
+                            AND (e.block_number=0 OR e.block_number>=?)"""
+            params = [asset.upper(), network, floor]
+            if last:
+                base_sql += """ AND (e.block_number>? OR (e.block_number=? AND
+                               (e.tx_hash>? OR (e.tx_hash=? AND e.transfer_ref>?))))"""
+                params.extend([last[0], last[0], last[1], last[1], last[2]])
             rows = db.execute(
-                """SELECT e.tx_hash,e.transfer_ref,e.block_hash,e.block_number,
-                          r.source_address,r.destination_address,r.amount_minor
-                   FROM treasury_receipt_monitor_events e
-                   JOIN treasury_receipts r
-                     ON r.network=e.network AND r.tx_hash=e.tx_hash
-                    AND r.transfer_ref=e.transfer_ref AND r.asset=?
-                   WHERE e.network=? AND e.status IN ('allocated','unallocated')
-                     AND (e.block_number=0 OR e.block_number>=?)
-                   ORDER BY e.block_number,e.tx_hash,e.transfer_ref LIMIT ?""",
-                (asset.upper(), network, floor, self.batch_size),
+                base_sql + " ORDER BY e.block_number,e.tx_hash,e.transfer_ref LIMIT ?",
+                (*params, self.batch_size),
             ).fetchall()
         checked = alerts = legacy_unknown = 0
         for row in rows:
@@ -90,6 +113,23 @@ class CollectiveTreasuryReorgGuard:
                     reason="canonical verifier reports credited transfer missing or changed",
                 )
                 alerts += 1
+        with closing(self.monitor.store._connect()) as db:
+            if rows and len(rows) == self.batch_size:
+                tail = rows[-1]
+                db.execute(
+                    """INSERT INTO treasury_reorg_guard_cursors
+                       (network,asset,block_number,tx_hash,transfer_ref)
+                       VALUES(?,?,?,?,?)
+                       ON CONFLICT(network,asset) DO UPDATE SET
+                         block_number=excluded.block_number,tx_hash=excluded.tx_hash,
+                         transfer_ref=excluded.transfer_ref,updated_at=CURRENT_TIMESTAMP""",
+                    (network, asset.upper(), tail["block_number"], tail["tx_hash"], tail["transfer_ref"]),
+                )
+            else:
+                db.execute(
+                    "DELETE FROM treasury_reorg_guard_cursors WHERE network=? AND asset=?",
+                    (network, asset.upper()),
+                )
         return {
             "checked": checked, "reorg_alerts": alerts,
             "legacy_receipts_without_block_number": legacy_unknown,
@@ -102,13 +142,12 @@ class CollectiveTreasuryReorgGuard:
 class CollectiveTreasuryAccountingRuntime:
     """One accounting cycle: ingest, reorg-check, reconcile, then execute spends."""
 
-    def __init__(self, store: CollectiveTreasuryStore,
-                 receipt_monitor: CollectiveTreasuryReceiptMonitor,
+    def __init__(self, receipt_monitor: CollectiveTreasuryReceiptMonitor,
                  reorg_guard: CollectiveTreasuryReorgGuard,
                  balance_check: Callable[[], dict],
                  worker: CollectiveTreasuryWorker, *,
                  network: str, asset: str) -> None:
-        self.store, self.receipt_monitor = store, receipt_monitor
+        self.receipt_monitor = receipt_monitor
         self.reorg_guard, self.balance_check, self.worker = reorg_guard, balance_check, worker
         self.network, self.asset = network, asset.upper()
 
