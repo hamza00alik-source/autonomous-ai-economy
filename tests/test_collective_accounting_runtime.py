@@ -86,13 +86,15 @@ class CollectiveTreasuryReorgGuardTests(unittest.TestCase):
         self.store.create_payment_intent(
             "agent-a", "base-sepolia", "USDC", 1000, attribution_ref="invoice:second"
         )
-        self.store.record_receipt(
-            VerifiedTransfer(
-                "base-sepolia", "USDC", "0x" + "e" * 64, "log:1",
-                WALLET, 1000, 20, True, source=PAYER,
-            ),
-            period_id="2026-11", agent_id="agent-a",
-            attribution_ref="invoice:second",
+        self.monitor.bind_payer("invoice:second", PAYER)
+        second_item = ChainTransferObservation(
+            "base-sepolia", "USDC", TOKEN, "0x" + "e" * 64, "log:1",
+            PAYER, WALLET, 1000, 101, "0x" + "f" * 64, 20, True, True,
+            "2026-11-19T12:01:00+00:00",
+        )
+        self.monitor.source = Source(second_item)
+        self.monitor.poll_once(
+            network="base-sepolia", asset="USDC", period_id="2026-11"
         )
         guard = CollectiveTreasuryReorgGuard(
             self.monitor, Verifier(canonical=True), batch_size=1
