@@ -15,10 +15,10 @@ TOKEN = "0x" + "1" * 40
 TX = "0x" + "c" * 64
 
 
-def observation(*, tx=TX, amount=5000, source=PAYER, finalized=True, canonical=True, block_hash="0x" + "d" * 64):
+def observation(*, tx=TX, amount=5000, source=PAYER, finalized=True, canonical=True, block_hash="0x" + "d" * 64, block_number=100):
     return ChainTransferObservation(
         "base-sepolia", "USDC", TOKEN, tx, "log:0", source, WALLET,
-        amount, 100, block_hash, 12 if finalized else 1,
+        amount, block_number, block_hash, 12 if finalized else 1,
         canonical, finalized, "2026-11-19T12:00:00+00:00",
     )
 
@@ -165,6 +165,17 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
                 "agent-a", "base-sepolia", "USDC", "0x" + "e" * 40, 100,
                 idempotency_key="reorg-blocked", period_id="2026-11",
             )
+
+    def test_changed_block_height_also_opens_reorg_alert(self):
+        self.intent()
+        self.monitor.bind_payer("invoice:1", PAYER)
+        self.monitor.poll_once(network="base-sepolia", asset="USDC", period_id="2026-11")
+        self.source.transfers = (observation(block_number=101),)
+        with self.assertRaisesRegex(ValueError, "reorganization alert"):
+            self.monitor.poll_once(network="base-sepolia", asset="USDC", period_id="2026-11")
+        self.assertEqual(self.monitor.open_reorg_alerts(
+            network="base-sepolia", asset="USDC"
+        ), 1)
 
     def test_noncanonical_reappearance_opens_alert_and_pauses_all_agents(self):
         self.intent()
