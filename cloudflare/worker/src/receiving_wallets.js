@@ -39,10 +39,10 @@ export async function registerAgentReceivingWallet(db,{ownerId,agentId,address,s
   if(!ID.test(ownerId||"")||!ID.test(agentId||"")||!ADDRESS.test(address||"")) return {ok:false,reason:"invalid_wallet_registration_fields"};
   const owner=await db.prepare("SELECT participant_id,participant_type,status,public_key_jwk,key_fingerprint FROM financial_participants WHERE participant_id=?")
     .bind(ownerId).first();
-  const agent=await db.prepare("SELECT participant_id,participant_type,status,owner_id,operator_id FROM financial_participants WHERE participant_id=?")
+  const agent=await db.prepare("SELECT a.participant_id,a.participant_type,a.status,a.owner_id,a.operator_id,o.status AS operator_status FROM financial_participants a JOIN financial_participants o ON o.participant_id=a.operator_id WHERE a.participant_id=?")
     .bind(agentId).first();
   if(!owner||owner.participant_type!=="owner"||owner.status!=="active"||!owner.public_key_jwk||!owner.key_fingerprint) return {ok:false,reason:"active_owner_signing_key_required"};
-  if(!agent||agent.participant_type!=="agent"||agent.status!=="active"||agent.owner_id!==ownerId) return {ok:false,reason:"active_owned_agent_required"};
+  if(!agent||agent.participant_type!=="agent"||agent.status!=="active"||agent.operator_status!=="active"||agent.owner_id!==ownerId) return {ok:false,reason:"active_owned_agent_and_operator_required"};
   const payload={version:1,owner_id:ownerId,agent_id:agentId,network:USDC_BASE.network,chain_id:USDC_BASE.chainId,
     asset_code:USDC_BASE.assetCode,token_contract:USDC_BASE.tokenContract.toLowerCase(),token_decimals:USDC_BASE.decimals,
     receiving_address:address.toLowerCase()};
@@ -84,6 +84,8 @@ export async function createAgentReceivingInvoice(db,{ownerId,agentId,orderId,am
   if(!amountMinor) return {ok:false,reason:"invalid_usdc_amount"};
   if(typeof description!=="string"||!description.trim()||description.length>200) return {ok:false,reason:"invalid_description"};
   if(!Number.isInteger(expiresInMinutes)||expiresInMinutes<5||expiresInMinutes>1440) return {ok:false,reason:"invalid_expiry"};
+  const agent=await db.prepare("SELECT a.status,o.status AS operator_status FROM financial_participants a JOIN financial_participants o ON o.participant_id=a.operator_id WHERE a.participant_id=? AND a.owner_id=? AND a.participant_type='agent'").bind(agentId,ownerId).first();
+  if(!agent||agent.status!=="active"||agent.operator_status!=="active") return {ok:false,reason:"active_owned_agent_and_operator_required"};
   const wallet=await db.prepare("SELECT wallet_id,receiving_address,network,chain_id,asset_code,token_contract,token_decimals FROM financial_agent_receiving_wallets WHERE owner_id=? AND agent_id=? AND status='active' AND network=? AND asset_code=?")
     .bind(ownerId,agentId,USDC_BASE.network,USDC_BASE.assetCode).first();
   if(!wallet) return {ok:false,reason:"agent_receiving_wallet_not_configured"};
