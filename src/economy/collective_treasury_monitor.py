@@ -369,8 +369,8 @@ class CollectiveTreasuryReceiptMonitor:
                         reason="previously ingested transfer appeared in a different block",
                     )
                     raise ValueError(
-                        "treasury reorganization alert opened; agent spending paused "
-                        "until operator reconciliation"
+                        "changed block identity or height; treasury reorganization alert "
+                        "opened and agent spending paused until operator reconciliation"
                     )
                 if prior_event["status"] in {"allocated", "unallocated"}:
                     counts[prior_event["status"]] += 1
