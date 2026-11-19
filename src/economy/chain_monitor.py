@@ -202,7 +202,7 @@ class ChainMonitor:
                         (item.network,item.tx_hash,item.transfer_ref,participant_id,
                          self.asset.asset.upper(),self.asset.token_contract,item.source,
                          item.destination,item.amount_minor,item.block_number,item.block_hash,
-                         item.confirmations,period_id,status),
+                         item.confirmations,event_period,status),
                     )
                     db.commit()
                     counts["reorg_alerts" if status == "reorg_alert" else "orphaned"] += 1
