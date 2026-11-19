@@ -725,6 +725,11 @@ class CollectiveTreasuryStore:
                 (idempotency_key,),
             ).fetchone()
             if old:
+                if (old["network"], old["asset"], old["period_id"]) != (
+                    network, asset, period_id
+                ):
+                    db.rollback()
+                    raise ValueError("overflow sweep idempotency key reused for different terms")
                 db.commit()
                 return dict(old)
             wallet = db.execute(
@@ -793,6 +798,11 @@ class CollectiveTreasuryStore:
                 (idempotency_key,),
             ).fetchone()
             if old:
+                if (old["agent_id"], old["network"], old["asset"], old["period_id"]) != (
+                    agent_id, network, asset, period_id
+                ):
+                    db.rollback()
+                    raise ValueError("owner profit payout idempotency key reused for different terms")
                 db.commit()
                 return dict(old)
             close = db.execute(
