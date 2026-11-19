@@ -29,6 +29,26 @@ submitted to `POST /v1/owner/agents/{agent_id}/api-key/{key_id}/revoke`.
 
 This is a scoped authentication capability, not wallet custody or spending authority. The API currently permits invoice creation only. Key provisioning into an always-on agent runtime, encrypted-at-rest storage, backup/recovery, automated rotation UX, request-rate limiting and operational monitoring remain necessary before production use.
 
+
+### Agent runtime signing client and $1 invoice example
+
+`cloudflare/worker/src/agent_api_client.js` provides agent-side Ed25519 key generation and request signing:
+- Generates a non-exportable private `CryptoKey`; only its public JWK is exported.
+- Produces the owner-authorized enrollment envelope and agent proof-of-possession.
+- Signs the exact raw request body, method, path, timestamp and unique nonce.
+- Returns the headers required by the agent invoice API.
+
+The helper is a client library, not an always-on agent runtime or a persistent key vault. The calling runtime must persist the non-exportable key in an appropriate protected keystore (for example, a supported platform keystore/secure CryptoKey store), implement backup/recovery and rotation, and never expose key material to the model. No key has been provisioned to a live agent in this change.
+
+**Illustrative $1.00 USDC invoice preview (not a live invoice):**
+- Amount: `1.00 USDC`
+- Base USDC integer amount: `1000000` (six decimals)
+- Network: `Base mainnet` (chain ID `8453`)
+- Example-only recipient: `0x1111111111111111111111111111111111111111`
+- Example payment URI: `ethereum:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913@8453/transfer?address=0x1111111111111111111111111111111111111111&uint256=1000000`
+
+The example address is a test placeholder and must not be paid. No invoice was created, no payment was requested, and no funds were received. A real invoice requires a verified agent, owner-authorized receiving address, live service configuration and an independently confirmed on-chain transfer.
+
 ## Payment request and chain verification
 
 Creating an invoice creates a payment instruction only. It does not prove that a buyer paid. The invoice remains `awaiting_payment` until an owner-authenticated verification request checks the transaction against a configured HTTPS Base JSON-RPC endpoint.
