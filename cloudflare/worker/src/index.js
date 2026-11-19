@@ -370,9 +370,6 @@ async function downloadInternalProduct(request, env, jobId) {
 }
 
 async function inventoryPrivateArtifactObjects(env, url) {
-  if (!env.AAE_OWNER_ID || !env.EXECUTION_ARTIFACTS) {
-    return json({ error: "owner identity or private artifact storage is not configured" }, 503);
-  }
   const requestedLimit = url.searchParams.get("limit");
   const limit = requestedLimit === null ? 100 : Number(requestedLimit);
   if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
@@ -380,6 +377,9 @@ async function inventoryPrivateArtifactObjects(env, url) {
   }
   const cursor = url.searchParams.get("cursor") || undefined;
   if (cursor && cursor.length > 2048) return json({ error: "cursor is too long" }, 400);
+  if (!env.AAE_OWNER_ID || !env.EXECUTION_ARTIFACTS) {
+    return json({ error: "owner identity or private artifact storage is not configured" }, 503);
+  }
 
   // Read-only, one-page inventory. It never deletes, rewrites, or changes metadata.
   const page = await env.EXECUTION_ARTIFACTS.list({
