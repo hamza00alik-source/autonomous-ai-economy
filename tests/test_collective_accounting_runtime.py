@@ -140,6 +140,22 @@ class CollectiveAccountingRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "payouts_blocked")
         self.assertEqual(events, ["receipts", "reorgs", "balances"])
 
+    async def test_runtime_blocks_spending_when_reorg_scan_has_more_batches(self):
+        events = []
+        runtime = CollectiveTreasuryAccountingRuntime(
+            receipt_monitor=FakeReceiptMonitor(events),
+            reorg_guard=FakeReorgGuard(events),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+        )
+        runtime.reorg_guard.reconcile_once = lambda **kwargs: (
+            events.append("reorgs") or {"open_alerts": 0, "has_more": True}
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "payouts_blocked")
+        self.assertIn("incomplete", result["reason"])
+        self.assertEqual(events, ["receipts", "reorgs", "balances"])
+
     async def test_runtime_blocks_spending_when_reorg_alert_open(self):
         events = []
         runtime = CollectiveTreasuryAccountingRuntime(
