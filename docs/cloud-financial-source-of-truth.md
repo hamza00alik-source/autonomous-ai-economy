@@ -130,7 +130,7 @@ The owner and operator IDs are configured out of band using Worker variables `AA
 The Android-friendly owner dashboard supports:
 - Generate a new Ed25519 key in the browser, or import an existing unencrypted PKCS#8 PEM key.
 - Keep the private key in browser-tab memory only; it is never sent to the Worker or saved in browser storage.
-- Download a private-key backup when generating a new key. The owner must protect this file; losing it means losing the ability to sign future policies unless a separately authorized key-rotation/recovery process is completed.
+- Download a private-key backup when generating a new key. The dashboard blocks enrollment and policy signing until the backup link is clicked. The owner must protect this unencrypted PEM file; losing it means losing the ability to sign future policies unless a separately authorized key-rotation/recovery process is completed.
 - Sign the enrollment challenge and subsequent cloud policy JSON locally in the browser.
 - Submit only public key material, canonical policy data and signatures to authenticated same-origin endpoints.
 
