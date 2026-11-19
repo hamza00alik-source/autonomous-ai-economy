@@ -125,8 +125,7 @@ class FulfillmentStore:
         if self.identity_verifier is None or not self.identity_verifier(agent_id, agent_key_fingerprint):
             raise FulfillmentError("agent identity is not cryptographically verified")
         now = self._now()
-        job_id = hashlib.sha256(f"{source}
-{external_id}".encode()).hexdigest()
+        job_id = hashlib.sha256(f"{source}\\n{external_id}".encode()).hexdigest()
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
