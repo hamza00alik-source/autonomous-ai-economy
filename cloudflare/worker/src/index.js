@@ -5,6 +5,7 @@ import { registerAgentApiKey, revokeAgentApiKey, authenticateAgentRequest } from
 import { verifyBaseUsdcInvoicePayment } from "./base_chain_verifier.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 import { getCloudFinancialControls, setCloudEmergencyPause, createCloudExpenseSchedule, setCloudExpenseScheduleStatus, runDueCloudExpenseSchedules, registerCloudSignedFinancialPolicy, createCloudOwnerEnrollmentChallenge, completeCloudOwnerEnrollment } from "./financial_controls.js";
+import { createExecutionApprovalChallenge, verifyAndConsumeExecutionApproval } from "./execution_approval.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -152,6 +153,220 @@ async function enqueueCopy(request, env) {
   ).bind(taskId, idempotencyKey, canonical, now, now).run();
   const row = await env.DB.prepare("SELECT task_id,status,created_at FROM ai_tasks WHERE idempotency_key=?").bind(idempotencyKey).first();
   return json({ task_id: row.task_id, status: row.status, created_at: row.created_at, idempotent: true }, 202);
+}
+
+async function readBoundedRequestText(request, maxBytes) {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { return undefined; }
+}
+
+async function hmacSha256Hex(secret, message) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return [...new Uint8Array(signature)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function executeInternalProduct(request, env) {
+  if (!env.AAE_OWNER_ID || !env.AAE_EXECUTION_BRIDGE_SECRET ||
+      new TextEncoder().encode(env.AAE_EXECUTION_BRIDGE_SECRET).length < 32) {
+    return json({ error: "owner identity or execution bridge secret is not provisioned" }, 503);
+  }
+  if (!env.EXECUTION_RUNTIME || !env.EXECUTION_ARTIFACTS) {
+    return json({ error: "private execution runtime or artifact storage is not configured" }, 503);
+  }
+  if (request.headers.get("origin") !== new URL(request.url).origin ||
+      !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+    return json({ error: "same-origin application/json request required" }, 403);
+  }
+  const rawInput = await readBoundedRequestText(request, 2048);
+  if (rawInput === null) return json({ error: "request body too large" }, 413);
+  if (rawInput === undefined) return json({ error: "request body must be valid UTF-8" }, 400);
+  let input;
+  try { input = JSON.parse(rawInput); } catch { return json({ error: "invalid JSON" }, 400); }
+  if (!input || typeof input !== "object" || Array.isArray(input) ||
+      Object.keys(input).length !== 2 || !("idempotency_key" in input) || !("approval" in input) ||
+      typeof input.idempotency_key !== "string" ||
+      !/^[A-Za-z0-9._:-]{8,128}$/.test(input.idempotency_key)) {
+    return json({ error: "idempotency_key and signed owner approval are required" }, 400);
+  }
+
+  const existing = await env.DB.prepare(
+    "SELECT job_id,status,artifact_key,artifact_sha256,artifact_size_bytes FROM internal_execution_jobs WHERE owner_id=? AND idempotency_key=?"
+  ).bind(env.AAE_OWNER_ID, input.idempotency_key).first();
+  if (existing) {
+    if (existing.status === "delivery_ready") return json({
+      job_id: existing.job_id, status: existing.status, artifact_key: existing.artifact_key,
+      artifact_sha256: existing.artifact_sha256, artifact_size_bytes: existing.artifact_size_bytes, idempotent: true
+    });
+    if (existing.status === "approved") return json({
+      job_id: existing.job_id, status: existing.status, queued: true, idempotent: true
+    }, 202);
+    return json({ error: "execution job is already running or terminal", job_id: existing.job_id, status: existing.status }, 409);
+  }
+  const approval = await verifyAndConsumeExecutionApproval(env.DB, {
+    ownerId: env.AAE_OWNER_ID, idempotencyKey: input.idempotency_key, approval: input.approval
+  });
+  if (!approval.ok) return json({ error: approval.reason }, 401);
+
+  const owner = await env.DB.prepare(
+    "SELECT participant_id FROM financial_participants WHERE participant_id=? AND participant_type='owner' AND status='active'"
+  ).bind(env.AAE_OWNER_ID).first();
+  if (!owner) return json({ error: "active cloud owner identity is not provisioned" }, 503);
+
+  const now = new Date().toISOString();
+  const jobId = crypto.randomUUID();
+  const spec = { kind: "moba_objective_props_v1" };
+  await env.DB.prepare(`INSERT OR IGNORE INTO internal_execution_jobs
+    (job_id,owner_id,idempotency_key,agent_id,execution_spec_json,status,created_at,updated_at)
+    VALUES(?,?,?,'game-asset-builder',?,'approved',?,?)`)
+    .bind(jobId, env.AAE_OWNER_ID, input.idempotency_key, JSON.stringify(spec), now, now).run();
+  const job = await env.DB.prepare(
+    "SELECT job_id,status,artifact_key,artifact_sha256,artifact_size_bytes FROM internal_execution_jobs WHERE owner_id=? AND idempotency_key=?"
+  ).bind(env.AAE_OWNER_ID, input.idempotency_key).first();
+  if (!job) return json({ error: "execution job could not be persisted" }, 503);
+  if (job.status === "delivery_ready") {
+    return json({ job_id: job.job_id, status: job.status, artifact_key: job.artifact_key,
+      artifact_sha256: job.artifact_sha256, artifact_size_bytes: job.artifact_size_bytes, idempotent: true });
+  }
+  if (job.status !== "approved") return json({ error: "execution job is already queued or terminal", job_id: job.job_id, status: job.status }, 409);
+  await env.DB.prepare(
+    "INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'owner_approved',?,?)"
+  ).bind(crypto.randomUUID(), job.job_id, env.AAE_OWNER_ID,
+    JSON.stringify({ action: "execute_internal_product", agent_id: "game-asset-builder", execution_spec: spec, signed_approval: approval.payload }), now).run();
+  return json({
+    job_id: job.job_id, status: "approved", queued: true,
+    message: "Owner-approved private build queued for scheduled execution.",
+    published: false, submitted: false, customer_contacted: false, sales_verified: false
+  }, 202);
+}
+
+async function processOneApprovedInternalProduct(env) {
+  if (!env.DB || !env.EXECUTION_RUNTIME || !env.EXECUTION_ARTIFACTS || !env.AAE_OWNER_ID || !env.AAE_EXECUTION_BRIDGE_SECRET) return;
+  const now = new Date().toISOString();
+  const exhausted = await env.DB.prepare(
+    "SELECT job_id,owner_id FROM internal_execution_jobs WHERE status='running' AND lease_expires_at < ? AND attempt_count >= 3 ORDER BY lease_expires_at ASC LIMIT 1"
+  ).bind(now).first();
+  if (exhausted && exhausted.owner_id === env.AAE_OWNER_ID) {
+    await env.DB.prepare("UPDATE internal_execution_jobs SET status='failed',error_code='execution_lease_exhausted',updated_at=? WHERE job_id=? AND status='running' AND lease_expires_at < ?")
+      .bind(now,exhausted.job_id,now).run();
+    await env.DB.prepare("INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'execution_failed',?,?)")
+      .bind(crypto.randomUUID(),exhausted.job_id,env.AAE_OWNER_ID,JSON.stringify({reason:"execution_lease_exhausted",max_attempts:3}),now).run();
+    return;
+  }
+  const job = await env.DB.prepare(
+    "SELECT job_id,owner_id,execution_spec_json,attempt_count FROM internal_execution_jobs WHERE owner_id=? AND attempt_count < 3 AND (status='approved' OR (status='running' AND lease_expires_at < ?)) ORDER BY created_at ASC LIMIT 1"
+  ).bind(env.AAE_OWNER_ID,now).first();
+  if (!job || job.execution_spec_json !== JSON.stringify({kind:"moba_objective_props_v1"})) return;
+  const leaseExpires = new Date(Date.now()+10*60*1000).toISOString();
+  const claimed = await env.DB.prepare(
+    "UPDATE internal_execution_jobs SET status='running',attempt_count=attempt_count+1,lease_expires_at=?,updated_at=? WHERE job_id=? AND (status='approved' OR (status='running' AND lease_expires_at < ?)) RETURNING job_id"
+  ).bind(leaseExpires,now,job.job_id,now).first();
+  if (!claimed) return;
+  await env.DB.prepare(
+    "INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'execution_started','{}',?)"
+  ).bind(crypto.randomUUID(),job.job_id,env.AAE_OWNER_ID,now).run();
+  try {
+    const payload=JSON.stringify({job_id:job.job_id,owner_id:env.AAE_OWNER_ID,execution_spec:{kind:"moba_objective_props_v1"}});
+    const timestamp=String(Math.floor(Date.now()/1000));
+    const signature=await hmacSha256Hex(env.AAE_EXECUTION_BRIDGE_SECRET,timestamp+"\n"+payload);
+    const runtimeResponse=await env.EXECUTION_RUNTIME.fetch(new Request("https://execution-runtime.internal/internal/execute",{
+      method:"POST",
+      headers:{"content-type":"application/json","x-aae-execution-timestamp":timestamp,"x-aae-execution-signature":signature},
+      body:payload
+    }));
+    if(!runtimeResponse.ok||runtimeResponse.headers.get("x-aae-job-id")!==job.job_id||
+       runtimeResponse.headers.get("x-aae-qa")!=="passed"||
+       !(runtimeResponse.headers.get("content-type")||"").startsWith("application/zip")) throw new Error("private runtime verification failed");
+    const artifact=await runtimeResponse.arrayBuffer();
+    if(artifact.byteLength<=0||artifact.byteLength>20*1024*1024) throw new Error("artifact size outside policy");
+    const digestBytes=await crypto.subtle.digest("SHA-256",artifact);
+    const digest=[...new Uint8Array(digestBytes)].map(b=>b.toString(16).padStart(2,"0")).join("");
+    if(runtimeResponse.headers.get("x-aae-sha256")!==digest||runtimeResponse.headers.get("x-aae-size")!==String(artifact.byteLength)) throw new Error("artifact integrity mismatch");
+    const artifactKey="internal-products/"+job.job_id+"/moba-objective-props.zip";
+    await env.EXECUTION_ARTIFACTS.put(artifactKey,artifact,{
+      httpMetadata:{contentType:"application/zip",cacheControl:"private, no-store"},
+      customMetadata:{job_id:job.job_id,owner_id:env.AAE_OWNER_ID,sha256:digest}
+    });
+    const completedAt=new Date().toISOString();
+    await env.DB.prepare("UPDATE internal_execution_jobs SET status='delivery_ready',artifact_key=?,artifact_sha256=?,artifact_size_bytes=?,lease_expires_at=NULL,updated_at=? WHERE job_id=? AND status='running'")
+      .bind(artifactKey,digest,artifact.byteLength,completedAt,job.job_id).run();
+    await env.DB.prepare("INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'artifact_verified',?,?)")
+      .bind(crypto.randomUUID(),job.job_id,env.AAE_OWNER_ID,JSON.stringify({artifact_key:artifactKey,sha256:digest,size_bytes:artifact.byteLength,qa_passed:true}),completedAt).run();
+  } catch {
+    const failedAt=new Date().toISOString();
+    await env.DB.prepare("UPDATE internal_execution_jobs SET status='failed',error_code='execution_failed',lease_expires_at=NULL,updated_at=? WHERE job_id=? AND status='running'")
+      .bind(failedAt,job.job_id).run();
+    await env.DB.prepare("INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'execution_failed','{}',?)")
+      .bind(crypto.randomUUID(),job.job_id,env.AAE_OWNER_ID,failedAt).run();
+  }
+}
+
+async function internalProductJobStatus(env, jobId) {
+  if (!env.AAE_OWNER_ID) return json({error:"cloud owner identity is not configured"},503);
+  const row=await env.DB.prepare(
+    "SELECT job_id,status,artifact_sha256,artifact_size_bytes,error_code,created_at,updated_at FROM internal_execution_jobs WHERE job_id=? AND owner_id=?"
+  ).bind(jobId,env.AAE_OWNER_ID).first();
+  if(!row) return json({error:"private execution job not found"},404);
+  return json({job_id:row.job_id,status:row.status,artifact_sha256:row.artifact_sha256,
+    artifact_size_bytes:row.artifact_size_bytes,error_code:row.error_code,created_at:row.created_at,updated_at:row.updated_at});
+}
+async function downloadInternalProduct(request, env, jobId) {
+  if (!env.AAE_OWNER_ID || !env.EXECUTION_ARTIFACTS) {
+    return json({ error: "owner identity or private artifact storage is not configured" }, 503);
+  }
+  const row = await env.DB.prepare(
+    "SELECT artifact_key,artifact_sha256,artifact_size_bytes,status FROM internal_execution_jobs WHERE job_id=? AND owner_id=?"
+  ).bind(jobId, env.AAE_OWNER_ID).first();
+  if (!row || row.status !== "delivery_ready" || !row.artifact_key) {
+    return json({ error: "private product artifact not found" }, 404);
+  }
+  const object = await env.EXECUTION_ARTIFACTS.get(row.artifact_key);
+  if (!object) return json({ error: "private product artifact is unavailable" }, 404);
+  if (object.customMetadata?.sha256 && object.customMetadata.sha256 !== row.artifact_sha256) {
+    return json({ error: "private product artifact metadata integrity check failed" }, 503);
+  }
+  const bytes = await object.arrayBuffer();
+  if (bytes.byteLength !== row.artifact_size_bytes || bytes.byteLength > 20 * 1024 * 1024) {
+    return json({ error: "private product artifact size check failed" }, 503);
+  }
+  const digestBytes = await crypto.subtle.digest("SHA-256", bytes);
+  const digest = [...new Uint8Array(digestBytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  if (digest !== row.artifact_sha256) return json({ error: "private product artifact integrity check failed" }, 503);
+  return new Response(bytes, {
+    status: 200,
+    headers: {
+      "content-type": "application/zip",
+      "content-disposition": 'attachment; filename="moba-objective-props.zip"',
+      "content-length": String(bytes.byteLength),
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+    },
+  });
 }
 
 async function taskStatus(request, env, taskId) {
@@ -734,6 +949,29 @@ export default {
       return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    const internalJobStatusMatch = url.pathname.match(/^\/v1\/owner\/internal-products\/jobs\/([0-9a-f-]{36})$/i);
+    if (internalJobStatusMatch && request.method === "GET") {
+      return internalProductJobStatus(env, internalJobStatusMatch[1]);
+    }
+    const internalArtifactMatch = url.pathname.match(/^\/v1\/owner\/internal-products\/jobs\/([0-9a-f-]{36})\/artifact$/i);
+    if (internalArtifactMatch && request.method === "GET") {
+      return downloadInternalProduct(request, env, internalArtifactMatch[1]);
+    }
+    if (url.pathname === "/v1/owner/internal-products/moba-objective-props/approval-challenge" && request.method === "POST") {
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) return json({ error: "same-origin application/json request required" }, 403);
+      const raw = await readBoundedRequestText(request, 256);
+      if (raw === null) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== 1 || typeof body.idempotency_key !== "string") return json({ error: "one idempotency_key is required" }, 400);
+      const result = await createExecutionApprovalChallenge(env.DB, { ownerId: env.AAE_OWNER_ID, idempotencyKey: body.idempotency_key });
+      return result.ok ? json(result) : json({ error: result.reason }, 409);
+    }
+    if (url.pathname === "/v1/owner/internal-products/moba-objective-props/build" && request.method === "POST") {
+      return executeInternalProduct(request, env);
+    }
     const vaultBootstrapMatch = url.pathname.match(/^\/v1\/owner\/agents\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\/api-key\/vault-bootstrap$/);
     if (vaultBootstrapMatch && request.method === "POST") {
       if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
@@ -1102,7 +1340,7 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
-    const tasks = [processOne(env), pollSwarmMemo(env)];
+    const tasks = [processOne(env), pollSwarmMemo(env), processOneApprovedInternalProduct(env)];
     if (env.AAE_CLOUD_FINANCIAL_SCHEDULER_ENABLED === "true" && env.AAE_OWNER_ID) {
       tasks.push(runDueCloudExpenseSchedules(env.DB, env.AAE_OWNER_ID));
     }
