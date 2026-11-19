@@ -206,7 +206,7 @@ class ChainMonitorTests(unittest.TestCase):
         self.monitor.poll_once(period_id="2026-11")
         with self.assertRaisesRegex(ValueError, "open period must be corrected"):
             self.finance.record_reorg_adjustment(
-                "testnet", "0xTx1", "log:0", adjustment_period_id="2026-11",
+                "testnet", "0xTx1", "log:0", adjustment_period_id="2026-12",
                 operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
                 evidence_ref="case://reorg/tx1", reviewed=True,
             )
