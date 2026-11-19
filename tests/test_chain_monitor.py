@@ -122,6 +122,12 @@ class ChainMonitorTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(row["period_id"], "2026-10")
 
+
+    def test_rejects_timestamp_without_timezone(self):
+        self.chain.transfers = (observation(block_timestamp="2026-11-19T12:00:00"),)
+        with self.assertRaisesRegex(ValueError, "timezone offset"):
+            self.monitor.poll_once(period_id="2026-11")
+
     def test_cursor_is_forwarded_and_persisted(self):
         self.monitor.poll_once(period_id="2026-11")
         self.monitor.poll_once(period_id="2026-11")
