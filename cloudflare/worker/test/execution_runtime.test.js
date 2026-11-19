@@ -274,3 +274,82 @@ test("execution fails closed when private runtime bindings are missing", async (
   const response = await worker.fetch(request(approvalBody), env);
   assert.equal(response.status, 503);
 });
+
+
+function inventoryRequest(path = "/v1/owner/internal-products/artifacts/inventory", token = "owner-token") {
+  return new Request("https://aae.example" + path, { headers: { authorization: "Bearer " + token } });
+}
+
+test("private artifact inventory is read-only and reports orphan candidates and integrity warnings", async () => {
+  const rows = [
+    { artifact_key: "internal-products/job-1/moba-objective-props.zip", job_id: "job-1", owner_id: "owner-001", status: "delivery_ready", artifact_sha256: "abc", artifact_size_bytes: 8 },
+    { artifact_key: "internal-products/job-2/moba-objective-props.zip", job_id: "job-2", owner_id: "owner-001", status: "failed", artifact_sha256: "def", artifact_size_bytes: 8 },
+  ];
+  let listCalls = 0;
+  let deleteCalls = 0;
+  const env = {
+    AAE_QUEUE_TOKEN: "owner-token",
+    AAE_OWNER_ID: "owner-001",
+    DB: {
+      prepare(sql) {
+        assert.match(sql, /SELECT artifact_key,job_id,owner_id,status,artifact_sha256,artifact_size_bytes/);
+        return { bind(...keys) {
+          assert.equal(keys.length, 3);
+          return { async all() { return { results: rows }; } };
+        } };
+      },
+    },
+    EXECUTION_ARTIFACTS: {
+      async list(options) {
+        listCalls++;
+        assert.deepEqual(options, { prefix: "internal-products/", limit: 100 });
+        return {
+          objects: [
+            { key: "internal-products/job-1/moba-objective-props.zip", size: 8, customMetadata: { job_id: "job-1", owner_id: "owner-001", sha256: "abc" } },
+            { key: "internal-products/job-2/moba-objective-props.zip", size: 8, customMetadata: { job_id: "job-2", owner_id: "owner-001", sha256: "def" } },
+            { key: "internal-products/orphan/moba-objective-props.zip", size: 12, uploaded: "2026-11-19T00:00:00.000Z" },
+          ],
+          truncated: true,
+          cursor: "next-page-token",
+        };
+      },
+      async delete() { deleteCalls++; throw new Error("inventory must never delete"); },
+      async put() { throw new Error("inventory must never write"); },
+    },
+  };
+  const response = await worker.fetch(inventoryRequest(), env);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.mode, "dry_run_read_only");
+  assert.equal(result.objects_scanned, 3);
+  assert.equal(result.matched_d1_records, 2);
+  assert.equal(result.orphan_candidate_count, 1);
+  assert.equal(result.orphan_candidates[0].reason, "no_d1_artifact_record");
+  assert.equal(result.orphan_candidates[0].action, "review_only");
+  assert.equal(result.integrity_warning_count, 1);
+  assert.deepEqual(result.integrity_warnings[0].reasons, ["job_not_delivery_ready"]);
+  assert.equal(result.complete, false);
+  assert.equal(result.next_cursor, "next-page-token");
+  assert.equal(result.deletion_performed, false);
+  assert.equal(result.metadata_modified, false);
+  assert.equal(listCalls, 1);
+  assert.equal(deleteCalls, 0);
+});
+
+test("private artifact inventory rejects invalid limits and fails closed without R2", async () => {
+  const base = { AAE_QUEUE_TOKEN: "owner-token", AAE_OWNER_ID: "owner-001" };
+  const invalid = await worker.fetch(inventoryRequest("/v1/owner/internal-products/artifacts/inventory?limit=1001"), base);
+  assert.equal(invalid.status, 400);
+  const missing = await worker.fetch(inventoryRequest(), base);
+  assert.equal(missing.status, 503);
+});
+
+test("private artifact inventory requires owner bearer authentication", async () => {
+  let touched = false;
+  const response = await worker.fetch(inventoryRequest("/v1/owner/internal-products/artifacts/inventory", "wrong-token"), {
+    AAE_QUEUE_TOKEN: "owner-token",
+    get DB() { touched = true; throw new Error("must not access D1"); },
+  });
+  assert.equal(response.status, 401);
+  assert.equal(touched, false);
+});
