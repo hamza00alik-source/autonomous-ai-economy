@@ -2,7 +2,7 @@
 
 ## Decision
 
-AAE uses **Option A**: one shared on-chain treasury wallet for each configured network/asset pair, with separate virtual balances for each agent in AAE's accounting ledger. For the first deployment, the intended asset is USDC on Base. Agents do not receive individual blockchain wallets and do not hold private keys.
+AAE uses **one real shared on-chain treasury wallet** for the configured network/asset pair, with a separate capped agent account in the accounting ledger. For the first deployment, the intended asset is USDC on Base. Every agent receives the same actual public treasury address to receive funds; each agent can spend from that address through the policy-bound treasury signer. Agents do not receive separate private keys or independent on-chain accounts. Each agent's USDC balance is hard-capped at **$500 (500,000,000 USDC base units at 6 decimals)**, including pending incoming payment intents. The cap is enforced transactionally when intents are created, receipts are credited, suspense receipts are allocated, and spends are reserved. The cap is not an LLM instruction or dashboard-only warning.
 
 The current provider adapter is Coinbase Developer Platform (CDP) Server Wallets. CDP manages the EVM account and signing infrastructure; AAE stores only the provider account reference and public address. CDP's Python SDK supports server-managed EVM accounts, account policies and USDC transfers on Base/Base Sepolia. The optional dependency is installed with `pip install '.[cdp]'`.
 
@@ -10,7 +10,9 @@ The current provider adapter is Coinbase Developer Platform (CDP) Server Wallets
 
 - `src/economy/collective_treasury.py`
   - A single registered treasury address per network/asset; attempts to replace it are rejected.
-  - Agent virtual accounts, daily and per-transaction budgets, destination allowlists and emergency pause.
+  - Agent virtual accounts, a hard $500 USDC balance cap per agent, daily and per-transaction budgets, destination allowlists and emergency pause.
+  - `agent_wallet(agent_id, network, asset)` returns the actual shared public wallet address plus the agent's gross ledger balance, spendable balance and cap; it never returns keys or signing credentials. All agents on the same network/asset receive the same address.
+  - Incoming payment intents reserve cap capacity before a payer is instructed to send; duplicate intents are idempotent. Finalized receipts and later suspense allocations recheck the cap inside the same database transaction.
   - Virtual balance attribution for incoming receipts, suspense/unallocated deposits, expenses, master share and operating reserves.
   - Separate verified pool-event ledger tracking pooled receipts minus external expenses, plus a reconciliation snapshot comparing pooled cash events with the sum of all virtual accounts.
   - Idempotent receipt identity using network + transaction hash + transfer/log reference.
@@ -70,7 +72,7 @@ The account is EVM-address based and may be used on Base Sepolia or Base. The lo
 
 - All customer/agent receipts go to the same treasury address.
 - The Accounting Agent owns attribution and virtual ledger updates; it does not own signing keys.
-- An agent may request a spend without asking the owner for every routine transaction. AAE checks its virtual balance, budget, destination allowlist and pause status. The external CDP account policy must independently constrain the signing account.
+- An agent may request a spend without asking the owner for every routine transaction. AAE checks its virtual balance, the $500 USDC maximum balance, budget, destination allowlist and pause status. Each agent is shown the shared treasury's actual public address for receiving funds; all agent-originated transfers are sent from that same address and attributed to the requesting agent in the internal ledger. The external CDP account policy must independently constrain the signing account.
 - A spend is not an expense until the chain verifier confirms the exact transaction and finality. The executor durably holds the reservation before submission, persists a returned transaction hash, and exposes a `reconcile()` path that verifies an existing transaction without broadcasting again. If a provider times out before returning a hash, the operator must discover the transaction from CDP/chain history before reconciliation; never blindly retry.
 - Period close is blocked while the agent has unresolved reserved, broadcast or uncertain spends.
 - The treasury's on-chain balance is the actual pooled asset balance. AAE's `pool_balance()` is only the ledger-tracked pool (verified receipts minus verified external expenses); `reconciliation_snapshot()` checks that this matches the sum of virtual agent/treasury accounts. A separate live RPC/CDP balance check is still required to reconcile the ledger against the actual on-chain USDC balance. Virtual agent balances are internal accounting claims against that pool, not separate segregated assets or legal ownership rights.
