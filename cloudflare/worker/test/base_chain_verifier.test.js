@@ -9,7 +9,7 @@ const contract="0x833589fcD6eDb6E08f4c7C32D4f71b54bdA02913";
 const invoice={receiving_address:recipient,amount_minor:1_500_000,expires_at:"2026-11-20T00:00:00.000Z"};
 function fixture({amount="0x16e360",block="0x64",finalized="0x70",timestamp="0x691e0a00",status="0x1",hash="0x"+"a".repeat(64)}={}) {
   const receipt={transactionHash:"0x"+"b".repeat(64),status,blockNumber:block,blockHash:hash,logs:[
-    {address:contract,topics:[transferTopic,"0x"+"0".repeat(64),topicTo],data:amount,logIndex:"0x2"}
+    {address:contract,topics:[transferTopic,"0x"+"0".repeat(64),topicTo],data:"0x"+amount.slice(2).padStart(64,"0"),logIndex:"0x2"}
   ]};
   return {chainId:"0x2105",receipt,receiptBlock:{number:block,hash,timestamp},finalizedBlock:{number:finalized}};
 }
