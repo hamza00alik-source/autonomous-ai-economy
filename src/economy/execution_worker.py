@@ -127,6 +127,8 @@ class ApprovedExecutionWorker:
         job = self.fulfillment.get(job_id)
         if job is None:
             raise ExecutionError("unknown fulfillment job")
+        if job.source != "internal":
+            raise ExecutionError("this producer is restricted to internal product jobs")
         if job.agent_id != "game-asset-builder":
             raise ExecutionError("no execution handler is registered for this agent")
         if not self.identity_verifier(job.agent_id, job.agent_key_fingerprint):
