@@ -505,3 +505,105 @@ test("owner execution operations endpoint reports counts, job lease details and 
   assert.match(queries[1].sql, /ORDER BY created_at DESC,job_id DESC LIMIT/);
   assert.match(queries[2].sql, /FROM internal_execution_events/);
 });
+
+
+function businessPipelineRequest(path = "/v1/owner/business-pipeline?limit=20", token = "owner-token") {
+  return new Request("https://aae.example" + path, { headers: { authorization: "Bearer " + token } });
+}
+
+test("owner business pipeline returns honest product, listing, delivery and reconciliation stages", async () => {
+  const queries = [];
+  const env = {
+    AAE_QUEUE_TOKEN: "owner-token",
+    AAE_OWNER_ID: "owner-001",
+    DB: {
+      prepare(sql) {
+        return {
+          bind(...values) {
+            queries.push({ sql, values });
+            return {
+              async all() {
+                if (sql.includes("COUNT(*)") && sql.includes("FROM ai_tasks")) return { results: [
+                  { status: "completed", total: 1 }, { status: "queued", total: 2 },
+                ] };
+                if (sql.includes("FROM ai_tasks")) return { results: [{
+                  task_id: "copy-task-1", status: "completed",
+                  result_json: JSON.stringify({ title: "MOBA Objective Props", tags: ["moba","game assets","godot"], claims_to_verify: ["visual quality"], published: false }),
+                  error: null, created_at: "2026-11-19T10:00:00.000Z", updated_at: "2026-11-19T10:05:00.000Z",
+                }] };
+                if (sql.includes("COUNT(*)") && sql.includes("internal_execution_jobs")) return { results: [
+                  { status: "delivery_ready", total: 1 }, { status: "failed", total: 1 },
+                ] };
+                if (sql.includes("FROM internal_execution_jobs")) return { results: [{
+                  job_id: "job-001", status: "delivery_ready", artifact_sha256: "a".repeat(64),
+                  artifact_size_bytes: 2048, error_code: null, created_at: "2026-11-19T09:00:00.000Z",
+                  updated_at: "2026-11-19T09:10:00.000Z", retention_review_after: "2027-02-17T09:10:00.000Z",
+                }] };
+                if (sql.includes("COUNT(*)") && sql.includes("crypto_payment_invoices")) return { results: [
+                  { status: "settled", total: 1 }, { status: "pending", total: 2 },
+                ] };
+                if (sql.includes("FROM crypto_payment_invoices")) return { results: [{
+                  order_id: "moba-order-001", status: "settled", price_amount: "5.00", price_currency: "usd",
+                  actually_paid: "5.00", pay_currency: "usdc", download_count: 1,
+                  download_expires_at: "2026-11-26T10:00:00.000Z", created_at: "2026-11-19T10:00:00.000Z",
+                  updated_at: "2026-11-19T10:02:00.000Z",
+                }] };
+                if (sql.includes("COUNT(*)") && sql.includes("agent_revenue_events")) return { results: [
+                  { status: "settled_pending_reconciliation", total: 1, gross_minor: 500, reconciled_net_minor: 0 },
+                ] };
+                if (sql.includes("FROM agent_revenue_events")) return { results: [{
+                  order_id: "moba-order-001", status: "settled_pending_reconciliation",
+                  gross_amount_minor: 500, gross_currency: "usd", net_amount_minor: null,
+                  net_currency: null, agent_credit_minor: null, agent_credit_currency: null,
+                  settled_at: "2026-11-19T10:02:00.000Z", reconciled_at: null,
+                }] };
+                throw new Error("unexpected business pipeline query: " + sql);
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+  const response = await worker.fetch(businessPipelineRequest(), env);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.product.product_id, "moba-objective-props");
+  assert.equal(result.stages.opportunity_discovery.status, "not_connected");
+  assert.equal(result.stages.quality_assurance.visual_review_required, true);
+  assert.equal(result.stages.listing.publication_enabled, false);
+  assert.equal(result.stages.checkout.enabled, false);
+  assert.equal(result.stages.customer_delivery.counts.settled, 1);
+  assert.equal(result.stages.payment_reconciliation.status, "reconciliation_pending");
+  assert.equal(result.stages.payment_reconciliation.provider_settled_gross_minor, 500);
+  assert.equal(result.stages.payment_reconciliation.reconciled_net_minor, 0);
+  assert.equal(result.listing_drafts[0].published, false);
+  assert.equal(result.builds[0].status, "delivery_ready");
+  assert.equal(result.orders[0].download_count, 1);
+  assert.equal(result.revenue_events[0].net_amount_minor, null);
+  assert.equal(result.controls.read_only, true);
+  assert.equal(result.controls.revenue_counted_only_when_reconciled, true);
+  assert.equal(queries.length, 8);
+  assert.ok(queries.some(query => query.sql.includes("WHERE owner_id=?") && query.values[0] === "owner-001"));
+  assert.ok(queries.some(query => query.sql.includes("WHERE product_id=?") && query.values[0] === "moba-objective-props"));
+});
+
+test("owner business pipeline validates limits and authenticates before touching D1", async () => {
+  const invalid = await worker.fetch(businessPipelineRequest("/v1/owner/business-pipeline?limit=51"), {
+    AAE_QUEUE_TOKEN: "owner-token", AAE_OWNER_ID: "owner-001",
+    DB: { prepare() { throw new Error("invalid limit must not query D1"); } },
+  });
+  assert.equal(invalid.status, 400);
+  let touched = false;
+  const unauthorized = await worker.fetch(businessPipelineRequest("/v1/owner/business-pipeline", "wrong-token"), {
+    AAE_QUEUE_TOKEN: "owner-token", AAE_OWNER_ID: "owner-001",
+    get DB() { touched = true; throw new Error("unauthorized request must not query D1"); },
+  });
+  assert.equal(unauthorized.status, 401);
+  assert.equal(touched, false);
+  const missingOwner = await worker.fetch(businessPipelineRequest(), {
+    AAE_QUEUE_TOKEN: "owner-token",
+    DB: { prepare() { throw new Error("missing owner must not query D1"); } },
+  });
+  assert.equal(missingOwner.status, 503);
+});
