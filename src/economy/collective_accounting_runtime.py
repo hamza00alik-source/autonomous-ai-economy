@@ -173,6 +173,13 @@ class CollectiveTreasuryAccountingRuntime:
                 "receipts": receipts, "reorgs": reorgs, "balances": balances,
                 "spending": None,
             }
+        if reorgs.get("has_more") is True:
+            return {
+                "status": "payouts_blocked",
+                "reason": "treasury reorganization scan is incomplete; remaining receipts must be checked before spending",
+                "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                "spending": None,
+            }
         spending = await self.worker.run_once(limit=spend_limit)
         return {
             "status": "completed", "receipts": receipts, "reorgs": reorgs,
