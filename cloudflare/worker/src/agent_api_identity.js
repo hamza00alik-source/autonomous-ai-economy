@@ -69,6 +69,7 @@ export async function authenticateAgentRequest(db,{agentId,method,path,body,time
   const decoded=decode64(signature);
   if(!decoded||decoded.length!==64||!await verify(publicKey,decoded,canonical)) return {ok:false,reason:"invalid_agent_request_signature"};
   try {
+    await db.prepare("DELETE FROM financial_agent_api_nonces WHERE request_timestamp < ?").bind(nowMs-300_000).run();
     await db.prepare("INSERT INTO financial_agent_api_nonces(key_id,nonce,request_timestamp,created_at) VALUES(?,?,?,?)")
       .bind(key.key_id,nonce,requestTime,new Date(nowMs).toISOString()).run();
   } catch { return {ok:false,reason:"agent_request_replay_detected"}; }
