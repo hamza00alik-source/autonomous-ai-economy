@@ -482,6 +482,73 @@ async function ownerInternalProductOperations(env, url) {
   });
 }
 
+async function ownerBusinessPipeline(env, url) {
+  if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not configured" }, 503);
+  const requestedLimit = url.searchParams.get("limit");
+  const limit = requestedLimit === null ? 20 : Number(requestedLimit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+    return json({ error: "limit must be an integer from 1 to 50" }, 400);
+  }
+
+  const [taskCounts, tasks, executionCounts, executions, orderCounts, orders, revenueCounts, revenue] = await Promise.all([
+    env.DB.prepare("SELECT status,COUNT(*) AS total FROM ai_tasks WHERE task_type='product_copy' GROUP BY status").all(),
+    env.DB.prepare("SELECT task_id,status,result_json,error,created_at,updated_at FROM ai_tasks WHERE task_type='product_copy' ORDER BY created_at DESC,task_id DESC LIMIT ?").bind(limit).all(),
+    env.DB.prepare("SELECT status,COUNT(*) AS total FROM internal_execution_jobs WHERE owner_id=? GROUP BY status").bind(env.AAE_OWNER_ID).all(),
+    env.DB.prepare("SELECT job_id,status,artifact_sha256,artifact_size_bytes,error_code,created_at,updated_at,retention_review_after FROM internal_execution_jobs WHERE owner_id=? ORDER BY created_at DESC,job_id DESC LIMIT ?").bind(env.AAE_OWNER_ID,limit).all(),
+    env.DB.prepare("SELECT status,COUNT(*) AS total FROM crypto_payment_invoices WHERE product_id=? GROUP BY status").bind(STORE_PRODUCT_ID).all(),
+    env.DB.prepare("SELECT order_id,status,price_amount,price_currency,actually_paid,pay_currency,download_count,download_expires_at,created_at,updated_at FROM crypto_payment_invoices WHERE product_id=? ORDER BY created_at DESC,order_id DESC LIMIT ?").bind(STORE_PRODUCT_ID,limit).all(),
+    env.DB.prepare("SELECT status,COUNT(*) AS total,COALESCE(SUM(gross_amount_minor),0) AS gross_minor,COALESCE(SUM(CASE WHEN status='reconciled' THEN net_amount_minor ELSE 0 END),0) AS reconciled_net_minor FROM agent_revenue_events WHERE product_id=? GROUP BY status").bind(STORE_PRODUCT_ID).all(),
+    env.DB.prepare("SELECT order_id,status,gross_amount_minor,gross_currency,net_amount_minor,net_currency,agent_credit_minor,agent_credit_currency,settled_at,reconciled_at FROM agent_revenue_events WHERE product_id=? ORDER BY settled_at DESC,order_id DESC LIMIT ?").bind(STORE_PRODUCT_ID,limit).all(),
+  ]);
+
+  const totals = rows => Object.fromEntries((rows || []).map(row => [row.status, Number(row.total || 0)]));
+  const taskStatus = totals(taskCounts.results);
+  const executionStatus = totals(executionCounts.results);
+  const orderStatus = totals(orderCounts.results);
+  const revenueStatus = totals(revenueCounts.results);
+  const revenueGrossMinor = (revenueCounts.results || []).reduce((sum,row) => sum + Number(row.gross_minor || 0),0);
+  const reconciledNetMinor = (revenueCounts.results || []).reduce((sum,row) => sum + Number(row.reconciled_net_minor || 0),0);
+  const listingDrafts = (tasks.results || []).map(row => {
+    let draft = null;
+    try { draft = row.result_json ? JSON.parse(row.result_json) : null; } catch { draft = null; }
+    return {
+      task_id: row.task_id, status: row.status, title: typeof draft?.title === "string" ? draft.title : null,
+      tags: Array.isArray(draft?.tags) ? draft.tags : [],
+      claims_to_verify: Array.isArray(draft?.claims_to_verify) ? draft.claims_to_verify : [],
+      published: false, error: row.error || null, created_at: row.created_at, updated_at: row.updated_at,
+    };
+  });
+  const productOrders = (orders.results || []).map(row => ({
+    ...row, download_count: Number(row.download_count || 0),
+  }));
+  const productRevenue = (revenue.results || []).map(row => ({
+    ...row,
+    gross_amount_minor: Number(row.gross_amount_minor || 0),
+    net_amount_minor: row.net_amount_minor === null ? null : Number(row.net_amount_minor),
+    agent_credit_minor: row.agent_credit_minor === null ? null : Number(row.agent_credit_minor),
+  }));
+
+  return json({
+    owner_id: env.AAE_OWNER_ID,
+    product: { product_id: STORE_PRODUCT_ID, agent_id: STORE_AGENT_ID, currency: "USD" },
+    stages: {
+      opportunity_discovery: { status: "not_connected", note: "Marketplace opportunity scans remain in the separate local revenue-engine workflow; no live opportunity feed is connected to this cloud dashboard." },
+      production: { status: executionStatus.delivery_ready ? "has_delivery_ready_builds" : "no_delivery_ready_builds", counts: executionStatus },
+      quality_assurance: { status: executionStatus.delivery_ready ? "structural_qa_recorded_visual_review_required" : "no_qa_passed_build", structural_qa_passed: executionStatus.delivery_ready || 0, visual_review_required: true },
+      listing: { status: taskStatus.completed ? "unpublished_drafts_available" : "no_completed_listing_drafts", counts: taskStatus, publication_enabled: false },
+      checkout: { status: publicCheckoutEnabled(env) ? "enabled_by_configuration" : "disabled", enabled: publicCheckoutEnabled(env) },
+      customer_delivery: { status: orderStatus.settled ? "paid_orders_available" : "no_settled_orders", counts: orderStatus },
+      payment_reconciliation: { status: revenueStatus.settled_pending_reconciliation ? "reconciliation_pending" : (revenueStatus.reconciled ? "reconciled_events_present" : "no_revenue_events"), counts: revenueStatus, provider_settled_gross_minor: revenueGrossMinor, reconciled_net_minor: reconciledNetMinor, currency: "USD" },
+    },
+    listing_drafts: listingDrafts,
+    builds: executions.results || [],
+    orders: productOrders,
+    revenue_events: productRevenue,
+    controls: { read_only: true, publishing_performed: false, customer_contact_performed: false, payment_created: false, funds_transferred: false, revenue_counted_only_when_reconciled: true },
+    limits: { records_per_section: limit },
+  });
+}
+
 async function taskStatus(request, env, taskId) {
   const row = await env.DB.prepare(
     "SELECT task_id,task_type,status,result_json,error,created_at,updated_at FROM ai_tasks WHERE task_id=?"
@@ -1062,7 +1129,7 @@ export default {
       return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
-    if (url.pathname === "/v1/owner/internal-products/operations" && request.method === "GET") {
+    if (url.pathname === "/v1/owner/business-pipeline" && request.method === "GET") {\n      return ownerBusinessPipeline(env, url);\n    }\n    if (url.pathname === "/v1/owner/internal-products/operations" && request.method === "GET") {
       return ownerInternalProductOperations(env, url);
     }
     if (url.pathname === "/v1/owner/internal-products/artifacts/inventory" && request.method === "GET") {
