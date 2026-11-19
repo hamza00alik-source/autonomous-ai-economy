@@ -331,8 +331,8 @@ class AgentFinanceStore:
     ) -> dict:
         """Record a reviewed full reversal without rewriting the original receipt.
 
-        The reversal is booked in a separate, still-open accounting period. The
-        caller must enforce operator authorization and independently review the
+        The reversal is booked in the affected open period or a new open adjustment
+        period when the original period is closed. The caller must enforce operator authorization and independently review the
         evidence before setting reviewed=True; this method records that audit
         assertion but is not an authentication system.
         """
