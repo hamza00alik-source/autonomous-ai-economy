@@ -47,6 +47,15 @@ The cloud build route now requires a fresh Ed25519 owner signature over a canoni
 - This is an owner-authorized, cron-scheduled internal product queue, not a continuously running queue consumer or autonomous marketplace fulfillment service. The configured cron cadence is five minutes; actual execution remains subject to Cloudflare Worker limits and account quotas.
 - It supports exactly one built-in product capability.
 - No general-purpose code execution, external task claims, submission, customer communication, storefront publication, checkout activation, wallet signing, transfer or spending is connected.
-- Artifact retention/deletion policy and automated orphan cleanup remain to be implemented.
+- Private artifacts receive a `retention_review_after` timestamp 90 days after reaching `delivery_ready`. This is a review date, not automatic expiry: downloads remain available until a separate owner-approved deletion process is implemented. The migration does not delete R2 objects, D1 job records, or append-only audit events. Automated orphan detection and cleanup remain unimplemented.
 - No visual human review is performed. The archive's structural QA does not prove visual quality or marketplace acceptance.
 - Cloudflare's in-memory filesystem is ephemeral. R2 is the durable artifact store; no artifact is stored on the Worker filesystem after the request ends.
+
+
+## Private artifact retention policy
+
+Migration `0016_artifact_retention_review.sql` adds a 90-day review marker to internal execution jobs. Existing delivered artifacts are backfilled; newly delivered artifacts receive the marker when their status changes to `delivery_ready`.
+
+The marker is deliberately non-destructive. It does not expire downloads, delete R2 objects, remove D1 records, or alter append-only execution events. After the review date, an owner must decide whether an artifact should be retained or deleted. A future deletion feature must independently verify owner authorization, confirm the exact artifact key and digest, preserve the audit trail, and handle R2/D1 partial failures safely. No scheduled or background cleanup is authorized by this change.
+
+Orphan detection is still pending: an interrupted request could leave an R2 object without a matching D1 delivery record. Any future cleanup must first produce a dry-run inventory and require explicit approval before deleting objects.
