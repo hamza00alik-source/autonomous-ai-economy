@@ -269,6 +269,40 @@ async function executeInternalProduct(request, env) {
   }
 }
 
+async function downloadInternalProduct(request, env, jobId) {
+  if (!env.AAE_OWNER_ID || !env.EXECUTION_ARTIFACTS) {
+    return json({ error: "owner identity or private artifact storage is not configured" }, 503);
+  }
+  const row = await env.DB.prepare(
+    "SELECT artifact_key,artifact_sha256,artifact_size_bytes,status FROM internal_execution_jobs WHERE job_id=? AND owner_id=?"
+  ).bind(jobId, env.AAE_OWNER_ID).first();
+  if (!row || row.status !== "delivery_ready" || !row.artifact_key) {
+    return json({ error: "private product artifact not found" }, 404);
+  }
+  const object = await env.EXECUTION_ARTIFACTS.get(row.artifact_key);
+  if (!object) return json({ error: "private product artifact is unavailable" }, 404);
+  if (object.customMetadata?.sha256 && object.customMetadata.sha256 !== row.artifact_sha256) {
+    return json({ error: "private product artifact metadata integrity check failed" }, 503);
+  }
+  const bytes = await object.arrayBuffer();
+  if (bytes.byteLength !== row.artifact_size_bytes || bytes.byteLength > 20 * 1024 * 1024) {
+    return json({ error: "private product artifact size check failed" }, 503);
+  }
+  const digestBytes = await crypto.subtle.digest("SHA-256", bytes);
+  const digest = [...new Uint8Array(digestBytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  if (digest !== row.artifact_sha256) return json({ error: "private product artifact integrity check failed" }, 503);
+  return new Response(object.body, {
+    status: 200,
+    headers: {
+      "content-type": "application/zip",
+      "content-disposition": 'attachment; filename="moba-objective-props.zip"',
+      "content-length": String(bytes.byteLength),
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+    },
+  });
+}
+
 async function taskStatus(request, env, taskId) {
   const row = await env.DB.prepare(
     "SELECT task_id,task_type,status,result_json,error,created_at,updated_at FROM ai_tasks WHERE task_id=?"
@@ -849,6 +883,10 @@ export default {
       return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    const internalArtifactMatch = url.pathname.match(/^\\/v1\\/owner\\/internal-products\\/jobs\\/([0-9a-f-]{36})\\/artifact$/i);
+    if (internalArtifactMatch && request.method === "GET") {
+      return downloadInternalProduct(request, env, internalArtifactMatch[1]);
+    }
     if (url.pathname === "/v1/owner/internal-products/moba-objective-props/build" && request.method === "POST") {
       return executeInternalProduct(request, env);
     }
