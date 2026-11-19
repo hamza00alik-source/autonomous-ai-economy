@@ -84,12 +84,34 @@ def test_owner_enrollment_challenge_allows_only_one_pending_challenge_per_owner(
             "(challenge_id,owner_id,operator_id,challenge,expires_at,created_at) "
             "VALUES ('challenge-02','owner-01','operator-01','proof-02','2099-01-01T00:00:00Z','now')"
         )
+    with pytest.raises(sqlite3.IntegrityError, match="only be consumed once"):
+        db.execute("UPDATE financial_owner_enrollment_challenges SET challenge='tampered' WHERE challenge_id='challenge-01'")
     db.execute("UPDATE financial_owner_enrollment_challenges SET consumed_at='now' WHERE challenge_id='challenge-01'")
     db.execute(
         "INSERT INTO financial_owner_enrollment_challenges "
         "(challenge_id,owner_id,operator_id,challenge,expires_at,created_at) "
         "VALUES ('challenge-03','owner-01','operator-01','proof-03','2099-01-01T00:00:00Z','now')"
     )
+
+
+def test_owner_enrollment_claims_are_immutable_and_challenge_history_is_retained():
+    db = _database()
+    db.execute(
+        "INSERT INTO financial_owner_enrollment_challenges "
+        "(challenge_id,owner_id,operator_id,challenge,expires_at,created_at) "
+        "VALUES ('challenge-immutable','owner-02','operator-02','proof','2099-01-01T00:00:00Z','now')"
+    )
+    db.execute(
+        "INSERT INTO financial_owner_enrollments "
+        "(owner_id,operator_id,challenge_id,key_fingerprint,payload_hash,created_at) "
+        "VALUES ('owner-02','operator-02','challenge-immutable','fingerprint','hash','now')"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        db.execute("UPDATE financial_owner_enrollments SET payload_hash='changed' WHERE owner_id='owner-02'")
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        db.execute("DELETE FROM financial_owner_enrollments WHERE owner_id='owner-02'")
+    with pytest.raises(sqlite3.IntegrityError, match="history is retained"):
+        db.execute("DELETE FROM financial_owner_enrollment_challenges WHERE challenge_id='challenge-immutable'")
 
 def test_cloud_financial_migration_creates_owner_bound_policy_and_ledger_schema():
     db = _database()
