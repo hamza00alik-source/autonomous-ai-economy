@@ -552,12 +552,13 @@ class CollectiveTreasuryStore:
         if not exists:
             raise ValueError("agent treasury account is not configured")
         capacity = self.shared_wallet_capacity(network, asset)
+        wallet = self.treasury_wallet(network, asset)
         return {
             "agent_id": agent_id,
             "network": network,
             "asset": asset,
             "address": capacity["address"],
-            "provider": (self.treasury_wallet(network, asset) or TreasuryWallet("", "", "", "", "")).provider,
+            "provider": wallet.provider,
             "balance_minor": int(ledger["balance"]),
             "available_minor": self.balance(f"agent:{agent_id}", network, asset),
             "shared_wallet_balance_minor": capacity["balance_minor"],
@@ -590,6 +591,22 @@ class CollectiveTreasuryStore:
                     raise ValueError("idempotency key reused for a different spend")
                 db.commit()
                 return old["reservation_id"]
+            wallet_policy = db.execute(
+                "SELECT max_balance_minor FROM treasury_wallets WHERE network=? AND asset=?",
+                (network, asset),
+            ).fetchone()
+            pooled = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
+                           ELSE -amount_minor END),0) AS amount
+                   FROM treasury_entries WHERE network=? AND asset=?""",
+                (network, asset),
+            ).fetchone()
+            if not wallet_policy:
+                db.rollback()
+                raise ValueError("collective treasury wallet is not configured")
+            if int(pooled["amount"]) > int(wallet_policy["max_balance_minor"]):
+                db.rollback()
+                raise ValueError("shared treasury is above its $500 total holding cap; excess must be swept before spending")
             policy = db.execute(
                 "SELECT * FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
                 (agent_id, network, asset),
