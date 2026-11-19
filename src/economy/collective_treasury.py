@@ -530,6 +530,16 @@ class CollectiveTreasuryStore:
             db.commit()
         return reservation_id
 
+    def claim_spend_submission(self, reservation_id: str) -> bool:
+        """Atomically claim a fresh reservation so concurrent workers cannot double-send."""
+        with closing(self._connect()) as db:
+            cur = db.execute(
+                """UPDATE treasury_spend_reservations SET status='uncertain'
+                   WHERE reservation_id=? AND status='reserved'""",
+                (reservation_id,),
+            )
+        return cur.rowcount == 1
+
     def mark_broadcast(self, reservation_id: str, tx_hash: str) -> None:
         if not tx_hash.strip():
             raise ValueError("transaction hash is required")
