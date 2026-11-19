@@ -883,7 +883,7 @@ export default {
       return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
-    const internalArtifactMatch = url.pathname.match(/^\\/v1\\/owner\\/internal-products\\/jobs\\/([0-9a-f-]{36})\\/artifact$/i);
+    const internalArtifactMatch = url.pathname.match(/^\/v1\/owner\/internal-products\/jobs\/([0-9a-f-]{36})\/artifact$/i);
     if (internalArtifactMatch && request.method === "GET") {
       return downloadInternalProduct(request, env, internalArtifactMatch[1]);
     }
