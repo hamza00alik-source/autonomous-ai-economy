@@ -323,8 +323,14 @@ class ChainMonitor:
             raise ValueError("limit must be between 1 and 1000")
         with closing(self._connect()) as db:
             rows = db.execute(
-                """SELECT * FROM chain_monitor_events WHERE status='reorg_alert'
-                   ORDER BY updated_at LIMIT ?""", (limit,)
+                """SELECT c.* FROM chain_monitor_events c
+                   WHERE c.status='reorg_alert'
+                     AND NOT EXISTS (
+                       SELECT 1 FROM reorg_alert_resolutions r
+                       WHERE r.network=c.network AND r.tx_hash=c.tx_hash
+                         AND r.transfer_ref=c.transfer_ref
+                     )
+                   ORDER BY c.updated_at LIMIT ?""", (limit,)
             ).fetchall()
         return [dict(row) for row in rows]
 
