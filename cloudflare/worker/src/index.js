@@ -5,6 +5,7 @@ import { registerAgentApiKey, revokeAgentApiKey, authenticateAgentRequest } from
 import { verifyBaseUsdcInvoicePayment } from "./base_chain_verifier.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 import { getCloudFinancialControls, setCloudEmergencyPause, createCloudExpenseSchedule, setCloudExpenseScheduleStatus, runDueCloudExpenseSchedules, registerCloudSignedFinancialPolicy, createCloudOwnerEnrollmentChallenge, completeCloudOwnerEnrollment } from "./financial_controls.js";
+import { createExecutionApprovalChallenge, verifyAndConsumeExecutionApproval } from "./execution_approval.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -208,10 +209,26 @@ async function executeInternalProduct(request, env) {
   let input;
   try { input = JSON.parse(rawInput); } catch { return json({ error: "invalid JSON" }, 400); }
   if (!input || typeof input !== "object" || Array.isArray(input) ||
-      Object.keys(input).length !== 1 || typeof input.idempotency_key !== "string" ||
+      Object.keys(input).length !== 2 || !("idempotency_key" in input) || !("approval" in input) ||
+      typeof input.idempotency_key !== "string" ||
       !/^[A-Za-z0-9._:-]{8,128}$/.test(input.idempotency_key)) {
-    return json({ error: "one valid idempotency_key is required" }, 400);
+    return json({ error: "idempotency_key and signed owner approval are required" }, 400);
   }
+
+  const existing = await env.DB.prepare(
+    "SELECT job_id,status,artifact_key,artifact_sha256,artifact_size_bytes FROM internal_execution_jobs WHERE owner_id=? AND idempotency_key=?"
+  ).bind(env.AAE_OWNER_ID, input.idempotency_key).first();
+  if (existing) {
+    if (existing.status === "delivery_ready") return json({
+      job_id: existing.job_id, status: existing.status, artifact_key: existing.artifact_key,
+      artifact_sha256: existing.artifact_sha256, artifact_size_bytes: existing.artifact_size_bytes, idempotent: true
+    });
+    return json({ error: "execution job already exists and is not ready", job_id: existing.job_id, status: existing.status }, 409);
+  }
+  const approval = await verifyAndConsumeExecutionApproval(env.DB, {
+    ownerId: env.AAE_OWNER_ID, idempotencyKey: input.idempotency_key, approval: input.approval
+  });
+  if (!approval.ok) return json({ error: approval.reason }, 401);
 
   const owner = await env.DB.prepare(
     "SELECT participant_id FROM financial_participants WHERE participant_id=? AND participant_type='owner' AND status='active'"
@@ -242,7 +259,7 @@ async function executeInternalProduct(request, env) {
   await env.DB.prepare(
     "INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'owner_approved',?,?)"
   ).bind(crypto.randomUUID(), job.job_id, env.AAE_OWNER_ID,
-    JSON.stringify({ action: "execute_internal_product", agent_id: "game-asset-builder", execution_spec: spec }), now).run();
+    JSON.stringify({ action: "execute_internal_product", agent_id: "game-asset-builder", execution_spec: spec, signed_approval: approval.payload }), now).run();
   await env.DB.prepare(
     "INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'execution_started','{}',?)"
   ).bind(crypto.randomUUID(), job.job_id, env.AAE_OWNER_ID, now).run();
@@ -916,6 +933,18 @@ export default {
     const internalArtifactMatch = url.pathname.match(/^\/v1\/owner\/internal-products\/jobs\/([0-9a-f-]{36})\/artifact$/i);
     if (internalArtifactMatch && request.method === "GET") {
       return downloadInternalProduct(request, env, internalArtifactMatch[1]);
+    }
+    if (url.pathname === "/v1/owner/internal-products/moba-objective-props/approval-challenge" && request.method === "POST") {
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) return json({ error: "same-origin application/json request required" }, 403);
+      const raw = await readBoundedRequestText(request, 256);
+      if (raw === null) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== 1 || typeof body.idempotency_key !== "string") return json({ error: "one idempotency_key is required" }, 400);
+      const result = await createExecutionApprovalChallenge(env.DB, { ownerId: env.AAE_OWNER_ID, idempotencyKey: body.idempotency_key });
+      return result.ok ? json(result) : json({ error: result.reason }, 409);
     }
     if (url.pathname === "/v1/owner/internal-products/moba-objective-props/build" && request.method === "POST") {
       return executeInternalProduct(request, env);
