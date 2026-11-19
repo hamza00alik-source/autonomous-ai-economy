@@ -35,6 +35,15 @@ class ChainReorgReconciler:
         self.finance, self.verifier = finance, verifier
         self.network, self.token_contract = network, token_contract.lower()
         self.lookback_blocks, self.batch_size = lookback_blocks, batch_size
+        with closing(self.finance._connect()) as db:
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS chain_reorg_reconcile_cursors (
+                    network TEXT NOT NULL, token_contract TEXT NOT NULL,
+                    block_number INTEGER NOT NULL, tx_hash TEXT NOT NULL,
+                    transfer_ref TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(network, token_contract)
+                )
+            """)
 
     def reconcile_once(self) -> dict[str, int]:
         finalized = self.verifier.finalized_block_number()
@@ -42,15 +51,37 @@ class ChainReorgReconciler:
             raise ValueError("verifier returned invalid finalized block")
         floor = max(0, finalized - self.lookback_blocks + 1)
         with closing(self.finance._connect()) as db:
-            rows = db.execute(
-                """SELECT network,tx_hash,transfer_ref,source_address,destination_address,
-                          amount_minor,block_number,block_hash
-                   FROM chain_monitor_events
-                   WHERE network=? AND lower(token_contract)=? AND status='credited'
-                     AND block_number>=?
-                   ORDER BY block_number DESC LIMIT ?""",
-                (self.network, self.token_contract, floor, self.batch_size),
-            ).fetchall()
+            cursor = db.execute(
+                """SELECT block_number,tx_hash,transfer_ref FROM chain_reorg_reconcile_cursors
+                   WHERE network=? AND token_contract=?""",
+                (self.network, self.token_contract),
+            ).fetchone()
+            last = (cursor["block_number"], cursor["tx_hash"], cursor["transfer_ref"]) if cursor else None
+            if last and last[0] < floor:
+                last = None
+            if last:
+                rows = db.execute(
+                    """SELECT network,tx_hash,transfer_ref,source_address,destination_address,
+                              amount_minor,block_number,block_hash
+                       FROM chain_monitor_events
+                       WHERE network=? AND lower(token_contract)=? AND status='credited'
+                         AND block_number>=? AND
+                         (block_number>? OR (block_number=? AND
+                          (tx_hash>? OR (tx_hash=? AND transfer_ref>?))))
+                       ORDER BY block_number,tx_hash,transfer_ref LIMIT ?""",
+                    (self.network,self.token_contract,floor,last[0],last[0],
+                     last[1],last[1],last[2],self.batch_size),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """SELECT network,tx_hash,transfer_ref,source_address,destination_address,
+                              amount_minor,block_number,block_hash
+                       FROM chain_monitor_events
+                       WHERE network=? AND lower(token_contract)=? AND status='credited'
+                         AND block_number>=?
+                       ORDER BY block_number,tx_hash,transfer_ref LIMIT ?""",
+                    (self.network,self.token_contract,floor,self.batch_size),
+                ).fetchall()
         checked = alerts = 0
         for row in rows:
             checked += 1
@@ -61,8 +92,8 @@ class ChainReorgReconciler:
                 expected_block_hash=row["block_hash"], source=row["source_address"],
                 destination=row["destination_address"], amount_minor=row["amount_minor"],
             )
-            if not canonical:
-                with closing(self.finance._connect()) as db:
+            with closing(self.finance._connect()) as db:
+                if not canonical:
                     cur = db.execute(
                         """UPDATE chain_monitor_events SET status='reorg_alert',
                            updated_at=CURRENT_TIMESTAMP
@@ -70,5 +101,18 @@ class ChainReorgReconciler:
                         (row["network"], row["tx_hash"], row["transfer_ref"]),
                     )
                     alerts += cur.rowcount
+                db.execute(
+                    """INSERT INTO chain_reorg_reconcile_cursors
+                       (network,token_contract,block_number,tx_hash,transfer_ref,updated_at)
+                       VALUES(?,?,?,?,?,CURRENT_TIMESTAMP)
+                       ON CONFLICT(network,token_contract) DO UPDATE SET
+                       block_number=excluded.block_number,tx_hash=excluded.tx_hash,
+                       transfer_ref=excluded.transfer_ref,updated_at=CURRENT_TIMESTAMP""",
+                    (self.network,self.token_contract,row["block_number"],row["tx_hash"],row["transfer_ref"]),
+                )
+        if len(rows) < self.batch_size:
+            with closing(self.finance._connect()) as db:
+                db.execute("DELETE FROM chain_reorg_reconcile_cursors WHERE network=? AND token_contract=?",
+                           (self.network,self.token_contract))
         return {"checked": checked, "reorg_alerts": alerts, "from_block": floor,
-                "finalized_block": finalized}
+                "finalized_block": finalized, "has_more": len(rows) == self.batch_size}
