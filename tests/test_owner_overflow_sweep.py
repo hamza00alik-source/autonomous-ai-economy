@@ -74,6 +74,12 @@ class OwnerOverflowSweepTests(unittest.TestCase):
         )
         self.assertEqual(sweep["amount_minor"], 100_000_000)
         self.assertEqual(sweep["destination_address"], OWNER)
+        with self.assertRaisesRegex(ValueError, "overflow sweep is unresolved"):
+            self.store.increase_shared_wallet_cap(
+                "base-sepolia", "USDC", 750_000_000,
+                owner_principal_id="authenticated-owner-1",
+                reason="raise cap while old sweep is pending",
+            )
         self.assertTrue(self.store.claim_owner_overflow_sweep(sweep["sweep_id"]))
         tx_hash = "0x" + "2" * 64
         self.store.record_owner_overflow_sweep_tx(sweep["sweep_id"], tx_hash)
