@@ -120,4 +120,33 @@ class OwnerOverflowSweepWorker:
         }
 
 
+    async def run_cycle(self, *, network: str, asset: str = "USDC",
+                        period_id: str, limit: int = 10) -> dict:
+        """Create an idempotent reservation for detected excess, then process it.
+
+        The runtime must run its independent balance reconciliation again after
+        this callback before allowing ordinary agent spending.
+        """
+        capacity = self.store.shared_wallet_capacity(network, asset)
+        if not capacity["over_cap"]:
+            return {"status": "not_needed", "examined": 0, "settled": 0,
+                    "uncertain": 0, "remaining_excess_minor": 0}
+        self.store.reserve_owner_overflow_sweep(
+            network, asset, period_id=period_id,
+            idempotency_key=(
+                f"owner-overflow:{network}:{asset.upper()}:{period_id}:"
+                f"{capacity['balance_minor']}"
+            ),
+        )
+        result = await self.run_once(
+            network=network, asset=asset, period_id=period_id, limit=limit,
+        )
+        refreshed = self.store.shared_wallet_capacity(network, asset)
+        result.update({
+            "status": "settled" if not refreshed["over_cap"] else "pending",
+            "remaining_excess_minor": refreshed["excess_minor"],
+        })
+        return result
+
+
 __all__ = ["OwnerOverflowSweepWorker", "OwnerSweepVerifier"]
