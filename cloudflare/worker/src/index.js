@@ -293,7 +293,7 @@ async function processOneApprovedInternalProduct(env) {
   try {
     const payload=JSON.stringify({job_id:job.job_id,owner_id:env.AAE_OWNER_ID,execution_spec:{kind:"moba_objective_props_v1"}});
     const timestamp=String(Math.floor(Date.now()/1000));
-    const signature=await hmacSha256Hex(env.AAE_EXECUTION_BRIDGE_SECRET,timestamp+"\\n"+payload);
+    const signature=await hmacSha256Hex(env.AAE_EXECUTION_BRIDGE_SECRET,timestamp+"\n"+payload);
     const runtimeResponse=await env.EXECUTION_RUNTIME.fetch(new Request("https://execution-runtime.internal/internal/execute",{
       method:"POST",
       headers:{"content-type":"application/json","x-aae-execution-timestamp":timestamp,"x-aae-execution-signature":signature},
