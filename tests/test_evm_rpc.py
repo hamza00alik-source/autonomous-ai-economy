@@ -166,7 +166,7 @@ class EVMRPCSourceTests(unittest.TestCase):
         class ReceiptRPC(FakeRPC):
             def __call__(self, method, params):
                 if method == "eth_getTransactionReceipt":
-                    return {"blockNumber": "0x64", "blockHash": BLOCK, "logs": [log]}
+                    return {"transactionHash": TX, "blockNumber": "0x64", "blockHash": BLOCK, "status": "0x1", "logs": [log]}
                 return super().__call__(method, params)
         source = EVMJSONRPCSource(self.config, rpc_call=ReceiptRPC())
         self.assertTrue(source.is_transfer_canonical(
@@ -192,7 +192,7 @@ class EVMRPCSourceTests(unittest.TestCase):
         class ChangedBlockRPC(FakeRPC):
             def __call__(self, method, params):
                 if method == "eth_getTransactionReceipt":
-                    return {"blockNumber": "0x64", "blockHash": "0x" + "e" * 64, "logs": []}
+                    return {"transactionHash": TX, "blockNumber": "0x64", "blockHash": "0x" + "e" * 64, "status": "0x1", "logs": []}
                 return super().__call__(method, params)
         source = EVMJSONRPCSource(self.config, rpc_call=ChangedBlockRPC())
         self.assertFalse(source.is_transfer_canonical(
