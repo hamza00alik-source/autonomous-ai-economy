@@ -60,6 +60,10 @@ class QuorumVerifierTests(unittest.TestCase):
         with self.assertRaises(EVMRPCError):
             verifier.finalized_block_number()
 
+    def test_single_provider_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "at least two"):
+            QuorumEVMVerifier([FakeProvider()])
+
     def test_quorum_cannot_be_lowered_below_strict_majority(self):
         a, b = FakeProvider(), FakeProvider()
         with self.assertRaisesRegex(ValueError, "strict majority"):
