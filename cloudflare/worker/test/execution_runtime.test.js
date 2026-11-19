@@ -34,9 +34,11 @@ function fakeDb(publicKeyJwk) {
             return null;
           }
           if (sql.startsWith("UPDATE internal_execution_jobs") && sql.includes("RETURNING job_id")) {
-            if (state.job?.job_id === values[1] && state.job.status === "approved") {
+            if (state.job?.job_id === values[2] && (state.job.status === "approved" || state.job.status === "running")) {
               state.job.status = "running";
-              state.job.updated_at = values[0];
+              state.job.lease_expires_at = values[0];
+              state.job.updated_at = values[1];
+              state.job.attempt_count = (state.job.attempt_count || 0) + 1;
               return { job_id: state.job.job_id };
             }
             return null;
