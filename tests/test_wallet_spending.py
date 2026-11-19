@@ -11,7 +11,7 @@ class WalletSpendControllerTests(unittest.TestCase):
         self.controller = WalletSpendController(Path(self.tmp.name) / "spend.sqlite3")
         self.controller.configure_policy(SpendPolicy(
             agent_id="agent-1", network="base", asset="USDC",
-            daily_limit_minor=10_000, per_transaction_limit_minor=4_000,
+            wallet_address="0xAgent", daily_limit_minor=10_000, per_transaction_limit_minor=4_000,
             allowed_destinations=("0xCompute", "0xData"),
         ))
 
@@ -36,7 +36,7 @@ class WalletSpendControllerTests(unittest.TestCase):
                                          idempotency_key="job-1")
         self.controller.mark_broadcast(first.reservation_id, "0xtx1")
         self.controller.mark_settled(first.reservation_id, tx_hash="0xtx1",
-                                     verified=True, source="agent-1",
+                                     verified=True, source_address="0xAgent",
                                      destination="0xCompute", amount_minor=4000)
         self.controller.reserve("agent-1", "base", "USDC", "0xData", 4000,
                                 idempotency_key="job-2")
@@ -50,11 +50,11 @@ class WalletSpendControllerTests(unittest.TestCase):
         self.controller.mark_broadcast(item.reservation_id, "0xtx")
         with self.assertRaisesRegex(ValueError, "does not match"):
             self.controller.mark_settled(item.reservation_id, tx_hash="0xtx",
-                                         verified=True, source="agent-1",
+                                         verified=True, source_address="0xAgent",
                                          destination="0xAttacker", amount_minor=500)
         with self.assertRaisesRegex(ValueError, "verified"):
             self.controller.mark_settled(item.reservation_id, tx_hash="0xtx",
-                                         verified=False, source="agent-1",
+                                         verified=False, source_address="0xAgent",
                                          destination="0xCompute", amount_minor=500)
 
     def test_idempotency_key_cannot_be_reused_for_different_request(self):
