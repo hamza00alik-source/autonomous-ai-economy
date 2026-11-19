@@ -30,8 +30,11 @@ class TreasuryWallet:
 class CollectiveTreasuryStore:
     """One on-chain wallet per network/asset, with isolated virtual agent balances."""
 
-    def __init__(self, path: str | Path = "./data/collective_treasury.sqlite3") -> None:
+    def __init__(self, path: str | Path = "./data/collective_treasury.sqlite3", *,
+                 owner_principal_id: str | None = None) -> None:
         self.path = str(path)
+        # Supplied by the authenticated host/control plane, never by an agent prompt.
+        self.owner_principal_id = (owner_principal_id or os.getenv("AAE_OWNER_PRINCIPAL_ID") or "").strip()
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as db:
             db.executescript("""
@@ -157,6 +160,38 @@ class CollectiveTreasuryStore:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(agent_id, network, asset, period_id)
                 );
+                CREATE TABLE IF NOT EXISTS treasury_wallet_policy_audit (
+                    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    old_cap_minor INTEGER NOT NULL,
+                    new_cap_minor INTEGER NOT NULL,
+                    owner_principal_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS treasury_owner_payout_config (
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    destination_address TEXT NOT NULL,
+                    owner_principal_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(network, asset)
+                );
+                CREATE TABLE IF NOT EXISTS treasury_owner_overflow_sweeps (
+                    sweep_id TEXT PRIMARY KEY,
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    destination_address TEXT NOT NULL,
+                    amount_minor INTEGER NOT NULL CHECK(amount_minor > 0),
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL CHECK(status IN ('reserved','uncertain','settled','cancelled')),
+                    tx_hash TEXT UNIQUE,
+                    period_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    settled_at TEXT
+                );
             """)
             # Upgrade existing treasury registrations to a single shared-wallet cap.
             wallet_columns = {
@@ -184,6 +219,12 @@ class CollectiveTreasuryStore:
         db.execute("PRAGMA foreign_keys=ON")
         db.execute("PRAGMA busy_timeout=20000")
         return db
+
+    def _require_owner(self, owner_principal_id: str) -> str:
+        principal = self._required(owner_principal_id, "owner_principal_id")
+        if not self.owner_principal_id or principal != self.owner_principal_id:
+            raise PermissionError("owner authorization is not configured or does not match the authenticated owner")
+        return principal
 
     @staticmethod
     def _required(value: str, field: str) -> str:
@@ -472,6 +513,19 @@ class CollectiveTreasuryStore:
             if not receipt or receipt["status"] != "unallocated":
                 db.rollback()
                 raise ValueError("unallocated receipt not found")
+            wallet_policy = db.execute(
+                "SELECT max_balance_minor FROM treasury_wallets WHERE network=? AND asset=?",
+                (network, asset.upper()),
+            ).fetchone()
+            pooled_now = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
+                           ELSE -amount_minor END),0) AS amount
+                   FROM treasury_entries WHERE network=? AND asset=?""",
+                (network, asset.upper()),
+            ).fetchone()
+            if not wallet_policy or int(pooled_now["amount"]) > int(wallet_policy["max_balance_minor"]):
+                db.rollback()
+                raise ValueError("cannot attribute suspense while the shared wallet is above its cap; settle the owner overflow sweep first")
             if (not intent or intent["status"] != "pending"
                     or intent["agent_id"] != agent_id
                     or intent["network"] != network
@@ -560,6 +614,224 @@ class CollectiveTreasuryStore:
             "custody_model": "single_shared_treasury",
         }
 
+    def increase_shared_wallet_cap(self, network: str, asset: str, new_cap_minor: int, *,
+                                   owner_principal_id: str, reason: str) -> dict:
+        """Increase the pooled holding cap through the authenticated owner control plane.
+
+        No automatic growth formula is assumed: the owner must approve each increase
+        until a written growth policy is selected and separately implemented.
+        """
+        principal = self._require_owner(owner_principal_id)
+        asset = self._required(asset, "asset").upper()
+        reason = self._required(reason, "reason")
+        if asset != "USDC":
+            raise ValueError("the USD-equivalent shared holding cap is currently USDC-only")
+        if isinstance(new_cap_minor, bool) or not isinstance(new_cap_minor, int) or new_cap_minor <= 0:
+            raise ValueError("new_cap_minor must be a positive integer")
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT max_balance_minor FROM treasury_wallets WHERE network=? AND asset=?",
+                (network, asset),
+            ).fetchone()
+            if not row:
+                db.rollback()
+                raise ValueError("collective treasury wallet is not configured")
+            old_cap = int(row["max_balance_minor"])
+            if new_cap_minor <= old_cap:
+                db.rollback()
+                raise ValueError("cap changes through this operation must be increases")
+            db.execute(
+                "UPDATE treasury_wallets SET max_balance_minor=? WHERE network=? AND asset=?",
+                (new_cap_minor, network, asset),
+            )
+            db.execute(
+                """INSERT INTO treasury_wallet_policy_audit
+                   (network,asset,old_cap_minor,new_cap_minor,owner_principal_id,reason)
+                   VALUES(?,?,?,?,?,?)""",
+                (network, asset, old_cap, new_cap_minor, principal, reason),
+            )
+            db.commit()
+        return {"network": network, "asset": asset, "old_cap_minor": old_cap,
+                "new_cap_minor": new_cap_minor, "authorized_by": principal, "reason": reason}
+
+    def configure_owner_payout_address(self, network: str, asset: str, destination_address: str, *,
+                                       owner_principal_id: str, reason: str) -> None:
+        """Set the public owner payout destination; signing credentials are never stored here."""
+        principal = self._require_owner(owner_principal_id)
+        asset = self._required(asset, "asset").upper()
+        destination = self._required(destination_address, "destination_address")
+        reason = self._required(reason, "reason")
+        if len(destination) != 42 or not destination.startswith("0x"):
+            raise ValueError("destination_address must be a 20-byte EVM address")
+        try:
+            int(destination[2:], 16)
+        except ValueError as exc:
+            raise ValueError("destination_address must be hexadecimal") from exc
+        with closing(self._connect()) as db:
+            db.execute(
+                """INSERT INTO treasury_owner_payout_config
+                   (network,asset,destination_address,owner_principal_id,reason)
+                   VALUES(?,?,?,?,?)
+                   ON CONFLICT(network,asset) DO UPDATE SET
+                     destination_address=excluded.destination_address,
+                     owner_principal_id=excluded.owner_principal_id,
+                     reason=excluded.reason,updated_at=CURRENT_TIMESTAMP""",
+                (network, asset, destination, principal, reason),
+            )
+
+    def reserve_owner_overflow_sweep(self, network: str, asset: str, *,
+                                     period_id: str, idempotency_key: str) -> dict | None:
+        """Reserve only unallocated suspense funds above the wallet-wide cap.
+
+        This never sweeps agent-attributed balances, pending agent expenses, or
+        native ETH gas reserves. An absent owner destination is a hard stop.
+        """
+        asset = self._required(asset, "asset").upper()
+        period_id = self._required(period_id, "period_id")
+        idempotency_key = self._required(idempotency_key, "idempotency_key")
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            old = db.execute(
+                "SELECT * FROM treasury_owner_overflow_sweeps WHERE idempotency_key=?",
+                (idempotency_key,),
+            ).fetchone()
+            if old:
+                db.commit()
+                return dict(old)
+            wallet = db.execute(
+                "SELECT address,max_balance_minor FROM treasury_wallets WHERE network=? AND asset=?",
+                (network, asset),
+            ).fetchone()
+            payout = db.execute(
+                "SELECT destination_address FROM treasury_owner_payout_config WHERE network=? AND asset=?",
+                (network, asset),
+            ).fetchone()
+            if not wallet:
+                db.rollback()
+                raise ValueError("collective treasury wallet is not configured")
+            if not payout:
+                db.rollback()
+                raise ValueError("owner payout address is not configured; overflow spending remains blocked")
+            pool = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
+                           ELSE -amount_minor END),0) AS amount
+                   FROM treasury_entries WHERE network=? AND asset=?""",
+                (network, asset),
+            ).fetchone()
+            pending = db.execute(
+                """SELECT COALESCE(SUM(amount_minor),0) AS amount
+                   FROM treasury_owner_overflow_sweeps
+                   WHERE network=? AND asset=? AND status IN ('reserved','uncertain')""",
+                (network, asset),
+            ).fetchone()
+            suspense = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
+                           ELSE -amount_minor END),0) AS amount
+                   FROM treasury_entries WHERE account_id='treasury:unallocated'
+                     AND network=? AND asset=?""",
+                (network, asset),
+            ).fetchone()
+            excess = max(0, int(pool["amount"]) - int(wallet["max_balance_minor"])
+                         - int(pending["amount"]))
+            available = int(suspense["amount"]) - int(pending["amount"])
+            amount = min(excess, max(0, available))
+            if amount <= 0:
+                db.rollback()
+                return None
+            import uuid
+            sweep_id = str(uuid.uuid4())
+            db.execute(
+                """INSERT INTO treasury_owner_overflow_sweeps
+                   (sweep_id,network,asset,destination_address,amount_minor,idempotency_key,status,period_id)
+                   VALUES(?,?,?,?,?,?, 'reserved', ?)""",
+                (sweep_id, network, asset, payout["destination_address"], amount,
+                 idempotency_key, period_id),
+            )
+            db.commit()
+            return {"sweep_id": sweep_id, "network": network, "asset": asset,
+                    "destination_address": payout["destination_address"],
+                    "amount_minor": amount, "status": "reserved", "period_id": period_id}
+
+    def claim_owner_overflow_sweep(self, sweep_id: str) -> bool:
+        with closing(self._connect()) as db:
+            cur = db.execute(
+                """UPDATE treasury_owner_overflow_sweeps SET status='uncertain'
+                   WHERE sweep_id=? AND status='reserved'""", (sweep_id,)
+            )
+            return cur.rowcount == 1
+
+    def record_owner_overflow_sweep_tx(self, sweep_id: str, tx_hash: str) -> None:
+        if not isinstance(tx_hash, str) or len(tx_hash) != 66 or not tx_hash.startswith("0x"):
+            raise ValueError("tx_hash must be a 32-byte EVM transaction hash")
+        try:
+            int(tx_hash[2:], 16)
+        except ValueError as exc:
+            raise ValueError("tx_hash must be hexadecimal") from exc
+        with closing(self._connect()) as db:
+            cur = db.execute(
+                """UPDATE treasury_owner_overflow_sweeps SET tx_hash=?
+                   WHERE sweep_id=? AND status='uncertain' AND tx_hash IS NULL""",
+                (tx_hash.lower(), sweep_id),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("sweep is not awaiting its first transaction hash")
+
+    def settle_owner_overflow_sweep(self, sweep_id: str, transfer: VerifiedTransfer) -> None:
+        self._validate_transfer(transfer)
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            sweep = db.execute(
+                "SELECT * FROM treasury_owner_overflow_sweeps WHERE sweep_id=?", (sweep_id,)
+            ).fetchone()
+            wallet = db.execute(
+                "SELECT address FROM treasury_wallets WHERE network=? AND asset=?",
+                (transfer.network, transfer.asset.upper()),
+            ).fetchone()
+            if not sweep or sweep["status"] != "uncertain":
+                db.rollback()
+                raise ValueError("owner overflow sweep must be uncertain before settlement")
+            if not wallet or transfer.source.lower() != wallet["address"].lower():
+                db.rollback()
+                raise ValueError("verified sweep source is not the collective treasury")
+            if (sweep["network"], sweep["asset"], sweep["destination_address"].lower(),
+                sweep["amount_minor"]) != (transfer.network, transfer.asset.upper(),
+                                             transfer.destination.lower(), transfer.amount_minor):
+                db.rollback()
+                raise ValueError("verified transfer does not match exact owner overflow sweep")
+            if sweep["tx_hash"] and sweep["tx_hash"].lower() != transfer.tx_hash.lower():
+                db.rollback()
+                raise ValueError("verified transaction hash conflicts with the recorded sweep hash")
+            suspense = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
+                           ELSE -amount_minor END),0) AS amount
+                   FROM treasury_entries WHERE account_id='treasury:unallocated'
+                     AND network=? AND asset=?""",
+                (transfer.network, transfer.asset.upper()),
+            ).fetchone()
+            if int(suspense["amount"]) < transfer.amount_minor:
+                db.rollback()
+                raise ValueError("unallocated suspense balance is insufficient for overflow sweep")
+            self._insert_entry(db, "treasury:unallocated", transfer.network,
+                               transfer.asset.upper(), "expense", "debit",
+                               transfer.amount_minor, sweep["period_id"],
+                               "Owner overflow sweep; separate from net-profit owner share",
+                               transfer.tx_hash, transfer.transfer_ref)
+            db.execute(
+                """INSERT INTO treasury_pool_events
+                   (network,asset,tx_hash,transfer_ref,event_type,amount_minor)
+                   VALUES(?,?,?,?,'expense',?)""",
+                (transfer.network, transfer.asset.upper(), transfer.tx_hash,
+                 transfer.transfer_ref, transfer.amount_minor),
+            )
+            db.execute(
+                """UPDATE treasury_owner_overflow_sweeps
+                   SET status='settled',tx_hash=?,settled_at=CURRENT_TIMESTAMP
+                   WHERE sweep_id=?""",
+                (transfer.tx_hash.lower(), sweep_id),
+            )
+            db.commit()
+
     def agent_wallet(self, agent_id: str, network: str, asset: str) -> dict:
         """Return the shared public address and an agent's uncapped accounting view."""
         asset = self._required(asset, "asset").upper()
@@ -631,7 +903,7 @@ class CollectiveTreasuryStore:
                 raise ValueError("collective treasury wallet is not configured")
             if int(pooled["amount"]) > int(wallet_policy["max_balance_minor"]):
                 db.rollback()
-                raise ValueError("shared treasury is above its $500 total holding cap; excess must be swept before spending")
+                raise ValueError("shared treasury is above its configured total holding cap; owner overflow sweep must settle before spending")
             policy = db.execute(
                 "SELECT * FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
                 (agent_id, network, asset),
