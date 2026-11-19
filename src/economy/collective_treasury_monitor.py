@@ -110,11 +110,67 @@ class CollectiveTreasuryReceiptMonitor:
                     tx_hash TEXT NOT NULL,
                     transfer_ref TEXT NOT NULL,
                     block_hash TEXT NOT NULL,
+                    block_number INTEGER NOT NULL DEFAULT 0,
                     status TEXT NOT NULL CHECK(status IN ('allocated','unallocated','pending','orphaned')),
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY(network, tx_hash, transfer_ref)
                 );
+                CREATE TABLE IF NOT EXISTS treasury_reorg_alerts (
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    tx_hash TEXT NOT NULL,
+                    transfer_ref TEXT NOT NULL,
+                    expected_block_hash TEXT NOT NULL,
+                    observed_block_hash TEXT,
+                    reason TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','resolved')),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    resolved_at TEXT,
+                    PRIMARY KEY(network, asset, tx_hash, transfer_ref)
+                );
             """)
+            columns = {row["name"] for row in store._connect().execute(
+                "PRAGMA table_info(treasury_receipt_monitor_events)"
+            )}
+            if "block_number" not in columns:
+                with closing(store._connect()) as db:
+                    db.execute(
+                        "ALTER TABLE treasury_receipt_monitor_events "
+                        "ADD COLUMN block_number INTEGER NOT NULL DEFAULT 0"
+                    )
+
+    def _raise_reorg_alert(self, *, network: str, asset: str, tx_hash: str,
+                           transfer_ref: str, expected_block_hash: str,
+                           observed_block_hash: str | None, reason: str) -> None:
+        with closing(self.store._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                """INSERT INTO treasury_reorg_alerts
+                   (network,asset,tx_hash,transfer_ref,expected_block_hash,
+                    observed_block_hash,reason)
+                   VALUES(?,?,?,?,?,?,?)
+                   ON CONFLICT(network,asset,tx_hash,transfer_ref) DO UPDATE SET
+                     observed_block_hash=excluded.observed_block_hash,
+                     reason=excluded.reason,status='open',resolved_at=NULL""",
+                (network, asset.upper(), tx_hash, transfer_ref,
+                 expected_block_hash, observed_block_hash, reason),
+            )
+            # A treasury-level canonicality incident freezes all agent spend policies
+            # on the affected network/asset. Human review is required to resume.
+            db.execute(
+                "UPDATE treasury_agents SET enabled=0 WHERE network=? AND asset=?",
+                (network, asset.upper()),
+            )
+            db.commit()
+
+    def open_reorg_alerts(self, *, network: str, asset: str) -> int:
+        with closing(self.store._connect()) as db:
+            row = db.execute(
+                """SELECT COUNT(*) AS n FROM treasury_reorg_alerts
+                   WHERE network=? AND asset=? AND status='open'""",
+                (network, asset.upper()),
+            ).fetchone()
+        return int(row["n"])
 
     def bind_payer(self, attribution_ref: str, payer_address: str) -> None:
         """Bind an intent to the expected payer before publishing payment details."""
@@ -222,6 +278,22 @@ class CollectiveTreasuryReceiptMonitor:
                     or item.confirmations < 0):
                 raise ValueError("observation has malformed transfer fields")
             if not item.canonical:
+                with closing(self.store._connect()) as db:
+                    prior = db.execute(
+                        """SELECT block_hash,status FROM treasury_receipt_monitor_events
+                           WHERE network=? AND tx_hash=? AND transfer_ref=?""",
+                        (network, item.tx_hash, item.transfer_ref),
+                    ).fetchone()
+                if prior and prior["status"] in {"allocated", "unallocated"}:
+                    self._raise_reorg_alert(
+                        network=network, asset=asset, tx_hash=item.tx_hash,
+                        transfer_ref=item.transfer_ref,
+                        expected_block_hash=prior["block_hash"],
+                        observed_block_hash=item.block_hash,
+                        reason="previously credited transfer is no longer canonical",
+                    )
+                    counts["orphaned"] += 1
+                    continue
                 counts["orphaned"] += 1
                 continue
             if not item.finalized or item.confirmations < 1:
@@ -235,9 +307,16 @@ class CollectiveTreasuryReceiptMonitor:
                 ).fetchone()
             if prior_event:
                 if prior_event["block_hash"].lower() != item.block_hash.lower():
+                    self._raise_reorg_alert(
+                        network=network, asset=asset, tx_hash=item.tx_hash,
+                        transfer_ref=item.transfer_ref,
+                        expected_block_hash=prior_event["block_hash"],
+                        observed_block_hash=item.block_hash,
+                        reason="previously ingested transfer appeared in a different block",
+                    )
                     raise ValueError(
-                        "previously ingested receipt changed block identity; "
-                        "stop automatic crediting and reconcile the reorganization"
+                        "treasury reorganization alert opened; agent spending paused "
+                        "until operator reconciliation"
                     )
                 if prior_event["status"] in {"allocated", "unallocated"}:
                     counts[prior_event["status"]] += 1
@@ -247,10 +326,10 @@ class CollectiveTreasuryReceiptMonitor:
             with closing(self.store._connect()) as db:
                 db.execute(
                     """INSERT INTO treasury_receipt_monitor_events
-                       (network,tx_hash,transfer_ref,block_hash,status)
-                       VALUES(?,?,?,?,'pending')
+                       (network,tx_hash,transfer_ref,block_hash,block_number,status)
+                       VALUES(?,?,?,?,?,'pending')
                        ON CONFLICT(network,tx_hash,transfer_ref) DO NOTHING""",
-                    (network, item.tx_hash, item.transfer_ref, item.block_hash),
+                    (network, item.tx_hash, item.transfer_ref, item.block_hash, item.block_number),
                 )
             event_period = self.period_resolver(item.block_timestamp) if self.period_resolver else period_id
             if not isinstance(event_period, str) or not event_period.strip():
