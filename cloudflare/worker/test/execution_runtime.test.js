@@ -204,7 +204,7 @@ test("private artifact download requires the owner bearer token", async () => {
 });
 
 test("execution fails closed when private runtime bindings are missing", async () => {
-  const { env } = makeEnv();
+  const { env, approvalBody } = await makeEnv();
   delete env.EXECUTION_RUNTIME;
   const response = await worker.fetch(request(approvalBody), env);
   assert.equal(response.status, 503);
