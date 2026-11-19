@@ -60,6 +60,17 @@ jobs:
         run: economy-ai --data-dir /tmp/aae-ai-queue-ci queue-copy --facts-file products/moba-objective-props/product-facts.json
       - name: Check standalone product JavaScript
         run: python tools/check_product_js.py
+      - name: Check private owner dashboard JavaScript
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("cloudflare/worker/public/owner.html").read_text()
+          scripts = re.findall(r"<script>(.*?)</script>", html, flags=re.DOTALL)
+          assert len(scripts) == 1, f"expected one inline script, got {len(scripts)}"
+          Path("/tmp/aae-owner-dashboard.js").write_text(scripts[0])
+          PY
+          node --check /tmp/aae-owner-dashboard.js
       - name: Test private Cloudflare worker logic
         run: node --test cloudflare/worker/test/*.test.js
       - name: Dry-run isolated Cloudflare Python execution Worker
