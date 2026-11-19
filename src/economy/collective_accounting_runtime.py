@@ -74,8 +74,8 @@ class CollectiveTreasuryReorgGuard:
                             ON r.network=e.network AND r.tx_hash=e.tx_hash
                            AND r.transfer_ref=e.transfer_ref AND r.asset=?
                           WHERE e.network=? AND e.status IN ('allocated','unallocated')
-                            AND (e.block_number=0 OR e.block_number>=?)"""
-            params = [asset.upper(), network, floor]
+                            AND (e.block_number=0 OR (e.block_number>=? AND e.block_number<=?))"""
+            params = [asset.upper(), network, floor, finalized]
             if last:
                 base_sql += """ AND (e.block_number>? OR (e.block_number=? AND
                                (e.tx_hash>? OR (e.tx_hash=? AND e.transfer_ref>?))))"""
