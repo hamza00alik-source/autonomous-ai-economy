@@ -243,6 +243,17 @@ class ChainMonitor:
                     else:
                         db.commit()
                     continue
+                closed_period = db.execute(
+                    """SELECT 1 FROM profit_periods
+                       WHERE agent_id=? AND network=? AND asset=? AND period_id=?""",
+                    (participant_id, item.network, self.asset.asset.upper(), period_id),
+                ).fetchone()
+                if closed_period:
+                    db.rollback()
+                    raise ValueError(
+                        "finalized transfer belongs to a closed profit period; "
+                        "route it to a separately reconciled adjustment period"
+                    )
                 try:
                     # Keep the finance write and monitor status transition atomic.
                     db.execute(
