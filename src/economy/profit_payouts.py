@@ -56,8 +56,13 @@ class ProfitPayoutWorker:
                 ).fetchone()
                 if monitor_table:
                     alert = db.execute(
-                        """SELECT 1 FROM chain_monitor_events
-                           WHERE participant_id=? AND period_id=? AND status='reorg_alert' LIMIT 1""",
+                        """SELECT 1 FROM chain_monitor_events c
+                           WHERE c.participant_id=? AND c.period_id=? AND c.status='reorg_alert'
+                             AND NOT EXISTS (
+                               SELECT 1 FROM reorg_alert_resolutions r
+                               WHERE r.network=c.network AND r.tx_hash=c.tx_hash
+                                 AND r.transfer_ref=c.transfer_ref
+                             ) LIMIT 1""",
                         (agent_id, period["period_id"]),
                     ).fetchone()
                     if alert:
