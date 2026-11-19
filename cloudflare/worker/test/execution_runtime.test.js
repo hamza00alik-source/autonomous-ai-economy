@@ -22,6 +22,14 @@ function fakeDb(publicKeyJwk) {
         bind(...args) { values = args; return this; },
         async first() {
           if (sql.includes("FROM financial_participants")) return { participant_id: "owner-001", public_key_jwk: JSON.stringify(publicKeyJwk) };
+          if (sql.startsWith("SELECT job_id,status,artifact_sha256")) {
+            if (state.job && state.job.job_id === values[0] && state.job.owner_id === values[1]) return {
+              job_id: state.job.job_id, status: state.job.status, artifact_sha256: state.job.artifact_sha256,
+              artifact_size_bytes: state.job.artifact_size_bytes, error_code: state.job.error_code,
+              created_at: state.job.created_at, updated_at: state.job.updated_at
+            };
+            return null;
+          }
           if (sql.startsWith("SELECT artifact_key,artifact_sha256")) {
             if (state.job && state.job.job_id === values[0] && state.job.owner_id === values[1]) return state.job;
             return null;
