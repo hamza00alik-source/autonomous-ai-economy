@@ -384,6 +384,12 @@ class CDPAdapterTests(unittest.IsolatedAsyncioTestCase):
             self.transfer(amount=500_000_000), period_id="2026-11",
             agent_id="agent-a", attribution_ref="invoice:cap-full",
         )
+        # A settled intent can still be safely replayed without reserving
+        # capacity or crediting the agent a second time.
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 500_000_000,
+            attribution_ref="invoice:cap-full",
+        )
         view = self.store.agent_wallet("agent-a", "base-sepolia", "USDC")
         self.assertEqual(view["balance_minor"], 500_000_000)
         self.assertEqual(view["available_minor"], 500_000_000)
@@ -396,15 +402,24 @@ class CDPAdapterTests(unittest.IsolatedAsyncioTestCase):
                 attribution_ref="invoice:after-cap",
             )
 
-    def test_suspense_attribution_cannot_overfill_agent_wallet(self):
+    def test_suspense_attribution_rechecks_cap_at_allocation_time(self):
         self.store.record_receipt(
-            self.transfer(amount=500_000_001), period_id="2026-11",
-            tx="0x" + "9" * 64,
+            self.transfer(amount=1, tx="0x" + "9" * 64), period_id="2026-11",
         )
         self.store.create_payment_intent(
-            "agent-a", "base-sepolia", "USDC", 500_000_001,
+            "agent-a", "base-sepolia", "USDC", 1,
             attribution_ref="invoice:suspense-cap",
         )
+        # Simulate an out-of-band/legacy ledger credit between intent creation
+        # and suspense allocation; allocation must recheck the hard cap.
+        with self.store._connect() as db:
+            db.execute(
+                """INSERT INTO treasury_entries
+                   (account_id,network,asset,entry_type,direction,amount_minor,
+                    period_id,memo)
+                   VALUES('agent:agent-a','base-sepolia','USDC','receipt',
+                          'credit',500000000,'2026-11','legacy test credit')"""
+            )
         with self.assertRaisesRegex(ValueError, r"\$500 balance cap"):
             self.store.attribute_receipt(
                 "base-sepolia", "USDC", "0x" + "9" * 64, "log:1", "agent-a",
@@ -412,7 +427,7 @@ class CDPAdapterTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(
             self.store.balance("treasury:unallocated", "base-sepolia", "USDC"),
-            500_000_001,
+            1,
         )
 
 if __name__ == "__main__":
