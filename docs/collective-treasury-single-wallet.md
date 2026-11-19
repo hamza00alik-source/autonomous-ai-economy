@@ -75,7 +75,7 @@ The account is EVM-address based and may be used on Base Sepolia or Base. The lo
 
 ## On-chain balance reconciliation
 
-The ledger's own pool/virtual-account equality is necessary but not sufficient: it cannot detect an unrecorded external transfer or an incoming deposit that has not yet been ingested. The read-only reconciliation command queries `balanceOf(treasury_address)` from at least two configured RPC endpoints and compares the agreed raw USDC amount to the internal pool ledger.
+The ledger's own pool/virtual-account equality is necessary but not sufficient: it cannot detect an unrecorded external transfer or an incoming deposit that has not yet been ingested. The read-only reconciliation command queries finalized `balanceOf(treasury_address)` and the finalized native ETH balance from at least two configured RPC endpoints. It compares the agreed raw USDC amount to the internal pool ledger and reports the ETH gas reserve.
 
 Configure `AAE_EVM_RPC_URLS` as a comma-separated list of at least two independently operated RPC endpoints, then run:
 
@@ -84,10 +84,11 @@ economy-treasury-reconcile \
   --network base-sepolia \
   --chain-id 84532 \
   --asset USDC \
-  --token-contract 0xYOUR_BASE_SEPOLIA_USDC_CONTRACT
+  --token-contract 0xYOUR_BASE_SEPOLIA_USDC_CONTRACT \
+  --minimum-native-balance-wei 1000000000000000
 ```
 
-For Base mainnet, use chain ID `8453` and the official Base USDC contract address. The token contract must match the actual asset you use. The command is read-only; it never signs or broadcasts. It exits non-zero if providers disagree or if the chain balance, pool ledger and virtual accounts do not reconcile. Run it under an external scheduler and alert on non-zero exit status. Multiple RPC URLs do not guarantee independent infrastructure; choose providers with separate operators/infrastructure.
+For Base mainnet, use chain ID `8453` and the official Base USDC contract address. The token contract must match the actual asset you use. The command is read-only; it never signs or broadcasts. It exits non-zero if providers disagree, if the chain balance, pool ledger and virtual accounts do not reconcile, or if native ETH is below the configured gas reserve. A single EVM address can hold both USDC and ETH, so this remains one shared wallet. USDC transfers from this server-managed EOA require native ETH for network gas. Gas costs are not yet converted into USDC operating expenses for profit-sharing; they must be separately captured and valued before production profit distributions are enabled. Run reconciliation under an external scheduler and alert on non-zero exit status. Multiple RPC URLs do not guarantee independent infrastructure; choose providers with separate operators/infrastructure.
 
 ## Important provider limitation
 
