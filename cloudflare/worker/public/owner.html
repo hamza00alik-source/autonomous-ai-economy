@@ -78,13 +78,16 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
 <div class="metric"><small>Customer delivery</small><strong id="pipelineDelivery">—</strong></div>
 <div class="metric"><small>Payment reconciliation</small><strong id="pipelineReconciliation">—</strong></div>
 </div>
+<h3 style="margin-top:18px">Imported marketplace opportunities</h3>
+<p class="muted">Imported from the local read-only revenue scanner. Source escrow claims are unverified; every candidate remains owner-review-only and cannot be claimed from this dashboard.</p>
+<div class="tablewrap"><table><thead><tr><th>Source</th><th>Opportunity</th><th>Reward</th><th>Priority</th><th>Fit</th><th>Source escrow claim</th><th>Cloud decision</th></tr></thead><tbody id="businessOpportunityRows"><tr><td colspan="7">No imported opportunities yet.</td></tr></tbody></table></div>
 <h3 style="margin-top:18px">Unpublished listing drafts</h3>
 <div class="tablewrap"><table><thead><tr><th>Task</th><th>Title</th><th>Status</th><th>Claims to verify</th><th>Published</th></tr></thead><tbody id="businessListingRows"><tr><td colspan="5">Loading…</td></tr></tbody></table></div>
 <h3 style="margin-top:18px">Customer orders</h3>
 <div class="tablewrap"><table><thead><tr><th>Order</th><th>Status</th><th>Price</th><th>Paid amount</th><th>Downloads</th><th>Updated</th></tr></thead><tbody id="businessOrderRows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div>
 <h3 style="margin-top:18px">Revenue reconciliation</h3>
 <div class="tablewrap"><table><thead><tr><th>Order</th><th>Status</th><th>Gross</th><th>Net</th><th>Agent credit</th><th>Reconciled</th></tr></thead><tbody id="businessRevenueRows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div>
-<p class="muted" id="businessPipelineNote">Opportunity discovery is not yet connected to this cloud console. Visual product review remains a human QA step. No listing is published by this dashboard.</p>
+<p class="muted" id="businessPipelineNote">No imported opportunities yet. Run the local read-only scanner and sync its shortlist. Visual product review remains a human QA step. No listing is published by this dashboard.</p>
 </section>
 <section class="panel" id="executionOperationsPanel">
 <h2>Private execution queue</h2>
@@ -517,6 +520,17 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      ["pipelineReconciliation",stages.payment_reconciliation?.status],
    ];
    for(const [id,value] of labels) $(id).textContent=value||"unknown";
+   const opportunityRows=$("businessOpportunityRows");opportunityRows.replaceChildren();
+   if(!(data.opportunities||[]).length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.textContent="No imported marketplace opportunities. Run the local read-only scanner, then economy-revenue sync.";tr.appendChild(td);opportunityRows.appendChild(tr);}
+   for(const item of data.opportunities||[]){
+     const tr=document.createElement("tr");
+     const reward=item.net_reward!==null&&item.net_reward!==undefined?item.net_reward+" net":(item.gross_reward??"—")+" gross";
+     const sourceClaim=item.source_escrow_claimed?"Claimed by source · not verified":"No source claim";
+     const decision="Owner review only · no claim";
+     for(const value of [item.source,item.title,reward,number(item.priority_score),number(item.fit_score),sourceClaim,decision]){
+       const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+     }opportunityRows.appendChild(tr);
+   }
    const listingRows=$("businessListingRows");listingRows.replaceChildren();
    if(!(data.listing_drafts||[]).length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=5;td.textContent="No product-copy drafts recorded.";tr.appendChild(td);listingRows.appendChild(tr);}
    for(const item of data.listing_drafts||[]){
@@ -547,7 +561,7 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      }revenueRows.appendChild(tr);
    }
    const reconciliation=stages.payment_reconciliation||{};
-   $("businessPipelineNote").textContent="Provider-settled gross: "+money(reconciliation.provider_settled_gross_minor)+" USD · Independently reconciled net: "+money(reconciliation.reconciled_net_minor)+" USD. Opportunity discovery remains separate; visual review is still required. Read-only controls: no publishing, checkout creation or customer contact.";
+   $("businessPipelineNote").textContent="Provider-settled gross: "+money(reconciliation.provider_settled_gross_minor)+" USD · Independently reconciled net: "+money(reconciliation.reconciled_net_minor)+" USD. Opportunity shortlist imports are source data only; every imported record requires owner review and independent verification. Visual product review is still required. Read-only controls: no claims, submissions, publishing, checkout creation or customer contact.";
  }
  function renderExecutionOperations(data) {
    const counts=data.counts||{};

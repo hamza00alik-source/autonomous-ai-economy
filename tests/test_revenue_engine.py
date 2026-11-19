@@ -1,3 +1,4 @@
+import pytest
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -135,3 +136,99 @@ def test_store_is_idempotent_and_ready_filter_is_explicit():
         ready = store.list(limit=10, ready_only=True)
         assert len(ready) == 1
         assert ready[0]["source"] == "taskmarket"
+
+
+def test_sync_opportunities_posts_bounded_shortlist_and_requires_safe_cloud_ack(tmp_path):
+    import json
+    from economy.revenue_engine import sync_opportunities
+
+    store = RevenueOpportunityStore(tmp_path / "revenue.sqlite3")
+    engine = RevenueEngine(
+        store, basedagents=FakeBasedAgents(), jobbi=FakeJobbi(),
+        taskmarket=FakeTaskmarket(), escrow_verifier=FakeEscrowVerifier(),
+    )
+    engine.scan_once(limit=10, verify_limit=10)
+    calls = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, limit=-1):
+            return json.dumps({
+                "imported": 3,
+                "enforced": {
+                    "review_status": "needs_owner_review",
+                    "independent_escrow_verified": False,
+                    "payment_verified": False,
+                    "claim_allowed": False,
+                },
+            }).encode()
+
+    def opener(request, timeout):
+        calls.append((request, timeout))
+        return Response()
+
+    result = sync_opportunities(
+        store, worker_url="https://aae.example.workers.dev", token="secret",
+        limit=25, opener=opener,
+    )
+    assert result == {"imported": 3, "status": "synced_owner_review_only"}
+    request, timeout = calls[0]
+    payload = json.loads(request.data)
+    assert len(payload["opportunities"]) == 3
+    assert request.full_url == "https://aae.example.workers.dev/v1/owner/revenue-opportunities/import"
+    assert request.get_header("Authorization") == "Bearer secret"
+    assert timeout == 20
+    assert "claim_allowed" not in payload["opportunities"][0]
+
+
+def test_sync_opportunities_fails_closed_on_invalid_origin_or_cloud_ack(tmp_path):
+    import json
+    from economy.revenue_engine import sync_opportunities
+
+    store = RevenueOpportunityStore(tmp_path / "revenue.sqlite3")
+    engine = RevenueEngine(
+        store, basedagents=FakeBasedAgents(), jobbi=FakeJobbi(),
+        taskmarket=FakeTaskmarket(), escrow_verifier=FakeEscrowVerifier(),
+    )
+    engine.scan_once(limit=10, verify_limit=10)
+    calls = []
+    with pytest.raises(ValueError, match="HTTPS"):
+        sync_opportunities(
+            store, worker_url="http://unsafe.example", token="secret",
+            opener=lambda *args, **kwargs: calls.append(1),
+        )
+    with pytest.raises(ValueError, match="AAE_QUEUE_TOKEN"):
+        sync_opportunities(
+            store, worker_url="https://aae.example", token="",
+            opener=lambda *args, **kwargs: calls.append(1),
+        )
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, limit=-1):
+            return json.dumps({
+                "imported": 3,
+                "enforced": {
+                    "review_status": "ready_for_owner_review",
+                    "independent_escrow_verified": True,
+                    "payment_verified": False,
+                    "claim_allowed": False,
+                },
+            }).encode()
+
+    with pytest.raises(RuntimeError, match="safe owner-review-only"):
+        sync_opportunities(
+            store, worker_url="https://aae.example", token="secret",
+            opener=lambda *args, **kwargs: Response(),
+        )
+    assert calls == []

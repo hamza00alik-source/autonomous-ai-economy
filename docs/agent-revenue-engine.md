@@ -29,9 +29,10 @@ After installing the package:
 economy-revenue scan --limit 50 --verify-limit 25
 economy-revenue list --limit 50
 economy-revenue list --ready-only
+economy-revenue sync --limit 25
 ```
 
-The scanner is read-only. It does not register accounts, create wallets, claim work, submit deliverables, publish offers, contact customers, sign transactions, or transfer funds.
+The scanner is read-only. It does not register accounts, create wallets, claim work, submit deliverables, publish offers, contact customers, sign transactions, or transfer funds. The optional `sync` command sends at most 25 saved candidates to the private Cloudflare owner console. The receiver always downgrades them to `needs_owner_review`; it does not trust local escrow flags or allow claims. Set `AAE_WORKER_URL` to the private Worker HTTPS origin and `AAE_QUEUE_TOKEN` to the owner bearer token. Sync is a manual push, not a scheduled cloud scan.
 
 ## What is required before autonomous earning
 
@@ -50,3 +51,4 @@ A listing, an escrow deposit, an invoice, a pending balance, or a local ledger r
 - BasedAgents and Jobbi candidates remain review-only until their independent payment evidence and current source terms can be verified.
 - The ranking is a shortlist heuristic, not a probability of winning or a profit forecast. Actual delivery costs and provider fees must be included before accepting a task.
 - This is a prototype feature, not a deployed always-on service.
+- Cloud shortlist imports are owner-scoped and idempotent by source/external ID. They preserve the source escrow assertion only as an unverified claim; cloud independent escrow verification, payment verification and task claiming remain false.

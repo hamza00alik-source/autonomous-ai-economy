@@ -482,6 +482,91 @@ async function ownerInternalProductOperations(env, url) {
   });
 }
 
+function validOpportunityImport(item) {
+  const allowed = new Set([
+    "source","external_id","title","url","currency","gross_reward","net_reward",
+    "status","priority_score","fit_score","evidence_confidence","escrow_verified",
+    "reasons","discovered_at",
+  ]);
+  if (!item || typeof item !== "object" || Array.isArray(item) ||
+      Object.keys(item).some(key => !allowed.has(key))) return "invalid opportunity fields";
+  if (!["basedagents","jobbi","taskmarket"].includes(item.source)) return "unsupported opportunity source";
+  if (typeof item.external_id !== "string" || !item.external_id.trim() || item.external_id.length > 180) return "invalid external_id";
+  if (typeof item.title !== "string" || !item.title.trim() || item.title.length > 300) return "invalid title";
+  if (item.url !== null && item.url !== undefined) {
+    if (typeof item.url !== "string" || item.url.length > 2048) return "invalid url";
+    try { const parsed = new URL(item.url); if (parsed.protocol !== "https:" || parsed.username || parsed.password) return "url must be HTTPS without credentials"; }
+    catch { return "invalid url"; }
+  }
+  if (item.currency !== null && item.currency !== undefined &&
+      (typeof item.currency !== "string" || !/^[A-Z0-9]{3,8}$/.test(item.currency))) return "invalid currency";
+  for (const key of ["gross_reward","net_reward"]) {
+    if (item[key] !== null && item[key] !== undefined &&
+        (typeof item[key] !== "string" || item[key].length > 40 || !/^[0-9]+(?:\.[0-9]{1,18})?$/.test(item[key]))) return "invalid reward amount";
+  }
+  if (!["ready_for_owner_review","needs_owner_review"].includes(item.status)) return "invalid source status";
+  for (const key of ["priority_score","fit_score","evidence_confidence"]) {
+    if (!Number.isInteger(item[key]) || item[key] < 0 || item[key] > 100) return "invalid score";
+  }
+  if (typeof item.escrow_verified !== "boolean") return "invalid source escrow claim";
+  if (!Array.isArray(item.reasons) || item.reasons.length > 20 ||
+      item.reasons.some(reason => typeof reason !== "string" || reason.length > 180)) return "invalid reasons";
+  if (typeof item.discovered_at !== "string" || item.discovered_at.length > 40 ||
+      !Number.isFinite(Date.parse(item.discovered_at))) return "invalid discovered_at";
+  return null;
+}
+
+async function importRevenueOpportunities(request, env) {
+  if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not configured" }, 503);
+  if (!(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+    return json({ error: "application/json required" }, 415);
+  }
+  const raw = await readBoundedRequestText(request, 48_000);
+  if (raw === null) return json({ error: "request body too large" }, 413);
+  if (raw === undefined) return json({ error: "request body must be valid UTF-8" }, 400);
+  let body;
+  try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      Object.keys(body).length !== 1 || !Array.isArray(body.opportunities) ||
+      body.opportunities.length < 1 || body.opportunities.length > 25) {
+    return json({ error: "opportunities must contain 1 to 25 records" }, 400);
+  }
+  for (const item of body.opportunities) {
+    const problem = validOpportunityImport(item);
+    if (problem) return json({ error: problem }, 400);
+  }
+
+  const now = new Date().toISOString();
+  let imported = 0;
+  for (const item of body.opportunities) {
+    await env.DB.prepare(`
+      INSERT INTO revenue_opportunity_imports
+        (owner_id,source,external_id,title,url,currency,gross_reward,net_reward,source_status,
+         priority_score,fit_score,evidence_confidence,source_escrow_claimed,reasons_json,
+         discovered_at,imported_at,review_status,independent_escrow_verified,payment_verified,claim_allowed)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'needs_owner_review',0,0,0)
+      ON CONFLICT(owner_id,source,external_id) DO UPDATE SET
+        title=excluded.title,url=excluded.url,currency=excluded.currency,
+        gross_reward=excluded.gross_reward,net_reward=excluded.net_reward,
+        source_status=excluded.source_status,priority_score=excluded.priority_score,
+        fit_score=excluded.fit_score,evidence_confidence=excluded.evidence_confidence,
+        source_escrow_claimed=excluded.source_escrow_claimed,reasons_json=excluded.reasons_json,
+        discovered_at=excluded.discovered_at,imported_at=excluded.imported_at,
+        review_status='needs_owner_review',independent_escrow_verified=0,payment_verified=0,claim_allowed=0
+    `).bind(
+      env.AAE_OWNER_ID,item.source,item.external_id,item.title,item.url || null,item.currency || null,
+      item.gross_reward || null,item.net_reward || null,item.status,item.priority_score,item.fit_score,
+      item.evidence_confidence,item.escrow_verified ? 1 : 0,JSON.stringify(item.reasons),
+      item.discovered_at,now
+    ).run();
+    imported += 1;
+  }
+  return json({
+    imported, owner_id: env.AAE_OWNER_ID, read_only_opportunity_data: true,
+    enforced: { review_status: "needs_owner_review", independent_escrow_verified: false, payment_verified: false, claim_allowed: false },
+  }, 202);
+}
+
 async function ownerBusinessPipeline(env, url) {
   if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not configured" }, 503);
   const requestedLimit = url.searchParams.get("limit");
@@ -490,7 +575,7 @@ async function ownerBusinessPipeline(env, url) {
     return json({ error: "limit must be an integer from 1 to 50" }, 400);
   }
 
-  const [taskCounts, tasks, executionCounts, executions, orderCounts, orders, revenueCounts, revenue] = await Promise.all([
+  const [taskCounts, tasks, executionCounts, executions, orderCounts, orders, revenueCounts, revenue, opportunityCounts, opportunities] = await Promise.all([
     env.DB.prepare("SELECT status,COUNT(*) AS total FROM ai_tasks WHERE task_type='product_copy' GROUP BY status").all(),
     env.DB.prepare("SELECT task_id,status,result_json,error,created_at,updated_at FROM ai_tasks WHERE task_type='product_copy' ORDER BY created_at DESC,task_id DESC LIMIT ?").bind(limit).all(),
     env.DB.prepare("SELECT status,COUNT(*) AS total FROM internal_execution_jobs WHERE owner_id=? GROUP BY status").bind(env.AAE_OWNER_ID).all(),
@@ -499,6 +584,8 @@ async function ownerBusinessPipeline(env, url) {
     env.DB.prepare("SELECT order_id,status,price_amount,price_currency,actually_paid,pay_currency,download_count,download_expires_at,created_at,updated_at FROM crypto_payment_invoices WHERE product_id=? ORDER BY created_at DESC,order_id DESC LIMIT ?").bind(STORE_PRODUCT_ID,limit).all(),
     env.DB.prepare("SELECT status,COUNT(*) AS total,COALESCE(SUM(gross_amount_minor),0) AS gross_minor,COALESCE(SUM(CASE WHEN status='reconciled' THEN net_amount_minor ELSE 0 END),0) AS reconciled_net_minor FROM agent_revenue_events WHERE product_id=? GROUP BY status").bind(STORE_PRODUCT_ID).all(),
     env.DB.prepare("SELECT order_id,status,gross_amount_minor,gross_currency,net_amount_minor,net_currency,agent_credit_minor,agent_credit_currency,settled_at,reconciled_at FROM agent_revenue_events WHERE product_id=? ORDER BY settled_at DESC,order_id DESC LIMIT ?").bind(STORE_PRODUCT_ID,limit).all(),
+    env.DB.prepare("SELECT source,COUNT(*) AS total FROM revenue_opportunity_imports WHERE owner_id=? GROUP BY source").bind(env.AAE_OWNER_ID).all(),
+    env.DB.prepare("SELECT source,external_id,title,url,currency,gross_reward,net_reward,source_status,priority_score,fit_score,evidence_confidence,source_escrow_claimed,reasons_json,discovered_at,imported_at,review_status,independent_escrow_verified,payment_verified,claim_allowed FROM revenue_opportunity_imports WHERE owner_id=? ORDER BY priority_score DESC,imported_at DESC LIMIT ?").bind(env.AAE_OWNER_ID,limit).all(),
   ]);
 
   const totals = rows => Object.fromEntries((rows || []).map(row => [row.status, Number(row.total || 0)]));
@@ -521,6 +608,12 @@ async function ownerBusinessPipeline(env, url) {
   const productOrders = (orders.results || []).map(row => ({
     ...row, download_count: Number(row.download_count || 0),
   }));
+  const opportunityRows = (opportunities.results || []).map(row => {
+    let reasons = [];
+    try { reasons = row.reasons_json ? JSON.parse(row.reasons_json) : []; } catch { reasons = []; }
+    return { ...row, source_escrow_claimed: !!row.source_escrow_claimed, independent_escrow_verified: false, payment_verified: false, claim_allowed: false, reasons };
+  });
+  const opportunitySourceCounts = Object.fromEntries((opportunityCounts.results || []).map(row => [row.source, Number(row.total || 0)]));
   const productRevenue = (revenue.results || []).map(row => ({
     ...row,
     gross_amount_minor: Number(row.gross_amount_minor || 0),
@@ -532,7 +625,7 @@ async function ownerBusinessPipeline(env, url) {
     owner_id: env.AAE_OWNER_ID,
     product: { product_id: STORE_PRODUCT_ID, agent_id: STORE_AGENT_ID, currency: "USD" },
     stages: {
-      opportunity_discovery: { status: "not_connected", note: "Marketplace opportunity scans remain in the separate local revenue-engine workflow; no live opportunity feed is connected to this cloud dashboard." },
+      opportunity_discovery: { status: Object.values(opportunitySourceCounts).reduce((sum,value) => sum + value,0) ? "imported_shortlist_available" : "no_imported_opportunities", counts_by_source: opportunitySourceCounts, total: Object.values(opportunitySourceCounts).reduce((sum,value) => sum + value,0), returned: opportunityRows.length, note: "Imported shortlist records are untrusted source data. Every record remains owner-review-only; imported escrow claims are not independently verified." },
       production: { status: executionStatus.delivery_ready ? "has_delivery_ready_builds" : "no_delivery_ready_builds", counts: executionStatus },
       quality_assurance: { status: executionStatus.delivery_ready ? "structural_qa_recorded_visual_review_required" : "no_qa_passed_build", structural_qa_passed: executionStatus.delivery_ready || 0, visual_review_required: true },
       listing: { status: taskStatus.completed ? "unpublished_drafts_available" : "no_completed_listing_drafts", counts: taskStatus, publication_enabled: false },
@@ -540,6 +633,7 @@ async function ownerBusinessPipeline(env, url) {
       customer_delivery: { status: orderStatus.settled ? "paid_orders_available" : "no_settled_orders", counts: orderStatus },
       payment_reconciliation: { status: revenueStatus.settled_pending_reconciliation ? "reconciliation_pending" : (revenueStatus.reconciled ? "reconciled_events_present" : "no_revenue_events"), counts: revenueStatus, provider_settled_gross_minor: revenueGrossMinor, reconciled_net_minor: reconciledNetMinor, currency: "USD" },
     },
+    opportunities: opportunityRows,
     listing_drafts: listingDrafts,
     builds: executions.results || [],
     orders: productOrders,
@@ -1131,6 +1225,9 @@ export default {
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/v1/owner/business-pipeline" && request.method === "GET") {
       return ownerBusinessPipeline(env, url);
+    }
+    if (url.pathname === "/v1/owner/revenue-opportunities/import" && request.method === "POST") {
+      return importRevenueOpportunities(request, env);
     }
     if (url.pathname === "/v1/owner/internal-products/operations" && request.method === "GET") {
       return ownerInternalProductOperations(env, url);
