@@ -60,6 +60,13 @@ class QuorumVerifierTests(unittest.TestCase):
         with self.assertRaises(EVMRPCError):
             verifier.finalized_block_number()
 
+    def test_duplicate_rpc_urls_are_rejected(self):
+        a, b = FakeProvider(), FakeProvider()
+        a.config.rpc_url = "https://rpc.example/"
+        b.config.rpc_url = "https://rpc.example"
+        with self.assertRaisesRegex(ValueError, "URLs must be distinct"):
+            QuorumEVMVerifier([a, b])
+
     def test_single_provider_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "at least two"):
             QuorumEVMVerifier([FakeProvider()])
