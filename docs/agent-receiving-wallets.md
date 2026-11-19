@@ -104,3 +104,18 @@ Important boundaries:
 - This is an API-authentication key, not a Base wallet key. It cannot sign blockchain transactions or move USDC.
 - A Durable Object is persistent state, not an always-running agent process. Scheduling, model execution, task orchestration, owner approval, monitoring, and disaster recovery remain separate work.
 - Before deployment, review Cloudflare access controls, backup/PITR implications for key material, key rotation/revocation, restore procedures, and account spending limits. Never expose the vault RPC methods to an unauthenticated public route.
+
+
+#### Owner-authorized vault enrollment flow
+
+The Worker now includes an owner-authenticated bootstrap path on this branch:
+
+1. An authorized owner client sends an empty JSON object to `POST /v1/owner/agents/{agent_id}/api-key/vault-bootstrap`.
+2. The Worker resolves the per-agent Durable Object by deterministic agent ID and asks it to create or reuse that agent's API identity.
+3. The vault returns only the public JWK and agent proof-of-possession. The private CryptoKey remains inside the Durable Object.
+4. The owner client uses `authorizeVaultAgentKeyEnrollment()` with its locally held owner Ed25519 private key to sign the canonical enrollment payload.
+5. The owner client submits the returned envelope to the existing `POST /v1/owner/agents/{agent_id}/api-key` route. Existing D1 checks still require an active owner and an active agent owned by that owner.
+
+The bootstrap route is behind the existing owner bearer-token gate and same-origin JSON check. The Durable Object is only reachable through the Worker's binding; its internal fetch handler is not exposed as a public Worker route. The API key enrollment still requires the separate owner signature; possession of the queue token alone does not register the key.
+
+This workflow provisions an API authentication key only. It does not create a wallet, hold blockchain funds, or authorize outgoing transfers.
