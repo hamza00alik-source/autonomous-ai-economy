@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import hashlib
+import re
 from pathlib import Path
 
 from .expense_scheduler import AgentExpenseScheduler
@@ -26,6 +28,76 @@ def _services(data_dir: Path):
     scheduler = AgentExpenseScheduler(spending, data_dir / "financial-expense-schedules.sqlite3")
     return registry, policies, ledger, spending, scheduler
 
+
+def _cloud_policy_envelope(registry, payload: dict, key, operator_id: str) -> dict:
+    """Create a cloud-compatible envelope without exporting private key material."""
+    required = {
+        "policy_id", "version", "owner_id", "agent_id", "currency",
+        "per_transaction_limit_minor", "daily_spend_limit_minor", "allowed_destinations",
+    }
+    if not isinstance(payload, dict) or set(payload) != required:
+        raise ValueError("cloud policy payload has missing or unexpected fields")
+    identifier = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$")
+    for field in ("policy_id", "owner_id", "agent_id"):
+        if not isinstance(payload[field], str) or not identifier.fullmatch(payload[field]):
+            raise ValueError(f"invalid {field}")
+    if not isinstance(operator_id, str) or not identifier.fullmatch(operator_id):
+        raise ValueError("invalid cloud operator_id")
+    if isinstance(payload["version"], bool) or not isinstance(payload["version"], int) or payload["version"] < 1:
+        raise ValueError("version must be a positive integer")
+    if not isinstance(payload["currency"], str) or not re.fullmatch(r"[A-Z]{3}", payload["currency"]):
+        raise ValueError("currency must be a three-letter uppercase code")
+    for field in ("per_transaction_limit_minor", "daily_spend_limit_minor"):
+        value = payload[field]
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 9_007_199_254_740_991:
+            raise ValueError(f"{field} must be a positive safe integer")
+    if payload["per_transaction_limit_minor"] > payload["daily_spend_limit_minor"]:
+        raise ValueError("per-transaction limit cannot exceed daily limit")
+    destinations = payload["allowed_destinations"]
+    if (not isinstance(destinations, list) or not 1 <= len(destinations) <= 50
+            or any(not isinstance(item, str) or not item or item.strip() != item
+                   or len(item) > 256 or "*" in item for item in destinations)
+            or len(set(destinations)) != len(destinations)):
+        raise ValueError("allowed_destinations must contain unique exact destination strings")
+
+    owner = registry.get(payload["owner_id"])
+    agent = registry.get(payload["agent_id"])
+    if (not owner or owner.get("status") != "active"
+            or owner.get("participant_type") not in {"human", "organization"}
+            or not owner.get("public_key")):
+        raise ValueError("active local owner with an enrolled public key is required")
+    if (not agent or agent.get("status") != "active"
+            or agent.get("participant_type") != "agent"
+            or agent.get("operator_id") != payload["owner_id"]):
+        raise ValueError("active local agent must be operated by this owner")
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    if not isinstance(key, Ed25519PrivateKey):
+        raise ValueError("private key must be Ed25519")
+    public_raw = key.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    local_public = base64.urlsafe_b64encode(public_raw).decode("ascii").rstrip("=")
+    if local_public != owner["public_key"]:
+        raise ValueError("private key does not match the enrolled local owner public key")
+
+    canonical_payload = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    signature = base64.urlsafe_b64encode(
+        key.sign(canonical_payload.encode("utf-8"))
+    ).decode("ascii").rstrip("=")
+    fingerprint_input = json.dumps(
+        {"crv": "Ed25519", "kty": "OKP", "x": local_public},
+        separators=(",", ":"), ensure_ascii=False,
+    )
+    fingerprint = hashlib.sha256(fingerprint_input.encode("utf-8")).hexdigest()
+    return {
+        "policy": payload,
+        "canonical_payload": canonical_payload,
+        "signature_base64url": signature,
+        "signer_key_fingerprint": fingerprint,
+    }
 
 def _print_json(value) -> None:
     print(json.dumps(value, indent=2, sort_keys=True))
@@ -65,6 +137,18 @@ def main() -> int:
     sign_cmd.add_argument("--private-key", type=Path, required=True,
                           help="owner-held Ed25519 PEM key; never commit or upload this file")
 
+    cloud_sign_cmd = sub.add_parser(
+        "cloud-policy-sign",
+        help="sign a cloud-format policy locally and export a public signed envelope",
+    )
+    cloud_sign_cmd.add_argument("payload", type=Path)
+    cloud_sign_cmd.add_argument("--private-key", type=Path, required=True,
+                                help="owner-held Ed25519 PEM key; never upload or commit it")
+    cloud_sign_cmd.add_argument("--operator-id", required=True,
+                                help="pre-enrolled cloud operator participant ID")
+    cloud_sign_cmd.add_argument("--output", type=Path, required=True,
+                                help="new envelope file; existing files are never overwritten")
+
     args = parser.parse_args()
     try:
         registry, policies, ledger, spending, scheduler = _services(args.data_dir)
@@ -101,6 +185,28 @@ def main() -> int:
                 stream.write("\n")
             _print_json({"output": str(args.output), "status": "unsigned",
                          "next_step": "Review the exact terms, then owner-sign with policy-sign."})
+        elif args.command == "cloud-policy-sign":
+            try:
+                from cryptography.hazmat.primitives.serialization import load_pem_private_key
+                from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+            except ImportError as exc:
+                raise SystemExit("Install identity support: pip install -e '.[identity]'") from exc
+            key = load_pem_private_key(args.private_key.read_bytes(), password=None)
+            if not isinstance(key, Ed25519PrivateKey):
+                raise ValueError("private key must be an unencrypted Ed25519 PEM key")
+            payload = json.loads(args.payload.read_text(encoding="utf-8"))
+            envelope = _cloud_policy_envelope(registry, payload, key, args.operator_id)
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            with args.output.open("x", encoding="utf-8") as stream:
+                json.dump(envelope, stream, indent=2, sort_keys=True, ensure_ascii=False)
+                stream.write("\\n")
+            _print_json({
+                "output": str(args.output),
+                "status": "signed_cloud_envelope",
+                "operator_id": args.operator_id,
+                "private_key_uploaded": False,
+                "next_step": "Review the envelope, then submit it through the authenticated owner dashboard.",
+            })
         elif args.command == "policy-sign":
             try:
                 from cryptography.hazmat.primitives.serialization import load_pem_private_key
