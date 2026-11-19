@@ -166,8 +166,13 @@ class EVMJSONRPCSource:
             topics = log.get("topics")
             if not isinstance(topics, list) or len(topics) != 3:
                 raise EVMRPCError("ERC-20 Transfer log must contain exactly three topics")
-            if topics[0].lower() != TRANSFER_TOPIC:
+            if not isinstance(topics[0], str) or topics[0].lower() != TRANSFER_TOPIC:
                 raise EVMRPCError("RPC returned a log with the wrong event signature")
+            log_address = log.get("address")
+            if not isinstance(log_address, str) or log_address.lower() != self.config.token_contract.lower():
+                raise EVMRPCError("RPC returned a log from the wrong token contract")
+            if "removed" in log and not isinstance(log["removed"], bool):
+                raise EVMRPCError("log removed flag must be boolean")
             tx_hash = log.get("transactionHash")
             block_hash = log.get("blockHash")
             if not isinstance(tx_hash, str) or not _HASH_RE.fullmatch(tx_hash):
@@ -187,6 +192,8 @@ class EVMJSONRPCSource:
             if not isinstance(data, str) or not re.fullmatch(r"0x[0-9a-fA-F]{64}", data):
                 raise EVMRPCError("log has invalid uint256 amount data")
             block_number = self._quantity(log.get("blockNumber"), "log block number")
+            if not from_block <= block_number <= to_block:
+                raise EVMRPCError("RPC returned a log outside the requested block range")
             log_index = self._quantity(log.get("logIndex"), "log index")
             if block_number not in block_cache:
                 block = self._rpc_block(hex(block_number))
