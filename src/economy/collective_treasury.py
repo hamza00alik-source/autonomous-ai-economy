@@ -192,6 +192,21 @@ class CollectiveTreasuryStore:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     settled_at TEXT
                 );
+                CREATE TABLE IF NOT EXISTS treasury_owner_profit_payouts (
+                    payout_id TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    period_id TEXT NOT NULL,
+                    destination_address TEXT NOT NULL,
+                    amount_minor INTEGER NOT NULL CHECK(amount_minor > 0),
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL CHECK(status IN ('reserved','uncertain','settled')),
+                    tx_hash TEXT UNIQUE,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    settled_at TEXT,
+                    UNIQUE(agent_id,network,asset,period_id)
+                );
             """)
             # Upgrade existing treasury registrations to a single shared-wallet cap.
             wallet_columns = {
@@ -753,6 +768,157 @@ class CollectiveTreasuryStore:
                     "destination_address": payout["destination_address"],
                     "amount_minor": amount, "status": "reserved", "period_id": period_id}
 
+    def reserve_owner_profit_payout(self, agent_id: str, network: str, asset: str,
+                                    period_id: str, *, idempotency_key: str) -> dict | None:
+        """Reserve the already-allocated owner share for an exact accounting close."""
+        asset = self._required(asset, "asset").upper()
+        idempotency_key = self._required(idempotency_key, "idempotency_key")
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            old = db.execute(
+                "SELECT * FROM treasury_owner_profit_payouts WHERE idempotency_key=?",
+                (idempotency_key,),
+            ).fetchone()
+            if old:
+                db.commit()
+                return dict(old)
+            close = db.execute(
+                """SELECT owner_share_minor FROM treasury_period_closes
+                   WHERE agent_id=? AND network=? AND asset=? AND period_id=?""",
+                (agent_id, network, asset, period_id),
+            ).fetchone()
+            if not close:
+                db.rollback()
+                raise ValueError("profit period must be closed before owner payout reservation")
+            amount = int(close["owner_share_minor"])
+            if amount <= 0:
+                db.rollback()
+                return None
+            payout = db.execute(
+                "SELECT destination_address FROM treasury_owner_payout_config WHERE network=? AND asset=?",
+                (network, asset),
+            ).fetchone()
+            if not payout:
+                db.rollback()
+                raise ValueError("owner payout address is not configured")
+            master_balance = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
+                           ELSE -amount_minor END),0) AS amount
+                   FROM treasury_entries WHERE account_id='master:owner'
+                     AND network=? AND asset=?""",
+                (network, asset),
+            ).fetchone()
+            active = db.execute(
+                """SELECT COALESCE(SUM(amount_minor),0) AS amount
+                   FROM treasury_owner_profit_payouts
+                   WHERE network=? AND asset=? AND status IN ('reserved','uncertain')""",
+                (network, asset),
+            ).fetchone()
+            if int(master_balance["amount"]) - int(active["amount"]) < amount:
+                db.rollback()
+                raise ValueError("owner's allocated virtual balance is insufficient for payout")
+            import uuid
+            payout_id = str(uuid.uuid4())
+            db.execute(
+                """INSERT INTO treasury_owner_profit_payouts
+                   (payout_id,agent_id,network,asset,period_id,destination_address,
+                    amount_minor,idempotency_key,status)
+                   VALUES(?,?,?,?,?,?,?,?, 'reserved')""",
+                (payout_id, agent_id, network, asset, period_id,
+                 payout["destination_address"], amount, idempotency_key),
+            )
+            db.commit()
+            return {"payout_id": payout_id, "agent_id": agent_id, "network": network,
+                    "asset": asset, "period_id": period_id,
+                    "destination_address": payout["destination_address"],
+                    "amount_minor": amount, "status": "reserved"}
+
+    def get_owner_profit_payout(self, payout_id: str) -> dict | None:
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT * FROM treasury_owner_profit_payouts WHERE payout_id=?", (payout_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def claim_owner_profit_payout(self, payout_id: str) -> bool:
+        with closing(self._connect()) as db:
+            cur = db.execute(
+                """UPDATE treasury_owner_profit_payouts SET status='uncertain'
+                   WHERE payout_id=? AND status='reserved'""", (payout_id,)
+            )
+            return cur.rowcount == 1
+
+    def record_owner_profit_payout_tx(self, payout_id: str, tx_hash: str) -> None:
+        if not isinstance(tx_hash, str) or len(tx_hash) != 66 or not tx_hash.startswith("0x"):
+            raise ValueError("tx_hash must be a 32-byte EVM transaction hash")
+        try:
+            int(tx_hash[2:], 16)
+        except ValueError as exc:
+            raise ValueError("tx_hash must be hexadecimal") from exc
+        with closing(self._connect()) as db:
+            cur = db.execute(
+                """UPDATE treasury_owner_profit_payouts SET tx_hash=?
+                   WHERE payout_id=? AND status='uncertain' AND tx_hash IS NULL""",
+                (tx_hash.lower(), payout_id),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("owner payout is not awaiting its first transaction hash")
+
+    def settle_owner_profit_payout(self, payout_id: str, transfer: VerifiedTransfer) -> None:
+        self._validate_transfer(transfer)
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            payout = db.execute(
+                "SELECT * FROM treasury_owner_profit_payouts WHERE payout_id=?", (payout_id,)
+            ).fetchone()
+            wallet = db.execute(
+                "SELECT address FROM treasury_wallets WHERE network=? AND asset=?",
+                (transfer.network, transfer.asset.upper()),
+            ).fetchone()
+            if not payout or payout["status"] != "uncertain":
+                db.rollback()
+                raise ValueError("owner profit payout must be uncertain before settlement")
+            if not wallet or transfer.source.lower() != wallet["address"].lower():
+                db.rollback()
+                raise ValueError("verified payout source is not the collective treasury")
+            if (payout["network"], payout["asset"], payout["destination_address"].lower(),
+                payout["amount_minor"]) != (transfer.network, transfer.asset.upper(),
+                                              transfer.destination.lower(), transfer.amount_minor):
+                db.rollback()
+                raise ValueError("verified transfer does not match exact owner profit payout")
+            if payout["tx_hash"] and payout["tx_hash"].lower() != transfer.tx_hash.lower():
+                db.rollback()
+                raise ValueError("verified transaction hash conflicts with recorded owner payout hash")
+            master_balance = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
+                           ELSE -amount_minor END),0) AS amount
+                   FROM treasury_entries WHERE account_id='master:owner'
+                     AND network=? AND asset=?""",
+                (transfer.network, transfer.asset.upper()),
+            ).fetchone()
+            if int(master_balance["amount"]) < transfer.amount_minor:
+                db.rollback()
+                raise ValueError("master owner balance is insufficient at payout settlement")
+            self._insert_entry(db, "master:owner", transfer.network,
+                               transfer.asset.upper(), "expense", "debit",
+                               transfer.amount_minor, payout["period_id"],
+                               "Owner 50% net-profit distribution; distinct from overflow sweep",
+                               transfer.tx_hash, transfer.transfer_ref)
+            db.execute(
+                """INSERT INTO treasury_pool_events
+                   (network,asset,tx_hash,transfer_ref,event_type,amount_minor)
+                   VALUES(?,?,?,?,'expense',?)""",
+                (transfer.network, transfer.asset.upper(), transfer.tx_hash,
+                 transfer.transfer_ref, transfer.amount_minor),
+            )
+            db.execute(
+                """UPDATE treasury_owner_profit_payouts
+                   SET status='settled',tx_hash=?,settled_at=CURRENT_TIMESTAMP
+                   WHERE payout_id=?""",
+                (transfer.tx_hash.lower(), payout_id),
+            )
+            db.commit()
+
     def get_owner_overflow_sweep(self, sweep_id: str) -> dict | None:
         with closing(self._connect()) as db:
             row = db.execute(
@@ -1176,7 +1342,7 @@ class CollectiveTreasuryStore:
         return snapshot
 
     def close_period(self, agent_id: str, network: str, asset: str, period_id: str, *,
-                     reserve_bps: int, owner_share_bps: int,
+                     reserve_bps: int, owner_share_bps: int = 5000,
                      master_account: str = "master:owner") -> dict:
         for name, value in (("reserve_bps", reserve_bps), ("owner_share_bps", owner_share_bps)):
             if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 10_000:
