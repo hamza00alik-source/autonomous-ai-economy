@@ -699,3 +699,53 @@ test("cloud financial mutation endpoints reject cross-origin requests", async ()
   }),{AAE_QUEUE_TOKEN:"owner-secret-token",AAE_OWNER_ID:"owner-01",DB:{prepare(){throw new Error("must not query cross-origin request");}}});
   assert.equal(response.status,403);
 });
+
+
+test("owner-authenticated vault bootstrap returns only public key enrollment material", async () => {
+  let called = false;
+  const env = {
+    AAE_QUEUE_TOKEN: "owner-secret-token",
+    AAE_OWNER_ID: "owner-001",
+    AGENT_KEY_VAULT: {
+      getByName(name) {
+        assert.equal(name, "agent-001");
+        return {
+          async fetch(request) {
+            called = true;
+            assert.equal(request.method, "POST");
+            const body = await request.json();
+            assert.deepEqual(body, {
+              operation: "create_enrollment_proof",
+              agent_id: "agent-001",
+            });
+            return Response.json({
+              result: {
+                public_key_jwk: { crv: "Ed25519", kty: "OKP", x: "x".repeat(43) },
+                proof_signature: "p".repeat(86),
+              },
+            });
+          },
+        };
+      },
+    },
+  };
+  const response = await worker.fetch(new Request(
+    "https://example.workers.dev/v1/owner/agents/agent-001/api-key/vault-bootstrap",
+    {
+      method: "POST",
+      headers: {
+        authorization: "Bearer owner-secret-token",
+        origin: "https://example.workers.dev",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    },
+  ), env);
+  const body = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(called, true);
+  assert.equal(body.agent_id, "agent-001");
+  assert.equal(body.public_key_jwk.d, undefined);
+  assert.equal(body.owner_authorization_required, true);
+  assert.equal(body.proof_signature, "p".repeat(86));
+});
