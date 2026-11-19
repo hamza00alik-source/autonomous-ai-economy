@@ -69,6 +69,7 @@ class WalletSpendController:
                     agent_id TEXT NOT NULL,
                     network TEXT NOT NULL,
                     asset TEXT NOT NULL,
+                    wallet_address TEXT NOT NULL,
                     daily_limit_minor INTEGER NOT NULL CHECK(daily_limit_minor > 0),
                     per_transaction_limit_minor INTEGER NOT NULL CHECK(per_transaction_limit_minor > 0),
                     allowed_destinations_json TEXT NOT NULL,
@@ -126,14 +127,15 @@ class WalletSpendController:
                 raise ValueError("cannot replace policy while spend reservations are pending")
             import json
             db.execute(
-                """INSERT INTO agent_spend_policies VALUES(?,?,?,?,?,?,?,?)
+                """INSERT INTO agent_spend_policies VALUES(?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(agent_id,network,asset) DO UPDATE SET
+                   wallet_address=excluded.wallet_address,
                    daily_limit_minor=excluded.daily_limit_minor,
                    per_transaction_limit_minor=excluded.per_transaction_limit_minor,
                    allowed_destinations_json=excluded.allowed_destinations_json,
                    enabled=excluded.enabled, updated_at=excluded.updated_at""",
                 (policy.agent_id, policy.network, asset, policy.daily_limit_minor,
-                 policy.per_transaction_limit_minor, json.dumps(sorted(set(policy.allowed_destinations))),
+                 policy.wallet_address, policy.per_transaction_limit_minor, json.dumps(sorted(set(policy.allowed_destinations))),
                  int(policy.enabled), _iso(_now())),
             )
 
