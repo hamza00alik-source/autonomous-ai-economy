@@ -12,6 +12,7 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 identity = ["cryptography>=42"]
+cdp = ["cdp-sdk>=1.47,<2"]
 
 [project.scripts]
 economy = "economy.cli:main"
