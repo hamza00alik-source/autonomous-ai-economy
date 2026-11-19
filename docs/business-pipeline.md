@@ -14,7 +14,7 @@ The private owner console exposes a read-only business pipeline at `GET /v1/owne
 
 ## Safety and limitations
 
-The endpoint is read-only. It cannot publish listings, contact customers, create checkout invoices, deliver files, reconcile payments, transfer funds or change product state. It returns only bounded recent records plus aggregate counts.
+The `GET` pipeline endpoint is read-only. The separate `POST` import route performs only a bounded, owner-authenticated shortlist upsert into D1. Neither route can publish listings, contact customers, create checkout invoices, deliver files, reconcile payments, transfer funds or change product execution state. The GET route returns only bounded recent records plus aggregate counts.
 
 The cloud console currently covers one configured product, MOBA Objective Props. Marketplace discovery still runs through the local read-only scanner; `economy-revenue sync --limit 25` pushes a bounded shortlist into the cloud console. The cloud import does not run the scanner on a schedule and does not independently verify imported escrow claims. The product has structural validation but still needs visual human review, license review and market-demand validation. The endpoint is operational visibility, not evidence that the business is production-ready or earning revenue.
 
