@@ -60,6 +60,12 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
 <div class="metric"><small>Daily safety budget</small><strong id="budget">—</strong></div>
 </div>
 <section class="panel"><h2>Worker status</h2><div id="workerStatus" class="muted">Loading…</div><p class="muted" id="workerNote"></p></section>
+<section class="panel" id="internalProductPanel">
+<h2>Owner-approved internal product build</h2>
+<p class="muted">Generate the original MOBA Objective Props pack in the private Cloudflare Python runtime. Each build requires your locally loaded Ed25519 owner key to sign a five-minute, single-use approval. The private key never leaves this browser tab. This creates a private artifact only; it does not publish, submit, contact customers, or spend money.</p>
+<div class="row"><button id="buildInternalProduct" type="button" disabled>Build MOBA Objective Props</button><button id="downloadInternalProduct" class="secondary" type="button" disabled>Download private ZIP</button></div>
+<div id="internalProductStatus" class="muted" role="status" aria-live="polite">Load your enrolled owner key to enable approved builds.</div>
+</section>
 <section class="panel"><h2>Agent revenue attribution</h2><p class="muted">Only provider-settled events recorded in Cloudflare D1 appear here. Pending reconciliation is not spendable agent income.</p><div class="tablewrap"><table><thead><tr><th>Agent</th><th>Sales</th><th>Gross USD</th><th>Awaiting reconciliation</th><th>Credited to agent</th></tr></thead><tbody id="revenueRows"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></section>
 <section class="panel"><h2>Recent AI tasks</h2><div class="tablewrap"><table><thead><tr><th>Task</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead><tbody id="taskRows"><tr><td colspan="4">Loading…</td></tr></tbody></table></div></section>
 <section class="panel">
@@ -145,6 +151,8 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
  let ownerKeyGenerated = false;
  let ownerKeyBackedUp = false;
  let enrollmentChallenge = null;
+ let lastInternalProductJobId = null;
+ let pendingInternalProductIdempotencyKey = null;
  let generatedKeyBackupUrl = null;
  const stableObject = value => Array.isArray(value) ? value.map(stableObject) :
    value && typeof value === "object" ? Object.keys(value).sort().reduce((out,key)=>{out[key]=stableObject(value[key]);return out;},{}) : value;
@@ -164,6 +172,7 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    const fingerprintBytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify({crv:"Ed25519",kty:"OKP",x:jwk.x})));
    ownerKeyFingerprint=[...new Uint8Array(fingerprintBytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
    $("ownerKeyStatus").textContent="Ed25519 signing key loaded ("+source+"). Private key remains in this tab's memory.";
+   $("buildInternalProduct").disabled=!canSignWithOwnerKey();
    $("completeEnrollment").disabled=!enrollmentChallenge||!canSignWithOwnerKey();
  }
  async function signCanonical(payload) {
@@ -275,6 +284,55 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      renderSchedules([]);
    }
  }
+ async function downloadInternalProductArtifact() {
+   if(!lastInternalProductJobId) return;
+   $("downloadInternalProduct").disabled=true;
+   try {
+     const response=await fetch("/v1/owner/internal-products/jobs/"+encodeURIComponent(lastInternalProductJobId)+"/artifact",{headers:headers(),cache:"no-store"});
+     if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"Artifact download failed ("+response.status+")");}
+     const blob=await response.blob();
+     const objectUrl=URL.createObjectURL(blob);
+     const link=document.createElement("a");link.href=objectUrl;link.download="moba-objective-props.zip";
+     document.body.appendChild(link);link.click();link.remove();
+     setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);
+     $("internalProductStatus").textContent="Private artifact download started. It remains unpublished and is not a verified sale.";
+   } catch(error) {
+     $("internalProductStatus").textContent=error.message;
+   } finally { $("downloadInternalProduct").disabled=!lastInternalProductJobId; }
+ }
+ $("downloadInternalProduct").addEventListener("click",downloadInternalProductArtifact);
+ $("buildInternalProduct").addEventListener("click",async()=>{
+   if(!canSignWithOwnerKey()||!ownerPublicJwk){$("internalProductStatus").textContent="Load the enrolled owner Ed25519 key and ensure its backup is secured first.";return;}
+   if(!window.confirm("Authorize one private cloud build of the MOBA Objective Props product? This does not publish or submit anything."))return;
+   const button=$("buildInternalProduct");button.disabled=true;
+   try {
+     if(!pendingInternalProductIdempotencyKey) pendingInternalProductIdempotencyKey=crypto.randomUUID();
+     $("internalProductStatus").textContent="Requesting a fresh owner-approval challenge…";
+     const challenge=await postJson("/v1/owner/internal-products/moba-objective-props/approval-challenge",{idempotency_key:pendingInternalProductIdempotencyKey});
+     if(!challenge?.payload||!challenge?.canonical_payload||challenge.public_key_jwk?.x!==ownerPublicJwk.x)
+       throw new Error("Cloud challenge does not match the loaded owner signing key.");
+     const payload=JSON.parse(challenge.canonical_payload);
+     if(payload.owner_id!==financialControls?.owner_id||payload.action!=="execute_internal_product"||
+        payload.agent_id!=="game-asset-builder"||payload.execution_spec?.kind!=="moba_objective_props_v1"||
+        payload.idempotency_key!==pendingInternalProductIdempotencyKey)
+       throw new Error("Cloud approval challenge scope is not the expected internal product build.");
+     $("internalProductStatus").textContent="Signing the exact build authorization locally…";
+     const signature=await signCanonical(payload);
+     $("internalProductStatus").textContent="Submitting the signed approval to the private execution Worker…";
+     const result=await postJson("/v1/owner/internal-products/moba-objective-props/build",{
+       idempotency_key:pendingInternalProductIdempotencyKey,
+       approval:{canonical_payload:challenge.canonical_payload,signature}
+     });
+     pendingInternalProductIdempotencyKey=null;
+     lastInternalProductJobId=result.job_id;
+     $("downloadInternalProduct").disabled=result.status!=="delivery_ready";
+     $("internalProductStatus").textContent="Private build ready · SHA-256 "+result.artifact_sha256+" · "+number(result.artifact_size_bytes)+" bytes. Not published, submitted, or sold.";
+   } catch(error) {
+     $("internalProductStatus").textContent=error.message;
+   } finally {
+     button.disabled=!canSignWithOwnerKey();
+   }
+ });
  $("ownerKeyFile").addEventListener("change",async event=>{
    const file=event.target.files&&event.target.files[0];if(!file)return;
    try{await importOwnerPem(file);}catch(error){ownerSigningKey=null;ownerPublicJwk=null;ownerKeyFingerprint=null;$("ownerKeyStatus").textContent=error.message;}
