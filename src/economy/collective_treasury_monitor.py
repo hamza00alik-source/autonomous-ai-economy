@@ -171,6 +171,42 @@ class CollectiveTreasuryReceiptMonitor:
             ).fetchone()
         return int(row["n"])
 
+    def resolve_reorg_alert(self, *, network: str, asset: str,
+                            tx_hash: str, transfer_ref: str,
+                            operator_note: str) -> None:
+        """Record an explicit operator resolution; never resumes agent spending."""
+        if not isinstance(operator_note, str) or len(operator_note.strip()) < 12:
+            raise ValueError("operator_note must explain the resolution (at least 12 characters)")
+        with closing(self.store._connect()) as db:
+            cur = db.execute(
+                """UPDATE treasury_reorg_alerts SET status='resolved',
+                   resolved_at=CURRENT_TIMESTAMP,reason=reason || ' | RESOLVED: ' || ?
+                   WHERE network=? AND asset=? AND tx_hash=? AND transfer_ref=?
+                     AND status='open'""",
+                (operator_note.strip(), network, asset.upper(), tx_hash, transfer_ref),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("open treasury reorganization alert not found")
+
+    def resume_agent_after_review(self, *, agent_id: str,
+                                  network: str, asset: str) -> None:
+        """Explicitly resume one agent only after every pool alert is resolved."""
+        with closing(self.store._connect()) as db:
+            open_alerts = db.execute(
+                """SELECT COUNT(*) AS n FROM treasury_reorg_alerts
+                   WHERE network=? AND asset=? AND status='open'""",
+                (network, asset.upper()),
+            ).fetchone()["n"]
+            if open_alerts:
+                raise ValueError("cannot resume agent while treasury reorganization alerts remain open")
+            cur = db.execute(
+                """UPDATE treasury_agents SET enabled=1
+                   WHERE agent_id=? AND network=? AND asset=?""",
+                (agent_id, network, asset.upper()),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("agent treasury policy not found")
+
     def bind_payer(self, attribution_ref: str, payer_address: str) -> None:
         """Bind an intent to the expected payer before publishing payment details."""
         if not isinstance(attribution_ref, str) or not attribution_ref.strip():
