@@ -1,0 +1,16 @@
+# Isolated local-only configuration for Durable Object runtime tests.
+# This is a fake CI-only value; production must use a separately generated secret.
+name = "aae-worker-runtime-tests"
+main = "src/index.js"
+compatibility_date = "2026-11-17"
+
+[vars]
+AAE_AGENT_KEY_ENCRYPTION_SECRET = "ci-only-not-a-production-secret-0123456789abcdef"
+
+[[durable_objects.bindings]]
+name = "AGENT_KEY_VAULT"
+class_name = "AgentKeyVault"
+
+[[migrations]]
+tag = "v1-agent-key-vault"
+new_sqlite_classes = ["AgentKeyVault"]

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
-import { generateAgentApiIdentity, createAgentKeyEnrollment, signAgentApiRequest } from "../src/agent_api_client.js";
+import { generateAgentApiIdentity, createAgentKeyEnrollment, authorizeVaultAgentKeyEnrollment, signAgentApiRequest } from "../src/agent_api_client.js";
 import { parseUsdcAmount, buildBaseUsdcPaymentUri } from "../src/receiving_wallets.js";
 if(!globalThis.crypto)Object.defineProperty(globalThis,"crypto",{value:webcrypto});
 const enc=new TextEncoder();
@@ -34,4 +34,33 @@ test("one dollar invoice preview maps to exactly one million USDC base units",()
   assert.equal(amountMinor,1_000_000);
   const address="0x1111111111111111111111111111111111111111";
   assert.equal(buildBaseUsdcPaymentUri(address,amountMinor),"ethereum:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913@8453/transfer?address="+address+"&uint256=1000000");
+});
+
+test("owner can authorize a vault-generated agent key without receiving its private key", async () => {
+  const owner = await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]);
+  const vaultIdentity = await generateAgentApiIdentity();
+  const proof = await crypto.subtle.sign(
+    { name: "Ed25519" }, vaultIdentity.privateKey,
+    enc.encode("AAE-AGENT-KEY-PROOF:v1:" + vaultIdentity.keyFingerprint)
+  );
+  const proofSignature = Buffer.from(proof).toString("base64url");
+  const envelope = await authorizeVaultAgentKeyEnrollment({
+    ownerPrivateKey: owner.privateKey,
+    ownerId: "owner-001",
+    agentId: "agent-001",
+    publicKeyJwk: vaultIdentity.publicKeyJwk,
+    proofSignature,
+  });
+  const payload = JSON.stringify({
+    agent_id: "agent-001",
+    owner_id: "owner-001",
+    public_key_jwk: envelope.public_key_jwk,
+    version: 1,
+  });
+  assert.equal(envelope.public_key_jwk.d, undefined);
+  assert.equal(await crypto.subtle.verify(
+    { name: "Ed25519" }, owner.publicKey,
+    decode(envelope.owner_signature), enc.encode(payload)
+  ), true);
+  assert.equal(envelope.proof_signature, proofSignature);
 });

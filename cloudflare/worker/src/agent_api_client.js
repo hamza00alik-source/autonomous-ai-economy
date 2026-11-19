@@ -42,3 +42,30 @@ export async function signAgentApiRequest({identity,method,path,body,timestamp=D
     "Content-Type":"application/json"
   };
 }
+
+export async function authorizeVaultAgentKeyEnrollment({
+  ownerPrivateKey, ownerId, agentId, publicKeyJwk, proofSignature
+} = {}) {
+  if (!ownerPrivateKey || !ID.test(ownerId || "") || !ID.test(agentId || "") ||
+      !publicKeyJwk || publicKeyJwk.kty !== "OKP" ||
+      publicKeyJwk.crv !== "Ed25519" || typeof publicKeyJwk.x !== "string" ||
+      publicKeyJwk.d !== undefined ||
+      typeof proofSignature !== "string" ||
+      !/^[A-Za-z0-9_-]{86}$/.test(proofSignature)) {
+    throw new Error("owner key, identities, public agent key and proof signature are required");
+  }
+  const publicOnlyJwk = { crv: "Ed25519", kty: "OKP", x: publicKeyJwk.x };
+  const payload = {
+    version: 1, owner_id: ownerId, agent_id: agentId,
+    public_key_jwk: publicOnlyJwk,
+  };
+  const ownerSignature = await crypto.subtle.sign(
+    { name: "Ed25519" }, ownerPrivateKey,
+    encoder.encode(canonicalAgentApiPayload(payload))
+  );
+  return {
+    public_key_jwk: publicOnlyJwk,
+    owner_signature: bytesToBase64Url(ownerSignature),
+    proof_signature: proofSignature,
+  };
+}

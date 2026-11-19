@@ -58,6 +58,11 @@ jobs:
         run: python tools/check_product_js.py
       - name: Test private Cloudflare worker logic
         run: node --test cloudflare/worker/test/*.test.js
+      - name: Test Durable Object CryptoKey persistence in workerd
+        run: |
+          npm install --global npm@10.9.4
+          npm --prefix cloudflare/worker install --legacy-peer-deps --no-audit --no-fund
+          npm --prefix cloudflare/worker run test:workers
       - name: Build first digital product bundle
         run: economy-product build --output dist/store-catalog-cleaner.zip
       - name: Build original MOBA game asset pack
@@ -95,13 +100,12 @@ jobs:
       - name: Validate Cloudflare Worker and protected static assets (dry run)
         run: |
           set -euo pipefail
-          npm --prefix cloudflare/worker install --no-audit --no-fund
           mkdir -p cloudflare/worker/public/downloads
           cp dist/moba-objective-props.zip cloudflare/worker/public/downloads/moba-objective-props.zip
           sed -i 's/REPLACE_WITH_D1_DATABASE_ID/00000000-0000-0000-0000-000000000000/' cloudflare/worker/wrangler.toml
-          (cd cloudflare/worker && npx wrangler deploy --dry-run --outdir /tmp/aae-worker-dry-run)
+          (cd cloudflare/worker && ./node_modules/.bin/wrangler deploy --dry-run --outdir /tmp/aae-worker-dry-run)
           test -s /tmp/aae-worker-dry-run/index.js
-          (cd cloudflare/worker && npx wrangler d1 migrations apply aae-private-ai-economy --local --persist-to /tmp/aae-d1-migration-test)
+          (cd cloudflare/worker && ./node_modules/.bin/wrangler d1 migrations apply aae-private-ai-economy --local --persist-to /tmp/aae-d1-migration-test)
       - name: Verify official Gumroad CLI draft and upload dry-run
         run: |
           set -euo pipefail
