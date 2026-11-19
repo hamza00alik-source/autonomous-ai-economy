@@ -54,6 +54,8 @@ class FakeRPC:
             }
         if method == "eth_getLogs":
             return self.logs
+        if method == "eth_call":
+            return "0x" + format(123456, "064x")
         raise AssertionError(method)
 
 
@@ -85,6 +87,24 @@ class EVMRPCSourceTests(unittest.TestCase):
         log_filter = next(params[0] for method, params in rpc.calls if method == "eth_getLogs")
         self.assertEqual(log_filter["fromBlock"], "0x5a")
         self.assertEqual(log_filter["toBlock"], "0x69")
+
+    def test_reads_erc20_token_balance_with_chain_id_validation(self):
+        rpc = FakeRPC()
+        source = EVMJSONRPCSource(self.config, rpc_call=rpc)
+        self.assertEqual(source.token_balance(AGENT), 123456)
+        call = next(params[0] for method, params in rpc.calls if method == "eth_call")
+        self.assertEqual(call["to"], TOKEN)
+        self.assertEqual(call["data"], "0x70a08231" + ("0" * 24) + AGENT[2:].lower())
+
+    def test_token_balance_rejects_malformed_rpc_result(self):
+        class BadBalanceRPC(FakeRPC):
+            def __call__(self, method, params):
+                if method == "eth_call":
+                    return "0x123"
+                return super().__call__(method, params)
+        source = EVMJSONRPCSource(self.config, rpc_call=BadBalanceRPC())
+        with self.assertRaisesRegex(EVMRPCError, "malformed ERC-20 balanceOf"):
+            source.token_balance(AGENT)
 
     def test_chain_id_mismatch_fails_closed(self):
         source = EVMJSONRPCSource(self.config, rpc_call=FakeRPC(chain_id="0x1"))
