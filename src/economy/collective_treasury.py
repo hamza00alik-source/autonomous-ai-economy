@@ -656,6 +656,14 @@ class CollectiveTreasuryStore:
             if new_cap_minor <= old_cap:
                 db.rollback()
                 raise ValueError("cap changes through this operation must be increases")
+            active_sweeps = db.execute(
+                """SELECT 1 FROM treasury_owner_overflow_sweeps
+                   WHERE network=? AND asset=? AND status IN ('reserved','uncertain') LIMIT 1""",
+                (network, asset),
+            ).fetchone()
+            if active_sweeps:
+                db.rollback()
+                raise ValueError("cannot change the holding cap while an owner overflow sweep is unresolved")
             db.execute(
                 "UPDATE treasury_wallets SET max_balance_minor=? WHERE network=? AND asset=?",
                 (new_cap_minor, network, asset),
