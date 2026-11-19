@@ -27,14 +27,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_D1_DATABASE_ID: ${{ vars.CLOUDFLARE_D1_DATABASE_ID }}
           AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
-          AAE_EXECUTION_BRIDGE_SECRET: ${{ secrets.AAE_EXECUTION_BRIDGE_SECRET }}
         run: |
           set -euo pipefail
           test -n "$CLOUDFLARE_ACCOUNT_ID"
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_D1_DATABASE_ID"
           test -n "$AAE_QUEUE_TOKEN"
-          test "${#AAE_EXECUTION_BRIDGE_SECRET}" -ge 32
           # This private-runtime deployment must never enable customer checkout.
           echo "$CLOUDFLARE_D1_DATABASE_ID" | grep -Eq '^[0-9a-fA-F-]{36}$'
           sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$CLOUDFLARE_D1_DATABASE_ID/" wrangler.toml
@@ -64,11 +62,9 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          AAE_EXECUTION_BRIDGE_SECRET: ${{ secrets.AAE_EXECUTION_BRIDGE_SECRET }}
         run: |
           set -euo pipefail
           uv sync --group dev
-          printf '%s' "$AAE_EXECUTION_BRIDGE_SECRET" | uv run pywrangler secret put AAE_EXECUTION_BRIDGE_SECRET
           uv run pywrangler deploy
       - name: Set private queue secret
         working-directory: cloudflare/worker
@@ -79,7 +75,6 @@ jobs:
           AAE_EXECUTION_BRIDGE_SECRET: ${{ secrets.AAE_EXECUTION_BRIDGE_SECRET }}
         run: |
           printf '%s' "$AAE_QUEUE_TOKEN" | npx wrangler secret put AAE_QUEUE_TOKEN
-          printf '%s' "$AAE_EXECUTION_BRIDGE_SECRET" | npx wrangler secret put AAE_EXECUTION_BRIDGE_SECRET
       - name: Force public commerce gates off
         working-directory: cloudflare/worker
         env:
