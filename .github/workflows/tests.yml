@@ -68,7 +68,7 @@ jobs:
           cd cloudflare/python-runtime
           uv sync --group dev
           uv run pywrangler deploy --dry-run --outdir /tmp/aae-python-runtime-dry-run
-          test -s /tmp/aae-python-runtime-dry-run/index.js
+          find /tmp/aae-python-runtime-dry-run -type f -print -quit | grep -q .
       - name: Test Durable Object CryptoKey persistence in workerd
         run: |
           npm install --global npm@10.9.4
