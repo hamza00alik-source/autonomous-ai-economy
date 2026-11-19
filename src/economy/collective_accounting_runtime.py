@@ -82,8 +82,10 @@ class CollectiveTreasuryReorgGuard:
                 params.extend([last[0], last[0], last[1], last[1], last[2]])
             rows = db.execute(
                 base_sql + " ORDER BY e.block_number,e.tx_hash,e.transfer_ref LIMIT ?",
-                (*params, self.batch_size),
+                (*params, self.batch_size + 1),
             ).fetchall()
+        has_more = len(rows) > self.batch_size
+        rows = rows[:self.batch_size]
         checked = alerts = legacy_unknown = 0
         for row in rows:
             checked += 1
@@ -116,7 +118,7 @@ class CollectiveTreasuryReorgGuard:
                 )
                 alerts += 1
         with closing(self.monitor.store._connect()) as db:
-            if rows and len(rows) == self.batch_size:
+            if rows and has_more:
                 tail = rows[-1]
                 db.execute(
                     """INSERT INTO treasury_reorg_guard_cursors
@@ -137,7 +139,7 @@ class CollectiveTreasuryReorgGuard:
             "legacy_receipts_without_block_number": legacy_unknown,
             "from_block": floor, "finalized_block": finalized,
             "open_alerts": self.monitor.open_reorg_alerts(network=network, asset=asset),
-            "has_more": len(rows) == self.batch_size,
+            "has_more": has_more,
         }
 
 
