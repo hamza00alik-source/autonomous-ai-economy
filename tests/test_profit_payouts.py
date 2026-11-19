@@ -90,7 +90,8 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
             "2026-11-19T12:00:00+00:00",
         )
         monitor.poll_once(period_id="p2")
-        worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier(amount=500))
+        signer = FakeSigner()
+        worker = ProfitPayoutWorker(self.store, signer, FakeVerifier(amount=500))
         results = worker.process_pending()
         p2 = [item for item in results if item["period_key"].endswith(":p2")]
         self.assertEqual(p2[0]["status"], "blocked")
@@ -98,6 +99,17 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
             self.store.get_profit_period("agent", "base", "USDC", "p2")["status"],
             "pending_payout",
         )
+        # A closed-period reversal is booked in a later period, but that must
+        # not silently release the old, now-invalid master profit obligation.
+        self.store.record_reorg_adjustment(
+            "base", "0xchain-income", "log:1", adjustment_period_id="p3",
+            operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
+            evidence_ref="case://reorg/chain-income", reviewed=True,
+        )
+        after_adjustment = worker.process_pending()
+        p2_after = [item for item in after_adjustment if item["period_key"].endswith(":p2")]
+        self.assertEqual(p2_after[0]["status"], "blocked")
+        self.assertEqual(signer.calls, [])
 
     def test_wrong_amount_keeps_distribution_pending(self):
         worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier(amount=499))
