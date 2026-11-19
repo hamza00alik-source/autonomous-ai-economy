@@ -14,7 +14,7 @@ def store_at(path):
         path,
         identity_verifier=lambda agent, fingerprint: agent == "builder-1" and fingerprint == FINGERPRINT,
         owner_approval_verifier=lambda token, job_id, action: token == f"approved:{job_id}:{action}",
-        settlement_verifier=lambda source, external_id: {
+        acceptance_verifier=lambda source, external_id, evidence: evidence.get("verified") is True,\n        settlement_verifier=lambda source, external_id: {
             "verified": True, "net_amount": "1.80", "currency": "USDC",
             "settlement_reference": "0x" + "b" * 64,
         },
@@ -73,7 +73,7 @@ def test_rejects_illegal_state_skips_and_unverified_settlement():
         store = FulfillmentStore(
             Path(directory) / "fulfillment.sqlite3",
             identity_verifier=lambda *_: True,
-            settlement_verifier=lambda *_: {"verified": False},
+            acceptance_verifier=lambda *_: True,\n            settlement_verifier=lambda *_: {"verified": False},
         )
         job = make_job(store)
         with pytest.raises(FulfillmentError, match="not allowed"):
