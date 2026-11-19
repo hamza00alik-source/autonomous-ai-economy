@@ -134,5 +134,71 @@ class ChainMonitorTests(unittest.TestCase):
         self.assertEqual(self.chain.calls[1]["cursor"], "cursor-1")
 
 
+    def test_audited_reorg_adjustment_is_idempotent_and_books_in_new_period(self):
+        self.monitor.poll_once(period_id="2026-11")
+        original_period = self.finance.close_profit_period(
+            "agent-a", "master", network="testnet", asset="USDC",
+            period_id="2026-11", reserve_bps=0, owner_share_bps=0,
+        )
+        self.chain.transfers = (observation(canonical=False, confirmations=0, finalized=False),)
+        self.monitor.poll_once(period_id="2026-11")
+        self.assertEqual(len(self.monitor.list_reorg_alerts()), 1)
+
+        with self.assertRaisesRegex(ValueError, "reviewed=True"):
+            self.finance.record_reorg_adjustment(
+                "testnet", "0xTx1", "log:0", adjustment_period_id="2026-12",
+                operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
+                evidence_ref="case://reorg/tx1", reviewed=False,
+            )
+
+        adjustment = self.finance.record_reorg_adjustment(
+            "testnet", "0xTx1", "log:0", adjustment_period_id="2026-12",
+            operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
+            evidence_ref="case://reorg/tx1", reviewed=True,
+        )
+        duplicate = self.finance.record_reorg_adjustment(
+            "testnet", "0xTx1", "log:0", adjustment_period_id="2026-12",
+            operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
+            evidence_ref="case://reorg/tx1", reviewed=True,
+        )
+        self.assertEqual(duplicate["adjustment_id"], adjustment["adjustment_id"])
+        self.assertEqual(self.monitor.list_reorg_alerts(), [])
+
+        # The original closed period and receipt remain untouched.
+        self.assertEqual(original_period["gross_income_minor"], 2500)
+        with self.finance._connect() as db:
+            original = db.execute(
+                "SELECT amount_minor,event_type FROM finance_events WHERE tx_hash='0xTx1'"
+            ).fetchone()
+            reversal = db.execute(
+                "SELECT amount_minor,adjustment_period_id FROM finance_adjustments"
+            ).fetchone()
+        self.assertEqual((original["amount_minor"], original["event_type"]), (2500, "income"))
+        self.assertEqual((reversal["amount_minor"], reversal["adjustment_period_id"]), (2500, "2026-12"))
+
+        corrected_period = self.finance.close_profit_period(
+            "agent-a", "master", network="testnet", asset="USDC",
+            period_id="2026-12", reserve_bps=0, owner_share_bps=0,
+        )
+        self.assertEqual(corrected_period["gross_income_minor"], 0)
+        self.assertEqual(corrected_period["operating_profit_minor"], 0)
+
+    def test_reorg_adjustment_requires_exact_alert_and_unique_audit_record(self):
+        self.monitor.poll_once(period_id="2026-11")
+        self.chain.transfers = (observation(canonical=False, confirmations=0, finalized=False),)
+        self.monitor.poll_once(period_id="2026-11")
+        with self.assertRaisesRegex(ValueError, "separate adjustment period"):
+            self.finance.record_reorg_adjustment(
+                "testnet", "0xTx1", "log:0", adjustment_period_id="2026-11",
+                operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
+                evidence_ref="case://reorg/tx1", reviewed=True,
+            )
+        with self.assertRaisesRegex(ValueError, "active reorganization alert"):
+            self.finance.record_reorg_adjustment(
+                "testnet", "0xUnknown", "log:0", adjustment_period_id="2026-12",
+                operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
+                evidence_ref="case://reorg/unknown", reviewed=True,
+            )
+
 if __name__ == "__main__":
     unittest.main()
