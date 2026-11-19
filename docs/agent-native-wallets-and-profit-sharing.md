@@ -35,3 +35,9 @@ NOWPayments may remain as an optional customer checkout bridge, but it is not th
 `src/economy/wallet_spending.py` adds an owner-configured per-agent spend policy. The owner sets supported network/asset, daily cap, per-transaction cap and explicit destination allowlist once. The agent can reserve routine spending within that policy without a per-transaction human approval. The store counts reserved, broadcast and settled transfers against the daily budget, supports emergency pause, and requires exact independently verified settlement before marking a spend settled.
 
 This is still not a signer or live wallet. The production signer must enforce the same policy at the custody boundary; application-level checks alone are not sufficient. The current module intentionally does not generate keys, sign, broadcast, monitor chains, or invoke x402. A future adapter will connect the policy reservation to a reviewed smart-account/MPC/HSM signer and chain monitor.
+
+## Stage 3: automatic master payout worker
+
+`src/economy/profit_payouts.py` adds a worker that reads pending profit obligations, resolves the registered agent and master wallet addresses, requests the exact amount from a policy-enforcing signer using a stable idempotency key, asks an independent chain verifier to confirm final settlement, and only then marks the obligation paid. Failed broadcasts or verification leave the obligation pending for a later retry.
+
+This is orchestration, not a live payment adapter. No production signer or chain verifier is included. The worker must be scheduled by the always-on runtime after those adapters are implemented. The signer must be idempotent for the supplied key and must enforce destination/amount limits independently of the agent model.
