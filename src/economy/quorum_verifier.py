@@ -15,8 +15,8 @@ class QuorumEVMVerifier:
 
     def __init__(self, providers: Sequence[EVMJSONRPCSource], *, quorum: int | None = None) -> None:
         self.providers = tuple(providers)
-        if not self.providers:
-            raise ValueError("at least one independent RPC provider is required")
+        if len(self.providers) < 2:
+            raise ValueError("at least two independent RPC providers are required")
         if len({p.config.chain_id for p in self.providers}) != 1:
             raise ValueError("all RPC providers must target the same chain ID")
         if len({p.config.network for p in self.providers}) != 1:
