@@ -44,7 +44,10 @@ class QuorumEVMVerifier:
         errors = []
         for provider in self.providers:
             try:
-                heights.append(provider.finalized_block_number())
+                height = provider.finalized_block_number()
+                if isinstance(height, bool) or not isinstance(height, int) or height < 0:
+                    raise EVMRPCError("provider returned an invalid finalized block height")
+                heights.append(height)
             except Exception as exc:
                 errors.append(exc)
         if len(heights) < self.quorum:
@@ -60,7 +63,10 @@ class QuorumEVMVerifier:
         errors = []
         for provider in self.providers:
             try:
-                votes[bool(provider.is_transfer_canonical(**kwargs))] += 1
+                result = provider.is_transfer_canonical(**kwargs)
+                if not isinstance(result, bool):
+                    raise EVMRPCError("provider returned a non-boolean canonicality result")
+                votes[result] += 1
             except Exception as exc:
                 errors.append(exc)
         if votes[True] >= self.quorum:
