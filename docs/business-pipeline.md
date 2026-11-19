@@ -26,6 +26,7 @@ Authorization: `Authorization: Bearer <owner token>`
 
 Response includes:
 - `stages`: explicit stage states and blockers
+- `opportunities`: bounded imported marketplace candidates, always marked owner-review-only
 - `listing_drafts`: unpublished AI-generated listing drafts
 - `builds`: recent internal build records
 - `orders`: recent product orders, excluding buyer credentials
