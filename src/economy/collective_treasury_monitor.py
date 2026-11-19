@@ -174,42 +174,61 @@ class CollectiveTreasuryReceiptMonitor:
             if not item.finalized or item.confirmations < 1:
                 counts["pending"] += 1
                 continue
-            event_period = self.period_resolver(item.block_timestamp) if self.period_resolver else period_id
-            if not isinstance(event_period, str) or not event_period.strip():
-                raise ValueError("period resolver returned an invalid period")
-            transfer = self._verified_transfer(item)
-            match = self._matching_intent(item)
-            agent_id, attribution_ref = match if match else (None, None)
-            try:
-                result = self.store.record_receipt(
-                    transfer, period_id=event_period,
-                    agent_id=agent_id, attribution_ref=attribution_ref,
-                )
-            except ValueError as exc:
-                # A replay after a crash is safe only if the exact same receipt
-                # already exists. Conflicting reuse must still stop processing.
-                with closing(self.store._connect()) as db:
-                    old = db.execute(
-                        """SELECT source_address,destination_address,amount_minor,status
-                           FROM treasury_receipts WHERE network=? AND asset=?
-                             AND tx_hash=? AND transfer_ref=?""",
-                        (network, asset.upper(), item.tx_hash, item.transfer_ref),
-                    ).fetchone()
-                if (not old or old["source_address"].lower() != item.source.lower()
-                        or old["destination_address"].lower() != item.destination.lower()
-                        or old["amount_minor"] != item.amount_minor
-                        or old["status"] != ("allocated" if agent_id else "unallocated")):
-                    raise exc
-                result = old["status"]
+            with closing(self.store._connect()) as db:
+                prior_event = db.execute(
+                    """SELECT block_hash,status FROM treasury_receipt_monitor_events
+                       WHERE network=? AND tx_hash=? AND transfer_ref=?""",
+                    (network, item.tx_hash, item.transfer_ref),
+                ).fetchone()
+            if prior_event:
+                if prior_event["block_hash"].lower() != item.block_hash.lower():
+                    raise ValueError(
+                        "previously ingested receipt changed block identity; "
+                        "stop automatic crediting and reconcile the reorganization"
+                    )
+                if prior_event["status"] in {"allocated", "unallocated"}:
+                    counts[prior_event["status"]] += 1
+                    continue
+            # Persist the observed block identity before the ledger write. If the
+            # process crashes after the ledger commit, replay can verify this hash.
             with closing(self.store._connect()) as db:
                 db.execute(
                     """INSERT INTO treasury_receipt_monitor_events
                        (network,tx_hash,transfer_ref,block_hash,status)
-                       VALUES(?,?,?,?,?)
-                       ON CONFLICT(network,tx_hash,transfer_ref) DO UPDATE SET
-                         block_hash=excluded.block_hash,status=excluded.status,
-                         updated_at=CURRENT_TIMESTAMP""",
-                    (network, item.tx_hash, item.transfer_ref, item.block_hash, result),
+                       VALUES(?,?,?,?,'pending')
+                       ON CONFLICT(network,tx_hash,transfer_ref) DO NOTHING""",
+                    (network, item.tx_hash, item.transfer_ref, item.block_hash),
+                )
+            event_period = self.period_resolver(item.block_timestamp) if self.period_resolver else period_id
+            if not isinstance(event_period, str) or not event_period.strip():
+                raise ValueError("period resolver returned an invalid period")
+            transfer = self._verified_transfer(item)
+            with closing(self.store._connect()) as db:
+                old_receipt = db.execute(
+                    """SELECT source_address,destination_address,amount_minor,status
+                       FROM treasury_receipts WHERE network=? AND asset=?
+                         AND tx_hash=? AND transfer_ref=?""",
+                    (network, asset.upper(), item.tx_hash, item.transfer_ref),
+                ).fetchone()
+            if old_receipt:
+                if (old_receipt["source_address"].lower() != item.source.lower()
+                        or old_receipt["destination_address"].lower() != item.destination.lower()
+                        or old_receipt["amount_minor"] != item.amount_minor):
+                    raise ValueError("replayed receipt conflicts with the existing ledger record")
+                result = old_receipt["status"]
+            else:
+                match = self._matching_intent(item)
+                agent_id, attribution_ref = match if match else (None, None)
+                result = self.store.record_receipt(
+                    transfer, period_id=event_period,
+                    agent_id=agent_id, attribution_ref=attribution_ref,
+                )
+            with closing(self.store._connect()) as db:
+                db.execute(
+                    """UPDATE treasury_receipt_monitor_events
+                       SET status=?,updated_at=CURRENT_TIMESTAMP
+                       WHERE network=? AND tx_hash=? AND transfer_ref=? AND block_hash=?""",
+                    (result, network, item.tx_hash, item.transfer_ref, item.block_hash),
                 )
             counts[result] += 1
         # Advance only after the whole page is ingested; failed pages replay safely.
