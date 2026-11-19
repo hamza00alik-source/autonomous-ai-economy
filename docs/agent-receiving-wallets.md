@@ -16,7 +16,21 @@ An owner must sign the canonical receiving-wallet registration payload with the 
 
 Creating an invoice only creates a payment instruction. It does not prove that a buyer paid, that the transaction succeeded, or that the agent controls the destination key. The invoice remains `awaiting_payment`. No journal entry, revenue event, budget credit, or product delivery is triggered by invoice creation.
 
-Independent chain observation is still required. A later settlement verifier must validate the Base transaction receipt, USDC contract, recipient, transfer event, amount, block finality, chain reorganization risk, and duplicate/reversal handling before any funds are reconciled. Until that exists, the system must not mark these invoices paid.
+Independent chain observation is now implemented as a separate owner-authenticated verification step. It checks the Base transaction receipt, USDC contract, recipient, transfer event, amount, canonical block and finalized-block status. It still uses one configured RPC endpoint and does not reconcile funds into the financial ledger.
+
+## Base USDC receipt verification
+
+The owner-authenticated verification endpoint accepts a transaction hash for an existing agent invoice. It queries a configured HTTPS Base JSON-RPC endpoint, checks chain ID 8453, a successful receipt, the exact native USDC contract, the ERC-20 Transfer event recipient and exact six-decimal amount, then compares the receipt block hash/number with the canonical block and waits until the RPC endpoint's `finalized` block has reached it.
+
+- Exact, timely, finalized payment: invoice becomes `confirmed`.
+- Underpayment, overpayment, or payment after expiry: immutable evidence is stored and invoice becomes `review`; it is not credited.
+- Missing transaction, failed receipt, wrong chain, or non-finalized block: no confirmation is recorded.
+- A transaction hash can be bound to only one invoice.
+- The observation and invoice state transition are atomic and immutable.
+
+The verifier uses one configured RPC endpoint (`BASE_RPC_URL`). This is stronger than trusting a buyer's screenshot or a payment callback, but it is not a trustless multi-provider oracle; production should use independently operated RPC sources and monitoring. The JSON-RPC `finalized` tag is part of the standard Ethereum execution API, and Base RPC references document its support: https://ethereum.org/developers/docs/apis/json-rpc/ and https://basehub.org/api-reference/eth/eth_getblockbynumber/.
+
+**A confirmed invoice is still not an accounting credit.** The current D1 financial ledger is USD-only and cannot represent USDC token balances. No journal posting, agent budget allocation, automatic delivery, or outbound transfer occurs from this verifier.
 
 ## Wallet control
 
