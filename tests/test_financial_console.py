@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from economy.financial_console import main
+from economy.financial_console import main, _cloud_policy_envelope
 
 
 class FinancialConsoleTests(unittest.TestCase):
@@ -58,6 +58,82 @@ class FinancialConsoleTests(unittest.TestCase):
                 "--destination", "service:compute", "--output", str(output),
             )
 
+
+
+    def test_cloud_policy_envelope_signs_exact_cloud_schema_and_matches_enrolled_owner_key(self):
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        except ImportError:
+            self.skipTest("cryptography identity extra is not installed")
+        import base64
+        import hashlib
+
+        key = Ed25519PrivateKey.generate()
+        public_raw = key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        public_key = base64.urlsafe_b64encode(public_raw).decode("ascii").rstrip("=")
+        owner = {"status": "active", "participant_type": "human", "public_key": public_key}
+        agent = {"status": "active", "participant_type": "agent", "operator_id": "owner-01"}
+
+        class Registry:
+            def get(self, participant_id):
+                return {"owner-01": owner, "agent-01": agent}.get(participant_id)
+
+        payload = {
+            "policy_id": "policy-01", "version": 1, "owner_id": "owner-01",
+            "agent_id": "agent-01", "currency": "USD",
+            "per_transaction_limit_minor": 250, "daily_spend_limit_minor": 500,
+            "allowed_destinations": ["service:compute"],
+        }
+        envelope = _cloud_policy_envelope(Registry(), payload, key, "operator-01")
+        self.assertEqual(set(envelope), {
+            "policy", "canonical_payload", "signature_base64url", "signer_key_fingerprint"
+        })
+        signature = base64.urlsafe_b64decode(
+            envelope["signature_base64url"] + "=" * (-len(envelope["signature_base64url"]) % 4)
+        )
+        key.public_key().verify(signature, envelope["canonical_payload"].encode("utf-8"))
+        fingerprint_json = json.dumps(
+            {"crv": "Ed25519", "kty": "OKP", "x": public_key}, separators=(",", ":")
+        )
+        self.assertEqual(envelope["signer_key_fingerprint"],
+                         hashlib.sha256(fingerprint_json.encode("utf-8")).hexdigest())
+        self.assertEqual(envelope["policy"], payload)
+
+    def test_cloud_policy_export_rejects_key_mismatch_and_unowned_agent(self):
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        except ImportError:
+            self.skipTest("cryptography identity extra is not installed")
+        import base64
+
+        enrolled_key = Ed25519PrivateKey.generate()
+        wrong_key = Ed25519PrivateKey.generate()
+        public_raw = enrolled_key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        owner = {"status": "active", "participant_type": "human",
+                 "public_key": base64.urlsafe_b64encode(public_raw).decode("ascii").rstrip("=")}
+        agent = {"status": "active", "participant_type": "agent", "operator_id": "other-owner"}
+
+        class Registry:
+            def get(self, participant_id):
+                return {"owner-01": owner, "agent-01": agent}.get(participant_id)
+
+        payload = {
+            "policy_id": "policy-01", "version": 1, "owner_id": "owner-01",
+            "agent_id": "agent-01", "currency": "USD",
+            "per_transaction_limit_minor": 250, "daily_spend_limit_minor": 500,
+            "allowed_destinations": ["service:compute"],
+        }
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            _cloud_policy_envelope(Registry(), payload, wrong_key, "operator-01")
+        with self.assertRaisesRegex(ValueError, "operated by this owner"):
+            _cloud_policy_envelope(Registry(), payload, enrolled_key, "operator-01")
 
 if __name__ == "__main__":
     unittest.main()
