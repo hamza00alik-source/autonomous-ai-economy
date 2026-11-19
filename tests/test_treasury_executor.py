@@ -79,7 +79,13 @@ class CollectiveTreasuryExecutorTests(unittest.IsolatedAsyncioTestCase):
         executor = CollectiveTreasuryPaymentExecutor(self.store, FakeSigner(), FakeVerifier(fail=True))
         result = await executor.execute(reservation)
         self.assertEqual(result["status"], "uncertain")
-        self.assertEqual(self.store.get_spend_reservation(reservation)["status"], "uncertain")
+        db = self.store._connect()
+        try:
+            row = db.execute("SELECT status FROM treasury_spend_reservations WHERE reservation_id=?",
+                             (reservation,)).fetchone()
+        finally:
+            db.close()
+        self.assertEqual(row["status"], "uncertain")
 
 
 if __name__ == "__main__":
