@@ -66,6 +66,33 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
 <div class="row"><button id="buildInternalProduct" type="button" disabled>Build MOBA Objective Props</button><button id="downloadInternalProduct" class="secondary" type="button" disabled>Download private ZIP</button></div>
 <div id="internalProductStatus" class="muted" role="status" aria-live="polite">Load your enrolled owner key to enable approved builds.</div>
 </section>
+<section class="panel" id="executionOperationsPanel">
+<h2>Private execution queue</h2>
+<p class="muted">Read-only visibility into owner-approved internal product jobs, execution leases, attempts and append-only audit events. This does not start, retry, cancel or modify jobs.</p>
+<div class="cards" id="executionMetrics">
+<div class="metric"><small>Approved / queued</small><strong id="executionApproved">—</strong></div>
+<div class="metric"><small>Running</small><strong id="executionRunning">—</strong></div>
+<div class="metric"><small>Delivery ready</small><strong id="executionReady">—</strong></div>
+<div class="metric"><small>Failed</small><strong id="executionFailed">—</strong></div>
+</div>
+<div class="tablewrap"><table><thead><tr><th>Job</th><th>Status</th><th>Attempts</th><th>Lease expires</th><th>Artifact</th><th>Error</th><th>Updated</th></tr></thead><tbody id="executionJobRows"><tr><td colspan="7">Loading…</td></tr></tbody></table></div>
+<h2 style="margin-top:18px">Execution audit history</h2>
+<div class="tablewrap"><table><thead><tr><th>Time</th><th>Job</th><th>Event</th><th>Evidence</th></tr></thead><tbody id="executionEventRows"><tr><td colspan="4">Loading…</td></tr></tbody></table></div>
+<p class="muted" id="executionOperationsNote">Queue data is read-only. Audit events are append-only.</p>
+</section>
+<section class="panel" id="artifactInventoryPanel">
+<h2>Private artifact inventory</h2>
+<p class="muted">Read-only R2 inventory reconciled against D1. Missing records and integrity mismatches are review candidates only; this console cannot delete or change artifacts.</p>
+<div class="row"><button id="scanArtifacts" class="secondary" type="button">Scan private artifacts</button><span class="muted" id="artifactInventoryStatus">Not scanned yet</span></div>
+<div class="cards" style="margin-top:12px">
+<div class="metric"><small>Objects scanned</small><strong id="artifactObjectsScanned">—</strong></div>
+<div class="metric"><small>Orphan candidates</small><strong id="artifactOrphans">—</strong></div>
+<div class="metric"><small>Integrity warnings</small><strong id="artifactWarnings">—</strong></div>
+<div class="metric"><small>Inventory complete</small><strong id="artifactComplete">—</strong></div>
+</div>
+<div class="tablewrap"><table><thead><tr><th>Object key</th><th>Size</th><th>Reason</th><th>Action</th></tr></thead><tbody id="artifactOrphanRows"><tr><td colspan="4">Run a read-only scan to inspect objects.</td></tr></tbody></table></div>
+<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Object key</th><th>Job</th><th>Integrity warnings</th></tr></thead><tbody id="artifactWarningRows"><tr><td colspan="3">Run a read-only scan to inspect metadata.</td></tr></tbody></table></div>
+</section>
 <section class="panel"><h2>Agent revenue attribution</h2><p class="muted">Only provider-settled events recorded in Cloudflare D1 appear here. Pending reconciliation is not spendable agent income.</p><div class="tablewrap"><table><thead><tr><th>Agent</th><th>Sales</th><th>Gross USD</th><th>Awaiting reconciliation</th><th>Credited to agent</th></tr></thead><tbody id="revenueRows"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></section>
 <section class="panel"><h2>Recent AI tasks</h2><div class="tablewrap"><table><thead><tr><th>Task</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead><tbody id="taskRows"><tr><td colspan="4">Loading…</td></tr></tbody></table></div></section>
 <section class="panel">
@@ -458,11 +485,73 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    try{await postJson("/v1/owner/financial-controls/schedules",payload);$("financialMessage").textContent="Schedule created under the active signed policy.";event.target.reset();$("scheduleCurrency").value="USD";$("scheduleInterval").value="86400";await loadFinancialControls();}
    catch(error){$("financialMessage").textContent=error.message;}
  });
+ function renderExecutionOperations(data) {
+   const counts=data.counts||{};
+   $("executionApproved").textContent=number(counts.approved);
+   $("executionRunning").textContent=number(counts.running);
+   $("executionReady").textContent=number(counts.delivery_ready);
+   $("executionFailed").textContent=number(counts.failed);
+   const jobs=$("executionJobRows");jobs.replaceChildren();
+   if(!(data.jobs||[]).length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.textContent="No private execution jobs recorded.";tr.appendChild(td);jobs.appendChild(tr);}
+   for(const item of data.jobs||[]){
+     const tr=document.createElement("tr");
+     const artifact=item.artifact_sha256 ? item.artifact_sha256.slice(0,12)+"… · "+number(item.artifact_size_bytes)+" B" : "—";
+     for(const value of [item.job_id,item.status,""+item.attempt_count,time(item.lease_expires_at),artifact,item.error_code||"—",time(item.updated_at)]){
+       const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+     }
+     jobs.appendChild(tr);
+   }
+   const events=$("executionEventRows");events.replaceChildren();
+   if(!(data.events||[]).length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=4;td.textContent="No execution audit events recorded.";tr.appendChild(td);events.appendChild(tr);}
+   for(const item of data.events||[]){
+     const tr=document.createElement("tr");
+     const evidence=item.evidence===null?"Unavailable / invalid JSON":JSON.stringify(item.evidence);
+     for(const value of [time(item.created_at),item.job_id,item.event_type,evidence]){
+       const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+     }
+     events.appendChild(tr);
+   }
+ }
+ let artifactInventoryCursor=null;
+ async function scanArtifactInventory() {
+   const button=$("scanArtifacts");button.disabled=true;
+   $("artifactInventoryStatus").textContent="Reading private R2 inventory…";
+   try{
+     const suffix=artifactInventoryCursor?"&cursor="+encodeURIComponent(artifactInventoryCursor):"";
+     const data=await get("/v1/owner/internal-products/artifacts/inventory?limit=100"+suffix);
+     $("artifactObjectsScanned").textContent=number(data.objects_scanned);
+     $("artifactOrphans").textContent=number(data.orphan_candidate_count);
+     $("artifactWarnings").textContent=number(data.integrity_warning_count);
+     $("artifactComplete").textContent=data.complete?"Yes":"No";
+     const orphans=$("artifactOrphanRows");orphans.replaceChildren();
+     if(!(data.orphan_candidates||[]).length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=4;td.textContent="No orphan candidates on this page.";tr.appendChild(td);orphans.appendChild(tr);}
+     for(const item of data.orphan_candidates||[]){
+       const tr=document.createElement("tr");
+       for(const value of [item.key,number(item.size)+" B",item.reason,item.action]){
+         const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+       }orphans.appendChild(tr);
+     }
+     const warnings=$("artifactWarningRows");warnings.replaceChildren();
+     if(!(data.integrity_warnings||[]).length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=3;td.textContent="No integrity warnings on this page.";tr.appendChild(td);warnings.appendChild(tr);}
+     for(const item of data.integrity_warnings||[]){
+       const tr=document.createElement("tr");
+       for(const value of [item.key,item.job_id,(item.reasons||[]).join(", ")]){
+         const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+       }warnings.appendChild(tr);
+     }
+     artifactInventoryCursor=data.next_cursor||null;
+     button.textContent=artifactInventoryCursor?"Scan next page":"Scan private artifacts";
+     $("artifactInventoryStatus").textContent="Read-only scan · "+(data.complete?"all pages scanned":"more pages available")+" · no changes made.";
+   }catch(error){$("artifactInventoryStatus").textContent=error.message;}
+   finally{button.disabled=false;}
+ }
+ $("scanArtifacts").addEventListener("click",scanArtifactInventory);
  async function refresh() {
    $("refresh").disabled=true;
    try {
-     const [overview,tasks]=await Promise.all([get("/v1/owner/overview"),get("/v1/owner/tasks")]);
+     const [overview,tasks,executionOperations]=await Promise.all([get("/v1/owner/overview"),get("/v1/owner/tasks"),get("/v1/owner/internal-products/operations")]);
      await loadFinancialControls();
+     renderExecutionOperations(executionOperations);
      const counts=Object.fromEntries((overview.tasks||[]).map(row=>[row.status,row.total]));
      $("queued").textContent=number(counts.queued);
      $("running").textContent=number(counts.running);

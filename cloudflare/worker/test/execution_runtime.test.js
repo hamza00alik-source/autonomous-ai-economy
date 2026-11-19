@@ -353,3 +353,155 @@ test("private artifact inventory requires owner bearer authentication", async ()
   assert.equal(response.status, 401);
   assert.equal(touched, false);
 });
+
+
+function operationsRequest(path = "/v1/owner/internal-products/operations", token = "owner-token") {
+  return new Request("https://aae.example" + path, { headers: { authorization: "Bearer " + token } });
+}
+
+test("owner execution operations returns bounded read-only queue, lease and audit visibility", async () => {
+  const queries = [];
+  const env = {
+    AAE_QUEUE_TOKEN: "owner-token",
+    AAE_OWNER_ID: "owner-001",
+    DB: {
+      prepare(sql) {
+        return {
+          bind(...values) {
+            queries.push({ sql, values });
+            return {
+              async all() {
+                if (sql.includes("GROUP BY status")) return { results: [
+                  { status: "approved", total: 2 }, { status: "running", total: 1 },
+                  { status: "delivery_ready", total: 3 }, { status: "failed", total: 1 },
+                ] };
+                if (sql.includes("FROM internal_execution_jobs")) return { results: [{
+                  job_id: "job-001", agent_id: "game-asset-builder", status: "running",
+                  attempt_count: 2, lease_expires_at: "2026-11-19T12:00:00.000Z",
+                  artifact_sha256: null, artifact_size_bytes: null, error_code: null,
+                  created_at: "2026-11-19T10:00:00.000Z", updated_at: "2026-11-19T11:00:00.000Z",
+                  retention_review_after: null,
+                }] };
+                return { results: [{
+                  event_id: "event-001", job_id: "job-001", event_type: "execution_started",
+                  evidence_json: JSON.stringify({ attempt: 2, lease_minutes: 10 }),
+                  created_at: "2026-11-19T11:00:00.000Z",
+                }, {
+                  event_id: "event-002", job_id: "job-001", event_type: "owner_approved",
+                  evidence_json: "{bad-json", created_at: "2026-11-19T10:00:00.000Z",
+                }] };
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+  const response = await worker.fetch(operationsRequest(), env);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.deepEqual(result.counts, { approved: 2, running: 1, delivery_ready: 3, failed: 1, total: 7 });
+  assert.equal(result.jobs[0].job_id, "job-001");
+  assert.equal(result.jobs[0].attempt_count, 2);
+  assert.equal(result.events[0].evidence.attempt, 2);
+  assert.equal(result.events[1].evidence, null);
+  assert.equal(result.read_only, true);
+  assert.equal(queries.length, 3);
+  assert.ok(queries.every(query => query.values[0] === "owner-001"));
+  assert.match(queries[1].sql, /ORDER BY created_at DESC,job_id DESC LIMIT/);
+  assert.match(queries[2].sql, /FROM internal_execution_events/);
+});
+
+test("owner execution operations rejects bad limits and requires owner bearer authentication", async () => {
+  const env = {
+    AAE_QUEUE_TOKEN: "owner-token",
+    AAE_OWNER_ID: "owner-001",
+    DB: { prepare() { throw new Error("invalid query must not reach D1"); } },
+  };
+  const invalid = await worker.fetch(operationsRequest("/v1/owner/internal-products/operations?limit=101"), env);
+  assert.equal(invalid.status, 400);
+  const unauthorized = await worker.fetch(operationsRequest("/v1/owner/internal-products/operations", "wrong-token"), {
+    AAE_QUEUE_TOKEN: "owner-token",
+    get DB() { throw new Error("unauthorized request must not reach D1"); },
+  });
+  assert.equal(unauthorized.status, 401);
+});
+
+
+test("owner execution operations endpoint rejects invalid limit and missing owner configuration", async () => {
+  const invalid = await worker.fetch(operationsRequest("/v1/owner/internal-products/operations?limit=101"), {
+    AAE_QUEUE_TOKEN: "owner-token", AAE_OWNER_ID: "owner-001",
+    DB: { prepare() { throw new Error("invalid limit must not query D1"); } },
+  });
+  assert.equal(invalid.status, 400);
+  const missingOwner = await worker.fetch(operationsRequest(), {
+    AAE_QUEUE_TOKEN: "owner-token",
+    DB: { prepare() { throw new Error("missing owner must not query D1"); } },
+  });
+  assert.equal(missingOwner.status, 503);
+});
+
+test("owner execution operations endpoint is protected before database access", async () => {
+  let touched = false;
+  const response = await worker.fetch(operationsRequest("/v1/owner/internal-products/operations", "wrong-token"), {
+    AAE_QUEUE_TOKEN: "owner-token",
+    AAE_OWNER_ID: "owner-001",
+    get DB() { touched = true; throw new Error("unauthorized request must not access D1"); },
+  });
+  assert.equal(response.status, 401);
+  assert.equal(touched, false);
+});
+
+test("owner execution operations endpoint reports counts, job lease details and immutable audit evidence", async () => {
+  const queries = [];
+  const env = {
+    AAE_QUEUE_TOKEN: "owner-token",
+    AAE_OWNER_ID: "owner-001",
+    DB: {
+      prepare(sql) {
+        return {
+          bind(...values) {
+            queries.push({ sql, values });
+            return {
+              async all() {
+                if (sql.includes("GROUP BY status")) return { results: [
+                  { status: "approved", total: 2 }, { status: "running", total: 1 },
+                  { status: "delivery_ready", total: 3 }, { status: "failed", total: 1 },
+                ] };
+                if (sql.includes("FROM internal_execution_jobs")) return { results: [{
+                  job_id: "job-001", agent_id: "game-asset-builder", status: "running",
+                  attempt_count: 2, lease_expires_at: "2026-11-19T12:00:00.000Z",
+                  artifact_sha256: null, artifact_size_bytes: null, error_code: null,
+                  created_at: "2026-11-19T10:00:00.000Z", updated_at: "2026-11-19T11:00:00.000Z",
+                  retention_review_after: null,
+                }] };
+                return { results: [{
+                  event_id: "event-001", job_id: "job-001", event_type: "execution_started",
+                  evidence_json: JSON.stringify({ attempt: 2, lease_minutes: 10 }),
+                  created_at: "2026-11-19T11:00:00.000Z",
+                }, {
+                  event_id: "event-002", job_id: "job-001", event_type: "owner_approved",
+                  evidence_json: "{bad-json", created_at: "2026-11-19T10:00:00.000Z",
+                }] };
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+  const response = await worker.fetch(operationsRequest(), env);
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.deepEqual(result.counts, { approved: 2, running: 1, delivery_ready: 3, failed: 1, total: 7 });
+  assert.equal(result.jobs[0].job_id, "job-001");
+  assert.equal(result.jobs[0].attempt_count, 2);
+  assert.equal(result.jobs[0].lease_expires_at, "2026-11-19T12:00:00.000Z");
+  assert.equal(result.events[0].evidence.attempt, 2);
+  assert.equal(result.events[1].evidence, null);
+  assert.equal(result.read_only, true);
+  assert.equal(queries.length, 3);
+  assert.ok(queries.every(query => query.values[0] === "owner-001"));
+  assert.match(queries[1].sql, /ORDER BY created_at DESC,job_id DESC LIMIT/);
+  assert.match(queries[2].sql, /FROM internal_execution_events/);
+});

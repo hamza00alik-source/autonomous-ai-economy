@@ -437,6 +437,51 @@ async function inventoryPrivateArtifactObjects(env, url) {
   });
 }
 
+async function ownerInternalProductOperations(env, url) {
+  if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not configured" }, 503);
+  const requestedLimit = url.searchParams.get("limit");
+  const limit = requestedLimit === null ? 25 : Number(requestedLimit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return json({ error: "limit must be an integer from 1 to 100" }, 400);
+  }
+  const [counts, jobs, events] = await Promise.all([
+    env.DB.prepare(
+      "SELECT status,COUNT(*) AS total FROM internal_execution_jobs WHERE owner_id=? GROUP BY status ORDER BY status"
+    ).bind(env.AAE_OWNER_ID).all(),
+    env.DB.prepare(
+      "SELECT job_id,agent_id,status,attempt_count,lease_expires_at,artifact_sha256,artifact_size_bytes,error_code,created_at,updated_at,retention_review_after FROM internal_execution_jobs WHERE owner_id=? ORDER BY created_at DESC,job_id DESC LIMIT ?"
+    ).bind(env.AAE_OWNER_ID, limit).all(),
+    env.DB.prepare(
+      "SELECT event_id,job_id,event_type,evidence_json,created_at FROM internal_execution_events WHERE owner_id=? ORDER BY created_at DESC,event_id DESC LIMIT ?"
+    ).bind(env.AAE_OWNER_ID, Math.min(limit * 4, 200)).all(),
+  ]);
+  const totals = Object.fromEntries((counts.results || []).map(row => [row.status, Number(row.total || 0)]));
+  const normalizedJobs = (jobs.results || []).map(row => ({
+    ...row,
+    attempt_count: Number(row.attempt_count || 0),
+    artifact_size_bytes: row.artifact_size_bytes === null ? null : Number(row.artifact_size_bytes),
+  }));
+  const normalizedEvents = (events.results || []).map(row => {
+    let evidence = null;
+    try { evidence = row.evidence_json ? JSON.parse(row.evidence_json) : null; } catch { evidence = null; }
+    return { event_id: row.event_id, job_id: row.job_id, event_type: row.event_type, evidence, created_at: row.created_at };
+  });
+  return json({
+    owner_id: env.AAE_OWNER_ID,
+    counts: {
+      approved: totals.approved || 0,
+      running: totals.running || 0,
+      delivery_ready: totals.delivery_ready || 0,
+      failed: totals.failed || 0,
+      total: Object.values(totals).reduce((sum, value) => sum + value, 0),
+    },
+    jobs: normalizedJobs,
+    events: normalizedEvents,
+    limits: { jobs: limit, events: Math.min(limit * 4, 200) },
+    read_only: true,
+  });
+}
+
 async function taskStatus(request, env, taskId) {
   const row = await env.DB.prepare(
     "SELECT task_id,task_type,status,result_json,error,created_at,updated_at FROM ai_tasks WHERE task_id=?"
@@ -1017,6 +1062,9 @@ export default {
       return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    if (url.pathname === "/v1/owner/internal-products/operations" && request.method === "GET") {
+      return ownerInternalProductOperations(env, url);
+    }
     if (url.pathname === "/v1/owner/internal-products/artifacts/inventory" && request.method === "GET") {
       return inventoryPrivateArtifactObjects(env, url);
     }
