@@ -18,7 +18,7 @@ def rpc_log(**overrides):
     result = {
         "address": TOKEN,
         "topics": [TRANSFER_TOPIC, topic(CUSTOMER), topic(AGENT)],
-        "data": hex(123456),
+        "data": "0x" + format(123456, "064x"),
         "blockNumber": "0x64",
         "blockHash": BLOCK,
         "transactionHash": TX,
@@ -183,7 +183,7 @@ class EVMRPCSourceTests(unittest.TestCase):
         log = {
             "address": TOKEN,
             "topics": [TRANSFER_TOPIC, topic(CUSTOMER), topic(AGENT)],
-            "data": hex(123456),
+            "data": "0x" + format(123456, "064x"),
             "logIndex": "0x2",
             "removed": False,
         }
