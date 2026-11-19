@@ -55,6 +55,8 @@ class CollectiveTreasuryTests(unittest.TestCase):
         )
         self.assertEqual(result, "unallocated")
         self.assertEqual(self.store.balance("treasury:unallocated", "base-sepolia", "USDC"), 8000)
+        self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 8000)
+        self.assertTrue(self.store.reconciliation_snapshot("base-sepolia", "USDC")["balanced"])
         with self.assertRaisesRegex(ValueError, "does not match"):
             self.store.attribute_receipt(
                 "base-sepolia", "USDC", "0x" + "1" * 64, "log:1", "agent-a",
@@ -101,6 +103,7 @@ class CollectiveTreasuryTests(unittest.TestCase):
             idempotency_key="agent-a:compute:001", period_id="2026-11",
         )
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 5500)
+        self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 8000)
         self.store.mark_broadcast(reservation, "0x" + "2" * 64)
         settled = VerifiedTransfer(
             "base-sepolia", "USDC", "0x" + "2" * 64, "log:2",
@@ -108,6 +111,10 @@ class CollectiveTreasuryTests(unittest.TestCase):
         )
         self.store.settle_spend(reservation, settled)
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 5500)
+        snapshot = self.store.reconciliation_snapshot("base-sepolia", "USDC")
+        self.assertEqual(snapshot["pool_balance_minor"], 5500)
+        self.assertEqual(snapshot["virtual_accounts_total_minor"], 5500)
+        self.assertTrue(snapshot["balanced"])
 
     def test_spend_policy_and_balance_are_enforced(self):
         self.store.record_receipt(
