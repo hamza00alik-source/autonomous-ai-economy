@@ -96,9 +96,10 @@ class CollectiveTreasuryPaymentExecutor:
         if not wallet:
             raise ValueError("collective treasury wallet is not registered")
 
-        # Durable hold before network I/O. A timeout or process crash cannot trigger
-        # a duplicate payment; it leaves an explicitly reconcilable uncertain item.
-        self.store.mark_uncertain(reservation_id)
+        # Atomic compare-and-set claim before network I/O. A second worker that
+        # read the same reserved row cannot also submit the payment.
+        if not self.store.claim_spend_submission(reservation_id):
+            raise ValueError("spend reservation was already claimed by another worker")
         try:
             tx_hash = await self.signer.transfer_usdc(
                 destination=reservation["destination"],
