@@ -1,10 +1,171 @@
-import { loadActiveCloudFinancialPolicy, verifyOwnerSignedFinancialPolicy } from "./financial_policy_auth.js";
+import { loadActiveCloudFinancialPolicy, verifyOwnerSignedFinancialPolicy, financialPublicKeyFingerprint } from "./financial_policy_auth.js";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$/;
 const iso = value => typeof value === "string" && Number.isFinite(Date.parse(value));
 const json = value => JSON.stringify(value);
 
 function validId(value) { return typeof value === "string" && ID.test(value); }
+
+
+function canonicalObject(value) {
+  if (Array.isArray(value)) return value.map(canonicalObject);
+  if (value && typeof value === "object") {
+    return Object.keys(value).sort().reduce((result,key)=>{result[key]=canonicalObject(value[key]);return result;},{});
+  }
+  return value;
+}
+function canonicalText(value) { return JSON.stringify(canonicalObject(value)); }
+function bytesToBase64Url(bytes) {
+  let binary="";
+  for (const byte of bytes) binary+=String.fromCharCode(byte);
+  return btoa(binary).replace(/=/g,"").replace(/\\+/g,"-").replace(/\\//g,"_");
+}
+function decodeBase64Url(value) {
+  if(typeof value!=="string"||!/^[A-Za-z0-9_-]+$/.test(value)) return null;
+  try {
+    const padded=value.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-value.length%4)%4);
+    return Uint8Array.from(atob(padded),char=>char.charCodeAt(0));
+  } catch { return null; }
+}
+async function sha256Hex(value) {
+  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+}
+
+export async function createCloudOwnerEnrollmentChallenge(db,{ownerId,operatorId,now=new Date().toISOString()}={}) {
+  if(!validId(ownerId)||!validId(operatorId)||ownerId===operatorId) return {ok:false,reason:"invalid_owner_or_operator_id"};
+  const existing=await db.prepare("SELECT owner_id,operator_id,key_fingerprint FROM financial_owner_enrollments WHERE owner_id=? OR operator_id=?")
+    .bind(ownerId,operatorId).first();
+  if(existing) return {ok:false,reason:"owner_or_operator_already_enrolled"};
+  await db.prepare("UPDATE financial_owner_enrollment_challenges SET consumed_at=? WHERE owner_id=? AND consumed_at IS NULL AND expires_at<=?")
+    .bind(now,ownerId,now).run();
+  const pending=await db.prepare("SELECT challenge_id,challenge,expires_at FROM financial_owner_enrollment_challenges WHERE owner_id=? AND operator_id=? AND consumed_at IS NULL AND expires_at>?")
+    .bind(ownerId,operatorId,now).first();
+  if(pending) return {ok:true,...pending,owner_id:ownerId,operator_id:operatorId,reused:true};
+  const challengeId=crypto.randomUUID();
+  const random=crypto.getRandomValues(new Uint8Array(32));
+  const challenge="aae-owner-enrollment:v1:"+ownerId+":"+operatorId+":"+challengeId+":"+bytesToBase64Url(random);
+  const expiresAt=new Date(Date.parse(now)+5*60*1000).toISOString();
+  try {
+    await db.prepare("INSERT INTO financial_owner_enrollment_challenges(challenge_id,owner_id,operator_id,challenge,expires_at,created_at) VALUES(?,?,?,?,?,?)")
+      .bind(challengeId,ownerId,operatorId,challenge,expiresAt,now).run();
+  } catch {
+    const raced=await db.prepare("SELECT challenge_id,challenge,expires_at FROM financial_owner_enrollment_challenges WHERE owner_id=? AND operator_id=? AND consumed_at IS NULL AND expires_at>?")
+      .bind(ownerId,operatorId,now).first();
+    if(!raced) return {ok:false,reason:"enrollment_challenge_unavailable"};
+    return {ok:true,...raced,owner_id:ownerId,operator_id:operatorId,reused:true};
+  }
+  return {ok:true,challenge_id:challengeId,challenge,expires_at:expiresAt,owner_id:ownerId,operator_id:operatorId,reused:false};
+}
+
+export async function completeCloudOwnerEnrollment(db,{
+  ownerId,operatorId,challengeId,publicKeyJwk,signatureBase64Url,agentIds,currencies=["USD"],now=new Date().toISOString()
+}={}) {
+  if(!validId(ownerId)||!validId(operatorId)||!validId(challengeId)||ownerId===operatorId)
+    return {ok:false,reason:"invalid_enrollment_identity"};
+  if(!Array.isArray(agentIds)||agentIds.length<1||agentIds.length>25||
+     agentIds.some(id=>!validId(id))||new Set(agentIds).size!==agentIds.length)
+    return {ok:false,reason:"invalid_agent_ids"};
+  if(!Array.isArray(currencies)||currencies.length<1||currencies.length>5||
+     currencies.some(code=>typeof code!=="string"||!/^[A-Z]{3}$/.test(code))||new Set(currencies).size!==currencies.length)
+    return {ok:false,reason:"invalid_currency_codes"};
+  if(!publicKeyJwk||typeof publicKeyJwk!=="object"||Array.isArray(publicKeyJwk)||
+     Object.keys(publicKeyJwk).some(key=>!["kty","crv","x"].includes(key))||
+     publicKeyJwk.kty!=="OKP"||publicKeyJwk.crv!=="Ed25519"||typeof publicKeyJwk.x!=="string"||"d" in publicKeyJwk)
+    return {ok:false,reason:"invalid_public_key_jwk"};
+  const fingerprint=await financialPublicKeyFingerprint(publicKeyJwk);
+  if(!fingerprint) return {ok:false,reason:"invalid_public_key"};
+  const challengeRow=await db.prepare(
+    "SELECT challenge_id,owner_id,operator_id,challenge,expires_at,consumed_at FROM financial_owner_enrollment_challenges WHERE challenge_id=?"
+  ).bind(challengeId).first();
+  if(!challengeRow||challengeRow.owner_id!==ownerId||challengeRow.operator_id!==operatorId)
+    return {ok:false,reason:"enrollment_challenge_not_found"};
+  if(challengeRow.consumed_at||Date.parse(challengeRow.expires_at)<=Date.parse(now))
+    return {ok:false,reason:"enrollment_challenge_expired_or_consumed"};
+  const signedPayload={
+    version:1,owner_id:ownerId,operator_id:operatorId,challenge_id:challengeId,
+    challenge:challengeRow.challenge,public_key_fingerprint:fingerprint,
+    agent_ids:[...agentIds].sort(),currencies:[...currencies].sort()
+  };
+  const canonicalPayload=canonicalText(signedPayload);
+  const signature=decodeBase64Url(signatureBase64Url);
+  if(!signature||signature.length!==64) return {ok:false,reason:"invalid_enrollment_signature_encoding"};
+  try {
+    const key=await crypto.subtle.importKey("jwk",{
+      crv:"Ed25519",ext:true,key_ops:["verify"],kty:"OKP",x:publicKeyJwk.x
+    },{name:"Ed25519"},false,["verify"]);
+    if(!await crypto.subtle.verify({name:"Ed25519"},key,signature,new TextEncoder().encode(canonicalPayload)))
+      return {ok:false,reason:"invalid_enrollment_proof"};
+  } catch { return {ok:false,reason:"enrollment_signature_verification_failed"}; }
+  const payloadHash=await sha256Hex(canonicalPayload);
+  const prior=await db.prepare("SELECT owner_id,operator_id,challenge_id,key_fingerprint,payload_hash FROM financial_owner_enrollments WHERE owner_id=? OR operator_id=?")
+    .bind(ownerId,operatorId).first();
+  if(prior) return prior.challenge_id===challengeId&&prior.key_fingerprint===fingerprint&&prior.payload_hash===payloadHash
+    ? {ok:true,idempotent:true,owner_id:ownerId,operator_id:operatorId,agent_ids:agentIds}
+    : {ok:false,reason:"owner_or_operator_already_enrolled"};
+  const occupied=await db.prepare("SELECT participant_id,participant_type FROM financial_participants WHERE participant_id IN ("+
+    [ownerId,operatorId,...agentIds].map(()=>"?").join(",")+")")
+    .bind(ownerId,operatorId,...agentIds).all();
+  if((occupied.results||[]).length) return {ok:false,reason:"participant_id_already_in_use"};
+  const ownerNow=now;
+  const ownerInsert=db.prepare(
+    "INSERT INTO financial_participants(participant_id,participant_type,status,created_at,updated_at) " +
+    "SELECT ?,'owner','active',?,? WHERE EXISTS(SELECT 1 FROM financial_owner_enrollments WHERE owner_id=? AND payload_hash=?)"
+  ).bind(ownerId,ownerNow,ownerNow,ownerId,payloadHash);
+  const operatorInsert=db.prepare(
+    "INSERT INTO financial_participants(participant_id,participant_type,status,owner_id,public_key_jwk,key_fingerprint,created_at,updated_at) " +
+    "SELECT ?,'operator','active',?,?,?,?,? WHERE EXISTS(SELECT 1 FROM financial_owner_enrollments WHERE owner_id=? AND payload_hash=?)"
+  ).bind(operatorId,ownerId,JSON.stringify({kty:"OKP",crv:"Ed25519",x:publicKeyJwk.x}),fingerprint,ownerNow,ownerNow,ownerId,payloadHash);
+  const statements=[
+    db.prepare(
+      "INSERT INTO financial_owner_enrollments(owner_id,operator_id,challenge_id,key_fingerprint,payload_hash,created_at) " +
+      "SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM financial_owner_enrollment_challenges WHERE challenge_id=? AND owner_id=? AND operator_id=? AND consumed_at IS NULL AND expires_at>?)"
+    ).bind(ownerId,operatorId,challengeId,fingerprint,payloadHash,ownerNow,challengeId,ownerId,operatorId,ownerNow),
+    db.prepare("UPDATE financial_owner_enrollment_challenges SET consumed_at=? WHERE challenge_id=? AND owner_id=? AND operator_id=? AND consumed_at IS NULL AND expires_at>?")
+      .bind(ownerNow,challengeId,ownerId,operatorId,ownerNow),
+    ownerInsert,operatorInsert
+  ];
+  for(const agentId of agentIds) statements.push(db.prepare(
+    "INSERT INTO financial_participants(participant_id,participant_type,status,owner_id,operator_id,created_at,updated_at) " +
+    "SELECT ?,'agent','active',?,?,?,? WHERE EXISTS(SELECT 1 FROM financial_owner_enrollments WHERE owner_id=? AND payload_hash=?)"
+  ).bind(agentId,ownerId,operatorId,ownerNow,ownerNow,ownerId,payloadHash));
+  for(const currency of currencies) {
+    for(const accountType of ["treasury","reserve","owner_payable","fee_expense","operating_expense"]) {
+      statements.push(db.prepare(
+        "INSERT INTO financial_accounts(account_id,owner_id,agent_id,account_type,currency,status,created_at,updated_at) " +
+        "SELECT ?,?,NULL,?,?,'active',?,? WHERE EXISTS(SELECT 1 FROM financial_owner_enrollments WHERE owner_id=? AND payload_hash=?)"
+      ).bind("acct-"+ownerId+"-"+accountType+"-"+currency,ownerId,accountType,currency,ownerNow,ownerNow,ownerId,payloadHash));
+    }
+    for(const agentId of agentIds) statements.push(db.prepare(
+      "INSERT INTO financial_accounts(account_id,owner_id,agent_id,account_type,currency,status,created_at,updated_at) " +
+      "SELECT ?,?,?, 'agent_operating',?,'active',?,? WHERE EXISTS(SELECT 1 FROM financial_owner_enrollments WHERE owner_id=? AND payload_hash=?)"
+    ).bind("acct-"+agentId+"-agent-operating-"+currency,ownerId,agentId,currency,ownerNow,ownerNow,ownerId,payloadHash));
+  }
+  statements.push(db.prepare(
+    "INSERT INTO financial_control_state(owner_id,emergency_paused,pause_reason,changed_by,changed_at) " +
+    "SELECT ?,1,'New owner enrollment: spending remains paused',?,? WHERE EXISTS(SELECT 1 FROM financial_owner_enrollments WHERE owner_id=? AND payload_hash=?)"
+  ).bind(ownerId,ownerId,ownerNow,ownerId,payloadHash));
+  statements.push(db.prepare(
+    "INSERT INTO financial_audit_events(event_id,owner_id,actor_id,event_type,target_type,target_id,request_id,details_json,created_at) " +
+    "SELECT ?,?,?, 'financial.owner_enrolled','owner',?,?,?,? WHERE EXISTS(SELECT 1 FROM financial_owner_enrollments WHERE owner_id=? AND payload_hash=?)"
+  ).bind(crypto.randomUUID(),ownerId,ownerId,ownerId,challengeId,json({operator_id:operatorId,agent_ids:agentIds,currencies}),ownerNow,ownerId,payloadHash));
+  try {
+    await db.batch(statements);
+  } catch(error) {
+    const enrolled=await db.prepare("SELECT owner_id,operator_id,challenge_id,key_fingerprint,payload_hash FROM financial_owner_enrollments WHERE owner_id=?")
+      .bind(ownerId).first();
+    if(enrolled&&enrolled.challenge_id===challengeId&&enrolled.key_fingerprint===fingerprint&&enrolled.payload_hash===payloadHash)
+      return {ok:true,idempotent:true,owner_id:ownerId,operator_id:operatorId,agent_ids:agentIds};
+    throw error;
+  }
+  const result=await db.prepare(
+    "SELECT o.participant_id AS owner_id,s.participant_id AS operator_id,s.key_fingerprint " +
+    "FROM financial_participants o JOIN financial_participants s ON s.owner_id=o.participant_id " +
+    "WHERE o.participant_id=? AND o.participant_type='owner' AND s.participant_id=? AND s.participant_type='operator'"
+  ).bind(ownerId,operatorId).first();
+  if(!result||result.key_fingerprint!==fingerprint) return {ok:false,reason:"owner_enrollment_incomplete"};
+  return {ok:true,created:true,owner_id:ownerId,operator_id:operatorId,agent_ids:agentIds,currencies,emergency_paused:true};
+}
 
 export async function getCloudFinancialControls(db, ownerId, { limit = 25 } = {}) {
   if (!validId(ownerId)) return { ok: false, reason: "invalid_owner_id" };
