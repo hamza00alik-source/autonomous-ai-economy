@@ -1,0 +1,146 @@
+"""Collective treasury reorganization guard and Accounting Agent cycle.
+
+The guard never reverses accounting automatically. A canonicality mismatch opens
+an auditable incident and freezes agent spending for the affected pool. The
+runtime orders reconciliation before payout execution and fails closed whenever
+receipt intake, reorg checks, or on-chain balance reconciliation fail.
+"""
+from __future__ import annotations
+
+from contextlib import closing
+from typing import Callable, Protocol
+
+from .collective_treasury import CollectiveTreasuryStore
+from .collective_treasury_monitor import CollectiveTreasuryReceiptMonitor
+from .treasury_worker import CollectiveTreasuryWorker
+
+
+class CollectiveCanonicalVerifier(Protocol):
+    def finalized_block_number(self) -> int: ...
+
+    def is_transfer_canonical(
+        self, *, network: str, token_contract: str, tx_hash: str,
+        transfer_ref: str, expected_block_number: int, expected_block_hash: str,
+        source: str, destination: str, amount_minor: int,
+    ) -> bool: ...
+
+
+class CollectiveTreasuryReorgGuard:
+    """Continuously recheck finalized collective receipts within a rolling window."""
+
+    def __init__(self, monitor: CollectiveTreasuryReceiptMonitor,
+                 verifier: CollectiveCanonicalVerifier, *,
+                 lookback_blocks: int = 2048, batch_size: int = 500) -> None:
+        if isinstance(lookback_blocks, bool) or not isinstance(lookback_blocks, int) or lookback_blocks < 1:
+            raise ValueError("lookback_blocks must be a positive integer")
+        if isinstance(batch_size, bool) or not isinstance(batch_size, int) or not 1 <= batch_size <= 5000:
+            raise ValueError("batch_size must be between 1 and 5000")
+        self.monitor, self.verifier = monitor, verifier
+        self.lookback_blocks, self.batch_size = lookback_blocks, batch_size
+
+    def reconcile_once(self, *, network: str, asset: str) -> dict:
+        finalized = self.verifier.finalized_block_number()
+        if isinstance(finalized, bool) or not isinstance(finalized, int) or finalized < 0:
+            raise ValueError("verifier returned invalid finalized block")
+        floor = max(0, finalized - self.lookback_blocks + 1)
+        wallet = self.monitor.store.treasury_wallet(network, asset)
+        if not wallet:
+            raise ValueError("collective treasury wallet is not registered")
+        with closing(self.monitor.store._connect()) as db:
+            rows = db.execute(
+                """SELECT e.tx_hash,e.transfer_ref,e.block_hash,e.block_number,
+                          r.source_address,r.destination_address,r.amount_minor
+                   FROM treasury_receipt_monitor_events e
+                   JOIN treasury_receipts r
+                     ON r.network=e.network AND r.tx_hash=e.tx_hash
+                    AND r.transfer_ref=e.transfer_ref AND r.asset=?
+                   WHERE e.network=? AND e.status IN ('allocated','unallocated')
+                     AND (e.block_number=0 OR e.block_number>=?)
+                   ORDER BY e.block_number,e.tx_hash,e.transfer_ref LIMIT ?""",
+                (asset.upper(), network, floor, self.batch_size),
+            ).fetchall()
+        checked = alerts = legacy_unknown = 0
+        for row in rows:
+            checked += 1
+            if row["block_number"] <= 0:
+                legacy_unknown += 1
+                self.monitor._raise_reorg_alert(
+                    network=network, asset=asset, tx_hash=row["tx_hash"],
+                    transfer_ref=row["transfer_ref"],
+                    expected_block_hash=row["block_hash"],
+                    observed_block_hash=None,
+                    reason="legacy credited receipt has no recorded block number",
+                )
+                alerts += 1
+                continue
+            canonical = self.verifier.is_transfer_canonical(
+                network=network, token_contract=self.monitor.token_contract,
+                tx_hash=row["tx_hash"], transfer_ref=row["transfer_ref"],
+                expected_block_number=row["block_number"],
+                expected_block_hash=row["block_hash"],
+                source=row["source_address"], destination=row["destination_address"],
+                amount_minor=row["amount_minor"],
+            )
+            if canonical is not True:
+                self.monitor._raise_reorg_alert(
+                    network=network, asset=asset, tx_hash=row["tx_hash"],
+                    transfer_ref=row["transfer_ref"],
+                    expected_block_hash=row["block_hash"],
+                    observed_block_hash=None,
+                    reason="canonical verifier reports credited transfer missing or changed",
+                )
+                alerts += 1
+        return {
+            "checked": checked, "reorg_alerts": alerts,
+            "legacy_receipts_without_block_number": legacy_unknown,
+            "from_block": floor, "finalized_block": finalized,
+            "open_alerts": self.monitor.open_reorg_alerts(network=network, asset=asset),
+            "has_more": len(rows) == self.batch_size,
+        }
+
+
+class CollectiveTreasuryAccountingRuntime:
+    """One accounting cycle: ingest, reorg-check, reconcile, then execute spends."""
+
+    def __init__(self, store: CollectiveTreasuryStore,
+                 receipt_monitor: CollectiveTreasuryReceiptMonitor,
+                 reorg_guard: CollectiveTreasuryReorgGuard,
+                 balance_check: Callable[[], dict],
+                 worker: CollectiveTreasuryWorker, *,
+                 network: str, asset: str) -> None:
+        self.store, self.receipt_monitor = store, receipt_monitor
+        self.reorg_guard, self.balance_check, self.worker = reorg_guard, balance_check, worker
+        self.network, self.asset = network, asset.upper()
+
+    async def run_once(self, *, period_id: str, spend_limit: int = 25) -> dict:
+        receipts = self.receipt_monitor.poll_once(
+            network=self.network, asset=self.asset, period_id=period_id,
+        )
+        reorgs = self.reorg_guard.reconcile_once(
+            network=self.network, asset=self.asset,
+        )
+        balances = self.balance_check()
+        if not isinstance(balances, dict) or balances.get("fully_reconciled") is not True:
+            return {
+                "status": "payouts_blocked", "reason": "treasury balance reconciliation is not fully healthy",
+                "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                "spending": None,
+            }
+        if reorgs.get("open_alerts", 0) > 0:
+            return {
+                "status": "payouts_blocked", "reason": "open treasury reorganization alerts require operator review",
+                "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                "spending": None,
+            }
+        spending = await self.worker.run_once(limit=spend_limit)
+        return {
+            "status": "completed", "receipts": receipts, "reorgs": reorgs,
+            "balances": balances, "spending": spending,
+        }
+
+
+__all__ = [
+    "CollectiveTreasuryAccountingRuntime",
+    "CollectiveTreasuryReorgGuard",
+    "CollectiveCanonicalVerifier",
+]
