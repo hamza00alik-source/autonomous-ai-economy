@@ -15,13 +15,14 @@ The runtime package is prepared from the canonical `src/economy/game_asset_pack.
 
 ## Request and execution boundary
 
-1. An owner-authenticated, same-origin request calls `POST /v1/owner/internal-products/moba-objective-props/build`.
-2. The API requires an active configured owner participant and accepts only a bounded idempotency key. It fixes the agent to `game-asset-builder` and the exact `moba_objective_props_v1` capability.
-3. The D1 ledger records the owner approval and claims the job once. Repeated requests return the existing delivery record; running or failed jobs cannot be silently re-executed.
-4. The JavaScript Worker calls the separate Python Worker only through a Cloudflare Service Binding. It signs the exact payload with a short-lived HMAC envelope.
-5. The Python Worker validates the timestamp, signature, job/owner identifiers and exact allowlisted capability. It has no public Workers.dev endpoint, no shell, no arbitrary code loader, no external marketplace adapter and no payment or wallet capability.
-6. The fixed Python producer builds the ZIP in ephemeral Worker memory/filesystem. Structural QA verifies required files, safe ZIP paths, manifest hashes and GLB headers.
-7. The JavaScript Worker checks the returned job ID, QA marker, size and SHA-256, then writes the ZIP to a private R2 bucket and records `delivery_ready` in D1.
+1. The owner console requests a fresh challenge from `POST /v1/owner/internal-products/moba-objective-props/approval-challenge` and signs the exact canonical payload locally with the enrolled Ed25519 key.
+2. An owner-authenticated, same-origin request calls `POST /v1/owner/internal-products/moba-objective-props/build` with the five-minute, single-use signature. The API verifies the owner, action, exact agent, exact product capability, idempotency key, nonce and expiry; D1 consumes the nonce.
+3. The API persists an `approved` job and append-only owner approval event in D1, then returns HTTP 202. The request does not run the Python producer synchronously.
+4. The existing five-minute Cloudflare Cron trigger polls the D1 queue. It atomically claims one eligible job, writes an execution-start event, and uses a ten-minute lease. Expired leases can be reclaimed, with a maximum of three claims; exhausted leases become terminal failures.
+5. The JavaScript Worker calls the separate Python Worker only through a Cloudflare Service Binding. It signs the exact payload with a short-lived HMAC envelope.
+6. The Python Worker validates the timestamp, signature, job/owner identifiers and exact allowlisted capability. It has no public Workers.dev endpoint, no shell, no arbitrary code loader, no external marketplace adapter and no payment or wallet capability.
+7. The fixed Python producer builds the ZIP in ephemeral Worker memory/filesystem. Structural QA verifies required files, safe ZIP paths, manifest hashes and GLB headers.
+8. The JavaScript Worker checks the returned job ID, QA marker, size and SHA-256, then writes the ZIP to a private R2 bucket and records `delivery_ready` in D1. The owner dashboard polls the owner-authenticated status route and enables download only when ready.
 
 The artifact is not published, submitted, delivered to a customer, or counted as revenue. The owner can retrieve it through the bearer-authenticated `GET /v1/owner/internal-products/jobs/{job_id}/artifact` route; the route re-checks D1 ownership/state and verifies the R2 object size and SHA-256 before returning it.
 
@@ -43,7 +44,7 @@ The cloud build route now requires a fresh Ed25519 owner signature over a canoni
 
 ## Current limitations
 
-- This is an owner-triggered internal product build, not an always-on queue consumer or autonomous marketplace fulfillment service.
+- This is an owner-authorized, cron-scheduled internal product queue, not a continuously running queue consumer or autonomous marketplace fulfillment service. The configured cron cadence is five minutes; actual execution remains subject to Cloudflare Worker limits and account quotas.
 - It supports exactly one built-in product capability.
 - No general-purpose code execution, external task claims, submission, customer communication, storefront publication, checkout activation, wallet signing, transfer or spending is connected.
 - Artifact retention/deletion policy and automated orphan cleanup remain to be implemented.
