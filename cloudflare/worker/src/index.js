@@ -203,7 +203,7 @@ async function executeInternalProduct(request, env) {
       !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
     return json({ error: "same-origin application/json request required" }, 403);
   }
-  const rawInput = await readBoundedRequestText(request, 512);
+  const rawInput = await readBoundedRequestText(request, 2048);
   if (rawInput === null) return json({ error: "request body too large" }, 413);
   if (rawInput === undefined) return json({ error: "request body must be valid UTF-8" }, 400);
   let input;
