@@ -120,6 +120,7 @@ class EVMJSONRPCSource:
             raise ValueError("requested token contract does not match EVM RPC configuration")
         if not addresses:
             return TransferPage((), cursor)
+        address_map = {a.lower(): a for a in addresses if isinstance(a, str)}
         normalized_addresses = tuple(sorted({self._address_topic(a) for a in addresses}))
 
         actual_chain_id = self._quantity(self._rpc_call("eth_chainId", []), "chain ID")
@@ -185,9 +186,12 @@ class EVMJSONRPCSource:
                     or not re.fullmatch(r"0x[0-9a-fA-F]{64}", destination_topic)):
                 raise EVMRPCError("log has invalid indexed address topic")
             source = "0x" + source_topic[-40:].lower()
-            destination = "0x" + destination_topic[-40:].lower()
-            if destination not in {a[-40:] for a in normalized_addresses}:
+            destination_key = "0x" + destination_topic[-40:].lower()
+            if destination_key not in address_map:
                 raise EVMRPCError("RPC returned a transfer for an unrequested destination")
+            # Preserve the registry's original spelling; the finance ledger may
+            # use checksummed EVM addresses even though matching is case-insensitive.
+            destination = address_map[destination_key]
             data = log.get("data")
             if not isinstance(data, str) or not re.fullmatch(r"0x[0-9a-fA-F]{64}", data):
                 raise EVMRPCError("log has invalid uint256 amount data")
