@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -151,6 +152,12 @@ class ChainMonitor:
             raise ValueError("canonical and finalized flags must be booleans")
         if not isinstance(item.block_timestamp, str) or not item.block_timestamp.strip():
             raise ValueError("block_timestamp must be an ISO-8601 timestamp")
+        try:
+            parsed_timestamp = datetime.fromisoformat(item.block_timestamp.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("block_timestamp must be an ISO-8601 timestamp") from exc
+        if parsed_timestamp.tzinfo is None:
+            raise ValueError("block_timestamp must include a timezone offset")
 
     def poll_once(self, *, period_id: str) -> dict[str, int | str | None]:
         if not isinstance(period_id, str) or not period_id.strip():
