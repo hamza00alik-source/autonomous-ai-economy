@@ -207,6 +207,8 @@ class CollectiveTreasuryTests(unittest.TestCase):
         self.assertEqual(result["owner_share_minor"], 3600)
         self.assertEqual(self.store.balance("master:owner", "base-sepolia", "USDC"), 3600)
         self.assertEqual(self.store.balance("treasury:reserve:agent-a", "base-sepolia", "USDC"), 800)
+        self.assertTrue(self.store.reconciliation_snapshot("base-sepolia", "USDC")["balanced"])
+        self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 8000)
         again = self.store.close_period(
             "agent-a", "base-sepolia", "USDC", "2026-11",
             reserve_bps=1000, owner_share_bps=5000,
