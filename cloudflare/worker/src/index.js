@@ -250,69 +250,65 @@ async function executeInternalProduct(request, env) {
     return json({ job_id: job.job_id, status: job.status, artifact_key: job.artifact_key,
       artifact_sha256: job.artifact_sha256, artifact_size_bytes: job.artifact_size_bytes, idempotent: true });
   }
-  if (job.status !== "approved") return json({ error: "execution job is already running or terminal", job_id: job.job_id, status: job.status }, 409);
-
-  const claimed = await env.DB.prepare(
-    "UPDATE internal_execution_jobs SET status='running',updated_at=? WHERE job_id=? AND status='approved' RETURNING job_id"
-  ).bind(now, job.job_id).first();
-  if (!claimed) return json({ error: "execution job could not be claimed", job_id: job.job_id }, 409);
+  if (job.status !== "approved") return json({ error: "execution job is already queued or terminal", job_id: job.job_id, status: job.status }, 409);
   await env.DB.prepare(
     "INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'owner_approved',?,?)"
   ).bind(crypto.randomUUID(), job.job_id, env.AAE_OWNER_ID,
     JSON.stringify({ action: "execute_internal_product", agent_id: "game-asset-builder", execution_spec: spec, signed_approval: approval.payload }), now).run();
+  return json({
+    job_id: job.job_id, status: "approved", queued: true,
+    message: "Owner-approved private build queued for scheduled execution.",
+    published: false, submitted: false, customer_contacted: false, sales_verified: false
+  }, 202);
+}
+
+async function processOneApprovedInternalProduct(env) {
+  if (!env.DB || !env.EXECUTION_RUNTIME || !env.EXECUTION_ARTIFACTS || !env.AAE_OWNER_ID || !env.AAE_EXECUTION_BRIDGE_SECRET) return;
+  const job = await env.DB.prepare(
+    "SELECT job_id,owner_id,execution_spec_json FROM internal_execution_jobs WHERE status='approved' ORDER BY created_at ASC LIMIT 1"
+  ).first();
+  if (!job || job.owner_id !== env.AAE_OWNER_ID || job.execution_spec_json !== JSON.stringify({kind:"moba_objective_props_v1"})) return;
+  const now = new Date().toISOString();
+  const claimed = await env.DB.prepare(
+    "UPDATE internal_execution_jobs SET status='running',updated_at=? WHERE job_id=? AND status='approved' RETURNING job_id"
+  ).bind(now,job.job_id).first();
+  if (!claimed) return;
   await env.DB.prepare(
     "INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'execution_started','{}',?)"
-  ).bind(crypto.randomUUID(), job.job_id, env.AAE_OWNER_ID, now).run();
-
+  ).bind(crypto.randomUUID(),job.job_id,env.AAE_OWNER_ID,now).run();
   try {
-    const payload = JSON.stringify({ job_id: job.job_id, owner_id: env.AAE_OWNER_ID, execution_spec: spec });
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const signature = await hmacSha256Hex(env.AAE_EXECUTION_BRIDGE_SECRET, timestamp + "\n" + payload);
-    const runtimeResponse = await env.EXECUTION_RUNTIME.fetch(new Request("https://execution-runtime.internal/internal/execute", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-aae-execution-timestamp": timestamp, "x-aae-execution-signature": signature },
-      body: payload,
+    const payload=JSON.stringify({job_id:job.job_id,owner_id:env.AAE_OWNER_ID,execution_spec:{kind:"moba_objective_props_v1"}});
+    const timestamp=String(Math.floor(Date.now()/1000));
+    const signature=await hmacSha256Hex(env.AAE_EXECUTION_BRIDGE_SECRET,timestamp+"\\n"+payload);
+    const runtimeResponse=await env.EXECUTION_RUNTIME.fetch(new Request("https://execution-runtime.internal/internal/execute",{
+      method:"POST",
+      headers:{"content-type":"application/json","x-aae-execution-timestamp":timestamp,"x-aae-execution-signature":signature},
+      body:payload
     }));
-    if (!runtimeResponse.ok || runtimeResponse.headers.get("x-aae-job-id") !== job.job_id ||
-        runtimeResponse.headers.get("x-aae-qa") !== "passed" ||
-        !(runtimeResponse.headers.get("content-type") || "").startsWith("application/zip")) {
-      throw new Error("private runtime did not return a verified product archive");
-    }
-    const artifact = await runtimeResponse.arrayBuffer();
-    if (artifact.byteLength <= 0 || artifact.byteLength > 20 * 1024 * 1024) throw new Error("product archive size is outside the allowed limit");
-    const digestBytes = await crypto.subtle.digest("SHA-256", artifact);
-    const digest = [...new Uint8Array(digestBytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-    if (runtimeResponse.headers.get("x-aae-sha256") !== digest ||
-        runtimeResponse.headers.get("x-aae-size") !== String(artifact.byteLength)) {
-      throw new Error("product archive integrity headers do not match its bytes");
-    }
-    const artifactKey = "internal-products/" + job.job_id + "/moba-objective-props.zip";
-    await env.EXECUTION_ARTIFACTS.put(artifactKey, artifact, {
-      httpMetadata: { contentType: "application/zip", cacheControl: "private, no-store" },
-      customMetadata: { job_id: job.job_id, owner_id: env.AAE_OWNER_ID, sha256: digest },
+    if(!runtimeResponse.ok||runtimeResponse.headers.get("x-aae-job-id")!==job.job_id||
+       runtimeResponse.headers.get("x-aae-qa")!=="passed"||
+       !(runtimeResponse.headers.get("content-type")||"").startsWith("application/zip")) throw new Error("private runtime verification failed");
+    const artifact=await runtimeResponse.arrayBuffer();
+    if(artifact.byteLength<=0||artifact.byteLength>20*1024*1024) throw new Error("artifact size outside policy");
+    const digestBytes=await crypto.subtle.digest("SHA-256",artifact);
+    const digest=[...new Uint8Array(digestBytes)].map(b=>b.toString(16).padStart(2,"0")).join("");
+    if(runtimeResponse.headers.get("x-aae-sha256")!==digest||runtimeResponse.headers.get("x-aae-size")!==String(artifact.byteLength)) throw new Error("artifact integrity mismatch");
+    const artifactKey="internal-products/"+job.job_id+"/moba-objective-props.zip";
+    await env.EXECUTION_ARTIFACTS.put(artifactKey,artifact,{
+      httpMetadata:{contentType:"application/zip",cacheControl:"private, no-store"},
+      customMetadata:{job_id:job.job_id,owner_id:env.AAE_OWNER_ID,sha256:digest}
     });
-    const completedAt = new Date().toISOString();
-    await env.DB.prepare(`UPDATE internal_execution_jobs SET status='delivery_ready',artifact_key=?,
-      artifact_sha256=?,artifact_size_bytes=?,updated_at=? WHERE job_id=? AND status='running'`)
-      .bind(artifactKey, digest, artifact.byteLength, completedAt, job.job_id).run();
-    await env.DB.prepare(
-      "INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'artifact_verified',?,?)"
-    ).bind(crypto.randomUUID(), job.job_id, env.AAE_OWNER_ID,
-      JSON.stringify({ artifact_key: artifactKey, sha256: digest, size_bytes: artifact.byteLength, qa_passed: true }), completedAt).run();
-    return json({
-      job_id: job.job_id, status: "delivery_ready", artifact_key: artifactKey,
-      artifact_sha256: digest, artifact_size_bytes: artifact.byteLength,
-      published: false, submitted: false, customer_contacted: false, sales_verified: false,
-    }, 201);
+    const completedAt=new Date().toISOString();
+    await env.DB.prepare("UPDATE internal_execution_jobs SET status='delivery_ready',artifact_key=?,artifact_sha256=?,artifact_size_bytes=?,updated_at=? WHERE job_id=? AND status='running'")
+      .bind(artifactKey,digest,artifact.byteLength,completedAt,job.job_id).run();
+    await env.DB.prepare("INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'artifact_verified',?,?)")
+      .bind(crypto.randomUUID(),job.job_id,env.AAE_OWNER_ID,JSON.stringify({artifact_key:artifactKey,sha256:digest,size_bytes:artifact.byteLength,qa_passed:true}),completedAt).run();
   } catch {
-    const failedAt = new Date().toISOString();
-    await env.DB.prepare(
-      "UPDATE internal_execution_jobs SET status='failed',error_code='execution_failed',updated_at=? WHERE job_id=? AND status='running'"
-    ).bind(failedAt, job.job_id).run();
-    await env.DB.prepare(
-      "INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'execution_failed','{}',?)"
-    ).bind(crypto.randomUUID(), job.job_id, env.AAE_OWNER_ID, failedAt).run();
-    return json({ error: "approved internal product execution failed", job_id: job.job_id }, 502);
+    const failedAt=new Date().toISOString();
+    await env.DB.prepare("UPDATE internal_execution_jobs SET status='failed',error_code='execution_failed',updated_at=? WHERE job_id=? AND status='running'")
+      .bind(failedAt,job.job_id).run();
+    await env.DB.prepare("INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'execution_failed','{}',?)")
+      .bind(crypto.randomUUID(),job.job_id,env.AAE_OWNER_ID,failedAt).run();
   }
 }
 
@@ -1317,7 +1313,7 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
-    const tasks = [processOne(env), pollSwarmMemo(env)];
+    const tasks = [processOne(env), pollSwarmMemo(env), processOneApprovedInternalProduct(env)];
     if (env.AAE_CLOUD_FINANCIAL_SCHEDULER_ENABLED === "true" && env.AAE_OWNER_ID) {
       tasks.push(runDueCloudExpenseSchedules(env.DB, env.AAE_OWNER_ID));
     }
