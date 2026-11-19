@@ -99,7 +99,7 @@ The follow-on branch adds `AgentKeyVault`, a SQLite-backed Durable Object config
 
 Important boundaries:
 - The Durable Object binding and class migration are code/configuration only. They have **not** been deployed and no production namespace or storage was created.
-- Tests exercise restart behavior using Node's structured-clone implementation. A Cloudflare runtime integration test is still required to verify CryptoKey persistence in the actual Durable Objects runtime before any production use.
+- Node tests exercise the vault core with a structured-clone harness. The branch now also includes a Cloudflare Workers Vitest integration test that evicts and reconstructs the Durable Object in workerd, then verifies the original public identity and a fresh Ed25519 proof. That runtime test must pass in CI before production use; it does not replace a production-like Cloudflare staging validation.
 - The Worker has not yet been wired to provision or call the vault, and no live agent key has been enrolled.
 - This is an API-authentication key, not a Base wallet key. It cannot sign blockchain transactions or move USDC.
 - A Durable Object is persistent state, not an always-running agent process. Scheduling, model execution, task orchestration, owner approval, monitoring, and disaster recovery remain separate work.
