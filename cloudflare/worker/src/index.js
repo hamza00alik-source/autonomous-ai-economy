@@ -223,7 +223,10 @@ async function executeInternalProduct(request, env) {
       job_id: existing.job_id, status: existing.status, artifact_key: existing.artifact_key,
       artifact_sha256: existing.artifact_sha256, artifact_size_bytes: existing.artifact_size_bytes, idempotent: true
     });
-    return json({ error: "execution job already exists and is not ready", job_id: existing.job_id, status: existing.status }, 409);
+    if (existing.status === "approved") return json({
+      job_id: existing.job_id, status: existing.status, queued: true, idempotent: true
+    }, 202);
+    return json({ error: "execution job is already running or terminal", job_id: existing.job_id, status: existing.status }, 409);
   }
   const approval = await verifyAndConsumeExecutionApproval(env.DB, {
     ownerId: env.AAE_OWNER_ID, idempotencyKey: input.idempotency_key, approval: input.approval
