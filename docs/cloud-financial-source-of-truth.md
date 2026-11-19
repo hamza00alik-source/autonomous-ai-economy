@@ -4,15 +4,15 @@
 
 Cloudflare D1 is the intended authoritative persistence layer for **remote owner visibility and controls**. The existing Python SQLite subsystem remains the local simulation/reference implementation until a separately reviewed migration is complete. There is no bidirectional sync and no balance mirroring.
 
-Migration `0006_financial_control_foundation.sql` is an additive schema foundation only. It creates empty tables and indexes; it does not copy local data, create participants/accounts/policies, expose routes, enable payments, or execute financial activity.
+Migration `0006_financial_control_foundation.sql` and `0007_financial_control_enforcement.sql` create the additive cloud schema and enforcement triggers. Worker modules now read and write these tables through authenticated owner routes and an opt-in simulated scheduler. They remain unprovisioned in production until an owner/operator enrollment ceremony, accounts, signed policies, and an explicit production deployment are completed.
 
 ## Source-of-truth boundary
 
 - Existing local Python SQLite files remain authoritative for the current local simulated-finance CLI and scheduler.
-- The new D1 tables are an empty future cloud authority. They are not yet read or written by Worker code.
+- The new D1 tables are the authoritative cloud financial source for the new Worker control path once the migrations are applied. They are separate from the local SQLite simulation; there is no automatic sync or balance mirroring.
 - Do not add dashboard balances by summing provider invoice rows or copying local SQLite snapshots into D1.
 - A future cutover must be explicit and one-way: freeze local financial mutations, export and validate a reviewed snapshot if migration is desired, then activate the cloud authority. Never run both ledgers as writable authorities.
-- Until cutover, the dashboard must continue to say that local policy, ledger, budgets and schedules are unavailable remotely.
+- The dashboard reports only D1 cloud records. It does not claim that local SQLite policies, ledger, budgets or schedules are synchronized.
 
 ## Cloud schema
 
@@ -99,3 +99,24 @@ The policy registration endpoint accepts only the canonical policy object, canon
 
 
 Important compatibility note: the existing local SQLite policy store is a separate subsystem and its current policy payload/signature format is not automatically a cloud policy envelope. Do not paste a local SQLite policy record into the cloud registration form unchanged. The cloud signer/export bridge must produce the exact cloud canonical policy schema and bind it to the enrolled cloud operator public key; that bridge and initial participant/account provisioning are still outstanding.
+
+## Local cloud-policy signing/export bridge
+
+`economy-finance cloud-policy-sign` creates the exact signed envelope accepted by `POST /v1/owner/financial-controls/policies`. It is a local-only operation:
+
+- The input is the cloud policy schema (exactly the eight fields accepted by the Worker; it is intentionally not the local SQLite policy object, which includes a separate `schema` field).
+- The command checks that the owner is active in the local participant registry, the agent is active and locally operated by that owner, and the supplied Ed25519 private key derives exactly the owner's already-enrolled local public key.
+- It signs canonical JSON, derives the Ed25519 public JWK fingerprint, and exports only the policy, canonical payload, signature and fingerprint.
+- The output file is created exclusively; it refuses to overwrite an existing file. The private key is never serialized into the envelope, uploaded, printed or stored by AAE.
+- `--operator-id` must be the pre-enrolled cloud operator participant ID whose D1 public JWK is bound to the same public key as the local owner key.
+
+Example (run only on a trusted machine that already holds the owner's PEM key):
+
+```sh
+economy-finance --data-dir ./data cloud-policy-sign ./cloud-policy.json \
+  --private-key /secure/path/owner-ed25519.pem \
+  --operator-id operator-01 \
+  --output ./cloud-policy-envelope.json
+```
+
+The cloud owner/operator enrollment ceremony is still a prerequisite: this command does not create cloud identities, upload public keys, or provision agent records. Do not upload a local SQLite policy export as if it were a cloud envelope. The Android dashboard accepts the resulting signed envelope, but the user must protect the local key file and review the exact policy terms before signing.
