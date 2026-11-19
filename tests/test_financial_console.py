@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from economy.financial_console import main, _cloud_policy_envelope
+from economy.financial_console import main, _cloud_policy_envelope, _cloud_enrollment_envelope
 
 
 class FinancialConsoleTests(unittest.TestCase):
@@ -136,5 +136,67 @@ class FinancialConsoleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not match"):
             _cloud_policy_envelope(Registry(), payload, wrong_key, "operator-01")
 
+
+    def test_cloud_enrollment_proof_binds_challenge_key_and_local_agents(self):
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        except ImportError:
+            self.skipTest("cryptography identity extra is not installed")
+        import base64
+
+        key = Ed25519PrivateKey.generate()
+        raw = key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        public_key = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+        owner = {"status": "active", "participant_type": "human", "public_key": public_key}
+        agent = {"status": "active", "participant_type": "agent", "operator_id": "owner-01"}
+
+        class Registry:
+            def get(self, participant_id):
+                return {"owner-01": owner, "agent-01": agent}.get(participant_id)
+
+        challenge = {
+            "challenge_id": "challenge-01", "challenge": "proof:" + "x" * 40,
+            "expires_at": "2099-01-01T00:00:00Z", "owner_id": "owner-01",
+            "operator_id": "operator-01",
+        }
+        envelope = _cloud_enrollment_envelope(Registry(), challenge, key, ["agent-01"], ["USD"])
+        self.assertEqual(envelope["public_key_jwk"]["x"], public_key)
+        self.assertEqual(envelope["agent_ids"], ["agent-01"])
+        self.assertEqual(envelope["currencies"], ["USD"])
+        self.assertNotIn("private", json.dumps(envelope).lower())
+
+    def test_cloud_enrollment_proof_rejects_wrong_local_key_and_agent_owner(self):
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        except ImportError:
+            self.skipTest("cryptography identity extra is not installed")
+        import base64
+
+        key = Ed25519PrivateKey.generate()
+        other = Ed25519PrivateKey.generate()
+        raw = key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        owner = {"status": "active", "participant_type": "human",
+                 "public_key": base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")}
+        agent = {"status": "active", "participant_type": "agent", "operator_id": "other-owner"}
+
+        class Registry:
+            def get(self, participant_id):
+                return {"owner-01": owner, "agent-01": agent}.get(participant_id)
+
+        challenge = {
+            "challenge_id": "challenge-02", "challenge": "proof:" + "y" * 40,
+            "expires_at": "2099-01-01T00:00:00Z", "owner_id": "owner-01",
+            "operator_id": "operator-01",
+        }
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            _cloud_enrollment_envelope(Registry(), challenge, other, ["agent-01"], ["USD"])
+        with self.assertRaisesRegex(ValueError, "not active under"):
+            _cloud_enrollment_envelope(Registry(), challenge, key, ["agent-01"], ["USD"])
 if __name__ == "__main__":
     unittest.main()
