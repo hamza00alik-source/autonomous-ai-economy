@@ -25,6 +25,14 @@ class QuorumEVMVerifier:
             raise ValueError("all RPC providers must target the same token contract")
         if len({id(provider) for provider in self.providers}) != len(self.providers):
             raise ValueError("the same RPC provider cannot count as multiple sources")
+        configured_urls = [
+            getattr(getattr(provider, "config", None), "rpc_url", None)
+            for provider in self.providers
+        ]
+        if all(isinstance(url, str) and url for url in configured_urls):
+            normalized_urls = {url.rstrip("/").lower() for url in configured_urls}
+            if len(normalized_urls) != len(configured_urls):
+                raise ValueError("RPC provider URLs must be distinct")
         minimum_majority = len(self.providers) // 2 + 1
         self.quorum = quorum if quorum is not None else minimum_majority
         if (isinstance(self.quorum, bool) or not isinstance(self.quorum, int)
