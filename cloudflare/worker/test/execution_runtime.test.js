@@ -26,7 +26,7 @@ function fakeDb(publicKeyJwk) {
             if (state.job && state.job.job_id === values[0] && state.job.owner_id === values[1]) return state.job;
             return null;
           }
-          if (sql.includes("WHERE status='approved'")) {
+          if (sql.includes("attempt_count < 3") || sql.includes("WHERE status='approved'")) {
             return state.job?.status === "approved" ? { job_id: state.job.job_id, owner_id: state.job.owner_id, execution_spec_json: JSON.stringify({kind:"moba_objective_props_v1"}) } : null;
           }
           if (sql.startsWith("SELECT job_id,status,artifact_key")) {
