@@ -7,7 +7,7 @@ import pytest
 
 MIGRATIONS = [
     Path(__file__).resolve().parents[1] / "cloudflare" / "worker" / "migrations" / name
-    for name in ("0006_financial_control_foundation.sql", "0007_financial_control_enforcement.sql")
+    for name in ("0006_financial_control_foundation.sql", "0007_financial_control_enforcement.sql", "0008_owner_key_enrollment.sql")
 ]
 
 
@@ -69,6 +69,27 @@ def _policy(db, version=1, per_transaction_limit=1000, daily_spend_limit=5000):
         (version, per_transaction_limit, daily_spend_limit),
     )
 
+
+
+def test_owner_enrollment_challenge_allows_only_one_pending_challenge_per_owner():
+    db = _database()
+    db.execute(
+        "INSERT INTO financial_owner_enrollment_challenges "
+        "(challenge_id,owner_id,operator_id,challenge,expires_at,created_at) "
+        "VALUES ('challenge-01','owner-01','operator-01','proof-01','2099-01-01T00:00:00Z','now')"
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(
+            "INSERT INTO financial_owner_enrollment_challenges "
+            "(challenge_id,owner_id,operator_id,challenge,expires_at,created_at) "
+            "VALUES ('challenge-02','owner-01','operator-01','proof-02','2099-01-01T00:00:00Z','now')"
+        )
+    db.execute("UPDATE financial_owner_enrollment_challenges SET consumed_at='now' WHERE challenge_id='challenge-01'")
+    db.execute(
+        "INSERT INTO financial_owner_enrollment_challenges "
+        "(challenge_id,owner_id,operator_id,challenge,expires_at,created_at) "
+        "VALUES ('challenge-03','owner-01','operator-01','proof-03','2099-01-01T00:00:00Z','now')"
+    )
 
 def test_cloud_financial_migration_creates_owner_bound_policy_and_ledger_schema():
     db = _database()
