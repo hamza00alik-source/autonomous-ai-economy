@@ -130,6 +130,8 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
  let ownerSigningKey = null;
  let ownerPublicJwk = null;
  let ownerKeyFingerprint = null;
+ let ownerKeyGenerated = false;
+ let ownerKeyBackedUp = false;
  let enrollmentChallenge = null;
  let generatedKeyBackupUrl = null;
  const stableObject = value => Array.isArray(value) ? value.map(stableObject) :
@@ -139,18 +141,22 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    let binary="";for(const byte of bytes)binary+=String.fromCharCode(byte);
    return btoa(binary).split("=").join("").split("+").join("-").split("/").join("_");
  };
+ function canSignWithOwnerKey() { return !!ownerSigningKey && (!ownerKeyGenerated || ownerKeyBackedUp); }
  async function setOwnerSigningKey(key, source) {
    const jwk=await crypto.subtle.exportKey("jwk",key);
    if(jwk.kty!=="OKP"||jwk.crv!=="Ed25519"||!jwk.x||!jwk.d)throw new Error("Imported key is not an Ed25519 private key.");
    ownerSigningKey=key;
+   ownerKeyGenerated=source==="newly generated key";
+   ownerKeyBackedUp=!ownerKeyGenerated;
    ownerPublicJwk={kty:"OKP",crv:"Ed25519",x:jwk.x};
    const fingerprintBytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify({crv:"Ed25519",kty:"OKP",x:jwk.x})));
    ownerKeyFingerprint=[...new Uint8Array(fingerprintBytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
    $("ownerKeyStatus").textContent="Ed25519 signing key loaded ("+source+"). Private key remains in this tab's memory.";
-   $("completeEnrollment").disabled=!enrollmentChallenge;
+   $("completeEnrollment").disabled=!enrollmentChallenge||!canSignWithOwnerKey();
  }
  async function signCanonical(payload) {
-   if(!ownerSigningKey||!ownerPublicJwk||!ownerKeyFingerprint)throw new Error("Load or generate your owner Ed25519 key first.");
+   if(!canSignWithOwnerKey()||!ownerPublicJwk||!ownerKeyFingerprint)
+     throw new Error(ownerKeyGenerated&&!ownerKeyBackedUp?"Download the generated private-key backup before signing.":"Load or generate your owner Ed25519 key first.");
    const bytes=new TextEncoder().encode(canonical(payload));
    return encodeBase64Url(new Uint8Array(await crypto.subtle.sign({name:"Ed25519"},ownerSigningKey,bytes)));
  }
@@ -169,7 +175,9 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    const link=document.createElement("a");link.href=generatedKeyBackupUrl;link.download="aae-owner-ed25519.pem";
    link.textContent="Download private-key backup";link.className="secondary";link.style.display="inline-block";
    const prior=$("ownerKeyBackup");if(prior)prior.remove();
-   link.id="ownerKeyBackup";$("ownerKeyStatus").appendChild(document.createElement("br"));$("ownerKeyStatus").appendChild(link);
+   link.id="ownerKeyBackup";
+   link.addEventListener("click",()=>{ownerKeyBackedUp=true;$("ownerKeyStatus").textContent="Private-key backup download initiated. The key remains in this tab's memory.";$("ownerKeyStatus").appendChild(document.createElement("br"));$("ownerKeyStatus").appendChild(link);$("completeEnrollment").disabled=!enrollmentChallenge||!canSignWithOwnerKey();});
+   $("ownerKeyStatus").appendChild(document.createElement("br"));$("ownerKeyStatus").appendChild(link);
  }
  async function postJson(path,body) {
    const response=await fetch(path,{method:"POST",headers:{...headers(),"content-type":"application/json"},body:JSON.stringify(body),cache:"no-store"});
@@ -260,12 +268,12 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    try{
      enrollmentChallenge=await get("/v1/owner/financial-controls/enrollment/challenge");
      $("enrollmentChallengeSummary").textContent="Challenge ID: "+enrollmentChallenge.challenge_id+"\nExpires: "+time(enrollmentChallenge.expires_at)+"\nOwner: "+enrollmentChallenge.owner_id+"\nOperator: "+enrollmentChallenge.operator_id;
-     $("completeEnrollment").disabled=!ownerSigningKey;
+     $("completeEnrollment").disabled=!canSignWithOwnerKey();
      $("enrollmentState").textContent="Challenge ready";
    }catch(error){$("financialMessage").textContent=error.message;}
  });
  $("completeEnrollment").addEventListener("click",async()=>{
-   if(!enrollmentChallenge||!ownerSigningKey)return;
+   if(!enrollmentChallenge||!canSignWithOwnerKey()){ $("financialMessage").textContent="Load a key and download its backup before completing enrollment.";return;}
    const agentIds=$("enrollmentAgents").value.split(",").map(x=>x.trim()).filter(Boolean).sort();
    const currencies=$("enrollmentCurrencies").value.split(",").map(x=>x.trim().toUpperCase()).filter(Boolean).sort();
    if(!agentIds.length||new Set(agentIds).size!==agentIds.length){$("financialMessage").textContent="Enter unique local agent IDs separated by commas.";return;}
@@ -286,7 +294,7 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      enrollmentChallenge=null;
      await loadFinancialControls();
    }catch(error){$("financialMessage").textContent=error.message;}
-   finally{$("completeEnrollment").disabled=!ownerSigningKey||!enrollmentChallenge;}
+   finally{$("completeEnrollment").disabled=!canSignWithOwnerKey()||!enrollmentChallenge;}
  });
  $("emergencyPause").addEventListener("click",async()=>{
    if(!financialControls)return;
