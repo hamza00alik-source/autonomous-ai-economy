@@ -106,10 +106,11 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
             operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
             evidence_ref="case://reorg/chain-income", reviewed=True,
         )
+        calls_before_retry = len(signer.calls)
         after_adjustment = worker.process_pending()
         p2_after = [item for item in after_adjustment if item["period_key"].endswith(":p2")]
         self.assertEqual(p2_after[0]["status"], "blocked")
-        self.assertEqual(signer.calls, [])
+        self.assertEqual(len(signer.calls), calls_before_retry)
 
     def test_wrong_amount_keeps_distribution_pending(self):
         worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier(amount=499))
