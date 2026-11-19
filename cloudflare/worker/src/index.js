@@ -219,7 +219,7 @@ async function executeInternalProduct(request, env) {
 
   try {
     const payload = JSON.stringify({ job_id: job.job_id, owner_id: env.AAE_OWNER_ID, execution_spec: spec });
-    const timestamp = String(Date.now());
+    const timestamp = String(Math.floor(Date.now() / 1000));
     const signature = await hmacSha256Hex(env.AAE_EXECUTION_BRIDGE_SECRET, timestamp + "\n" + payload);
     const runtimeResponse = await env.EXECUTION_RUNTIME.fetch(new Request("https://execution-runtime.internal/internal/execute", {
       method: "POST",
