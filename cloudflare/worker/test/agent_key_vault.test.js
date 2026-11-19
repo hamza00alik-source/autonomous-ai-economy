@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
-import { AgentKeyVault } from "../src/agent_key_vault.js";
+import { AgentKeyVaultCore } from "../src/agent_key_vault_core.js";
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
 const encoder = new TextEncoder();
@@ -21,7 +21,7 @@ function storageHarness() {
   };
 }
 function vaultFor(harness) {
-  return new AgentKeyVault({
+  return new AgentKeyVaultCore({
     storage: harness.storage,
     blockConcurrencyWhile: callback => callback(),
   }, {});
