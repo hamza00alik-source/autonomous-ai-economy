@@ -574,15 +574,24 @@ class CDPServerTreasuryWallet:
             raise RuntimeError("missing CDP runtime secrets: " + ", ".join(missing))
         return CdpClient()
 
+    async def _get_policy_bound_account(self, cdp):
+        account = await cdp.evm.get_or_create_account(name=self.account_name)
+        if self.client_factory:
+            update = {"account_policy": self.account_policy_id}
+        else:
+            from cdp.update_account_types import UpdateAccountOptions
+            update = UpdateAccountOptions(account_policy=self.account_policy_id)
+        # Reapplying the same account policy is safe and makes the boundary
+        # explicit even when the named account was created before AAE started.
+        await cdp.evm.update_account(address=account.address, update=update)
+        return account
+
     async def ensure_wallet(self, *, network: str = "base-sepolia") -> TreasuryWallet:
         if network not in {"base-sepolia", "base"}:
             raise ValueError("first CDP treasury adapter supports only base-sepolia or base")
         client = await self._client()
         async with client as cdp:
-            account = await cdp.evm.get_or_create_account(
-                name=self.account_name,
-                account_policy=self.account_policy_id,
-            )
+            account = await self._get_policy_bound_account(cdp)
             address = str(account.address)
             wallet_id = str(getattr(account, "id", address))
         return TreasuryWallet(self.provider_name, wallet_id, network, "USDC", address)
@@ -603,10 +612,7 @@ class CDPServerTreasuryWallet:
             raise ValueError("amount_minor must be a positive integer")
         client = await self._client()
         async with client as cdp:
-            account = await cdp.evm.get_or_create_account(
-                name=self.account_name,
-                account_policy=self.account_policy_id,
-            )
+            account = await self._get_policy_bound_account(cdp)
             tx_hash = await account.transfer(
                 to=destination, amount=amount_minor, token="usdc", network=network
             )
