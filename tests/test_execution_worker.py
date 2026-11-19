@@ -96,3 +96,25 @@ def test_missing_execution_verifiers_are_rejected(tmp_path):
     with pytest.raises(ValueError, match="mandatory"):
         ApprovedExecutionWorker(store, tmp_path / "artifacts",
                                 identity_verifier=None, execution_approval_verifier=lambda *_: True)
+
+def test_external_marketplace_job_cannot_be_routed_to_internal_product_builder(tmp_path):
+    approval = lambda token, job_id, action: token == f"owner:{job_id}:{action}"
+    store = FulfillmentStore(
+        tmp_path / "external.sqlite3",
+        identity_verifier=lambda *_: True,
+        owner_approval_verifier=approval,
+    )
+    job = store.create_job(
+        source="taskmarket", external_id="external-task", agent_id="game-asset-builder",
+        agent_key_fingerprint=FP,
+        payload={"execution_spec": {"kind": "moba_objective_props_v1"}},
+        idempotency_key="external-task",
+    )
+    store.transition(job.job_id, "owner_approved", actor="owner",
+                     idempotency_key="approve-external",
+                     owner_approval=f"owner:{job.job_id}:owner_approved")
+    store.transition(job.job_id, "in_progress", actor="owner",
+                     idempotency_key="start-external")
+    worker = make_worker(store, tmp_path)
+    with pytest.raises(ExecutionError, match="internal product jobs"):
+        worker.execute(job.job_id, owner_execution_approval=f"owner:{job.job_id}:execute")
