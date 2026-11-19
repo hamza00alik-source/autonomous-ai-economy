@@ -26,6 +26,9 @@ function fakeDb(publicKeyJwk) {
             if (state.job && state.job.job_id === values[0] && state.job.owner_id === values[1]) return state.job;
             return null;
           }
+          if (sql.includes("WHERE status='approved'")) {
+            return state.job?.status === "approved" ? { job_id: state.job.job_id, owner_id: state.job.owner_id, execution_spec_json: JSON.stringify({kind:"moba_objective_props_v1"}) } : null;
+          }
           if (sql.startsWith("SELECT job_id,status,artifact_key")) {
             if (state.job && state.job.owner_id === values[0] && state.job.idempotency_key === values[1]) return state.job;
             return null;
@@ -191,24 +194,33 @@ test("owner execution request rejects arbitrary fields and invalid idempotency k
 test("owner-approved product execution stores a verified private artifact and is idempotent", async () => {
   const { env, DB, stored, approvalBody } = await makeEnv();
   const first = await worker.fetch(request(approvalBody), env);
-  assert.equal(first.status, 201);
-  const result = await first.json();
-  assert.equal(result.status, "delivery_ready");
-  assert.equal(result.published, false);
-  assert.equal(result.submitted, false);
-  assert.equal(result.customer_contacted, false);
-  assert.equal(result.sales_verified, false);
+  assert.equal(first.status, 202);
+  const queued = await first.json();
+  assert.equal(queued.status, "approved");
+  assert.equal(queued.queued, true);
+  assert.equal(queued.published, false);
+  assert.equal(queued.submitted, false);
+  assert.equal(queued.customer_contacted, false);
+  assert.equal(queued.sales_verified, false);
+  assert.equal(DB.state.job.status, "approved");
+  assert.equal(stored.size, 0);
+  assert.equal(DB.state.events.length, 1);
+
+  const second = await worker.fetch(request(approvalBody), env);
+  assert.equal(second.status, 202);
+  const repeated = await second.json();
+  assert.equal(repeated.job_id, queued.job_id);
+  assert.equal(repeated.idempotent, true);
+  assert.equal(stored.size, 0);
+
+  const scheduledPromises = [];
+  await worker.scheduled({}, env, { waitUntil(promise) { scheduledPromises.push(promise); } });
+  await Promise.all(scheduledPromises);
   assert.equal(DB.state.job.status, "delivery_ready");
   assert.equal(stored.size, 1);
   assert.equal(DB.state.events.length, 3);
 
-  const second = await worker.fetch(request(approvalBody), env);
-  assert.equal(second.status, 200);
-  const repeated = await second.json();
-  assert.equal(repeated.job_id, result.job_id);
-  assert.equal(repeated.idempotent, true);
-  assert.equal(stored.size, 1);
-
+  const result = { job_id: queued.job_id };
   const download = await worker.fetch(downloadRequest(result.job_id), env);
   assert.equal(download.status, 200);
   assert.equal(download.headers.get("content-type"), "application/zip");
