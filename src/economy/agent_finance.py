@@ -1,0 +1,286 @@
+"""Agent-native wallet attribution and profit-sharing ledger.
+
+This module is deliberately chain-agnostic. A chain adapter must independently
+verify receipts/transactions before calling this store. It never handles private
+keys, signs transactions, or pretends database records are on-chain money.
+"""
+from __future__ import annotations
+
+import sqlite3
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Literal
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _bps(value: int, field: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 10_000:
+        raise ValueError(f"{field} must be an integer from 0 to 10000")
+
+
+@dataclass(frozen=True)
+class Wallet:
+    participant_id: str
+    role: Literal["agent", "master"]
+    network: str
+    asset: str
+    address: str
+
+
+@dataclass(frozen=True)
+class VerifiedTransfer:
+    """A normalized transfer supplied by a trusted chain adapter.
+
+    verified must mean the adapter checked chain, token contract, destination,
+    amount, transaction inclusion, finality/confirmation policy and reorg status.
+    """
+    network: str
+    asset: str
+    tx_hash: str
+    transfer_ref: str
+    destination: str
+    amount_minor: int
+    confirmations: int
+    verified: bool
+
+
+class AgentFinanceStore:
+    """SQLite wallet registry, verified cashflow ledger and profit allocations.
+
+    The store is an accounting/control component, not a wallet or custody service.
+    Wallet addresses are public. Private keys must remain in an external signer.
+    """
+
+    def __init__(self, path: str | Path = "./data/agent_finance.sqlite3") -> None:
+        self.path = str(path)
+        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as db:
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS finance_wallets (
+                    participant_id TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK(role IN ('agent','master')),
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    address TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(participant_id, network, asset, role),
+                    UNIQUE(network, asset, address, role)
+                );
+                CREATE TABLE IF NOT EXISTS finance_events (
+                    event_id TEXT PRIMARY KEY,
+                    participant_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK(event_type IN ('income','expense')),
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    amount_minor INTEGER NOT NULL CHECK(amount_minor > 0),
+                    tx_hash TEXT NOT NULL,
+                    transfer_ref TEXT NOT NULL,
+                    period_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(network, tx_hash, transfer_ref)
+                );
+                CREATE INDEX IF NOT EXISTS idx_finance_events_period
+                    ON finance_events(participant_id, network, asset, period_id);
+                CREATE TABLE IF NOT EXISTS profit_periods (
+                    period_key TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    master_id TEXT NOT NULL,
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    period_id TEXT NOT NULL,
+                    gross_income_minor INTEGER NOT NULL,
+                    expenses_minor INTEGER NOT NULL,
+                    operating_profit_minor INTEGER NOT NULL,
+                    reserve_minor INTEGER NOT NULL,
+                    distributable_minor INTEGER NOT NULL,
+                    owner_share_bps INTEGER NOT NULL,
+                    master_due_minor INTEGER NOT NULL,
+                    agent_retained_minor INTEGER NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('no_profit','pending_payout','paid')),
+                    payout_tx_hash TEXT,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(agent_id, network, asset, period_id)
+                );
+            """)
+
+    def _connect(self) -> sqlite3.Connection:
+        db = sqlite3.connect(self.path, timeout=15, isolation_level=None)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA foreign_keys=ON")
+        db.execute("PRAGMA busy_timeout=15000")
+        return db
+
+    def register_wallet(self, wallet: Wallet) -> None:
+        if not all(isinstance(v, str) and v.strip() for v in (
+            wallet.participant_id, wallet.network, wallet.asset, wallet.address
+        )):
+            raise ValueError("participant, network, asset and address are required")
+        if wallet.role not in {"agent", "master"}:
+            raise ValueError("wallet role must be agent or master")
+        with self._connect() as db:
+            existing = db.execute(
+                """SELECT address FROM finance_wallets
+                   WHERE participant_id=? AND role=? AND network=? AND asset=?""",
+                (wallet.participant_id, wallet.role, wallet.network, wallet.asset.upper()),
+            ).fetchone()
+            if existing and existing["address"] != wallet.address:
+                raise ValueError("wallet already registered; use a reviewed rotation workflow")
+            db.execute(
+                """INSERT OR IGNORE INTO finance_wallets
+                   VALUES(?,?,?,?,?,?)""",
+                (wallet.participant_id, wallet.role, wallet.network,
+                 wallet.asset.upper(), wallet.address, _now()),
+            )
+
+    def wallet(self, participant_id: str, role: str, network: str, asset: str) -> Wallet | None:
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT * FROM finance_wallets
+                   WHERE participant_id=? AND role=? AND network=? AND asset=?""",
+                (participant_id, role, network, asset.upper()),
+            ).fetchone()
+        return Wallet(row["participant_id"], row["role"], row["network"],
+                      row["asset"], row["address"]) if row else None
+
+    @staticmethod
+    def _validate_transfer(transfer: VerifiedTransfer) -> None:
+        if transfer.verified is not True:
+            raise ValueError("transfer must be verified by a trusted chain adapter")
+        if not all(isinstance(v, str) and v.strip() for v in (
+            transfer.network, transfer.asset, transfer.tx_hash,
+            transfer.transfer_ref, transfer.destination
+        )):
+            raise ValueError("network, asset, transaction, transfer reference and destination are required")
+        if isinstance(transfer.amount_minor, bool) or not isinstance(transfer.amount_minor, int) or transfer.amount_minor <= 0:
+            raise ValueError("amount_minor must be a positive integer")
+        if isinstance(transfer.confirmations, bool) or not isinstance(transfer.confirmations, int) or transfer.confirmations < 1:
+            raise ValueError("transfer must meet at least one confirmation")
+
+    def _record_event(self, participant_id: str, event_type: str,
+                      transfer: VerifiedTransfer, period_id: str) -> str:
+        self._validate_transfer(transfer)
+        if not participant_id.strip() or not period_id.strip():
+            raise ValueError("participant_id and period_id are required")
+        wallet = self.wallet(participant_id, "agent", transfer.network, transfer.asset)
+        if wallet is None or wallet.address != transfer.destination:
+            raise ValueError("verified transfer destination does not match the agent wallet")
+        event_id = "fin_" + uuid.uuid4().hex
+        with self._connect() as db:
+            try:
+                db.execute(
+                    """INSERT INTO finance_events VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (event_id, participant_id, event_type, transfer.network,
+                     transfer.asset.upper(), transfer.amount_minor, transfer.tx_hash,
+                     transfer.transfer_ref, period_id, _now()),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("duplicate on-chain transfer or conflicting event") from exc
+        return event_id
+
+    def record_receipt(self, agent_id: str, transfer: VerifiedTransfer, *,
+                       period_id: str) -> str:
+        """Record agent revenue only after adapter-confirmed on-chain settlement."""
+        return self._record_event(agent_id, "income", transfer, period_id)
+
+    def record_expense(self, agent_id: str, transfer: VerifiedTransfer, *,
+                       period_id: str) -> str:
+        """Record an agent expense after adapter-confirmed outgoing settlement.
+
+        The adapter must set destination to the agent wallet for incoming refunds
+        only; outgoing expenses therefore use a separate explicit method below.
+        """
+        return self._record_event(agent_id, "expense", transfer, period_id)
+
+    def close_profit_period(self, agent_id: str, master_id: str, *,
+                            network: str, asset: str, period_id: str,
+                            reserve_bps: int, owner_share_bps: int) -> dict:
+        """Close a period once; reserve first, then split realized net profit.
+
+        No profit means no owner distribution. A master payout wallet must be
+        registered before a positive distribution can be created.
+        """
+        _bps(reserve_bps, "reserve_bps")
+        _bps(owner_share_bps, "owner_share_bps")
+        if not all(v.strip() for v in (agent_id, master_id, network, asset, period_id)):
+            raise ValueError("agent, master, network, asset and period are required")
+        asset = asset.upper()
+        key = f"{agent_id}:{network}:{asset}:{period_id}"
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = db.execute("SELECT * FROM profit_periods WHERE period_key=?", (key,)).fetchone()
+            if existing:
+                db.commit()
+                return dict(existing)
+            agent_wallet = db.execute(
+                """SELECT 1 FROM finance_wallets
+                   WHERE participant_id=? AND role='agent' AND network=? AND asset=?""",
+                (agent_id, network, asset),
+            ).fetchone()
+            if not agent_wallet:
+                db.rollback()
+                raise ValueError("agent wallet is not registered")
+            totals = db.execute(
+                """SELECT
+                    COALESCE(SUM(CASE WHEN event_type='income' THEN amount_minor ELSE 0 END),0) AS income,
+                    COALESCE(SUM(CASE WHEN event_type='expense' THEN amount_minor ELSE 0 END),0) AS expenses
+                   FROM finance_events
+                   WHERE participant_id=? AND network=? AND asset=? AND period_id=?""",
+                (agent_id, network, asset, period_id),
+            ).fetchone()
+            income, expenses = int(totals["income"]), int(totals["expenses"])
+            operating_profit = max(0, income - expenses)
+            reserve = operating_profit * reserve_bps // 10_000
+            distributable = operating_profit - reserve
+            master_due = distributable * owner_share_bps // 10_000
+            retained = distributable - master_due
+            if master_due:
+                master_wallet = db.execute(
+                    """SELECT 1 FROM finance_wallets
+                       WHERE participant_id=? AND role='master' AND network=? AND asset=?""",
+                    (master_id, network, asset),
+                ).fetchone()
+                if not master_wallet:
+                    db.rollback()
+                    raise ValueError("master payout wallet must be registered before profit distribution")
+            status = "pending_payout" if master_due else "no_profit"
+            db.execute(
+                """INSERT INTO profit_periods VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (key, agent_id, master_id, network, asset, period_id, income,
+                 expenses, operating_profit, reserve, distributable, owner_share_bps,
+                 master_due, retained, status, None, _now()),
+            )
+            db.commit()
+            return dict(self.get_profit_period(agent_id, network, asset, period_id))
+
+    def get_profit_period(self, agent_id: str, network: str,
+                          asset: str, period_id: str) -> dict | None:
+        key = f"{agent_id}:{network}:{asset.upper()}:{period_id}"
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM profit_periods WHERE period_key=?", (key,)).fetchone()
+        return dict(row) if row else None
+
+    def mark_owner_distribution_paid(self, agent_id: str, network: str, asset: str,
+                                     period_id: str, *, tx_hash: str,
+                                     destination: str, verified: bool) -> None:
+        """Finalize a master payout only after independent chain verification."""
+        if verified is not True or not tx_hash.strip():
+            raise ValueError("a verified payout transaction is required")
+        period = self.get_profit_period(agent_id, network, asset, period_id)
+        if not period or period["status"] != "pending_payout":
+            raise ValueError("no pending owner distribution exists")
+        master = self.wallet(period["master_id"], "master", network, asset)
+        if not master or master.address != destination:
+            raise ValueError("payout destination does not match the registered master wallet")
+        with self._connect() as db:
+            cur = db.execute(
+                """UPDATE profit_periods SET status='paid', payout_tx_hash=?
+                   WHERE period_key=? AND status='pending_payout'""",
+                (tx_hash, period["period_key"]),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("distribution was already finalized or changed concurrently")
