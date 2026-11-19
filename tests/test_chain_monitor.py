@@ -183,11 +183,28 @@ class ChainMonitorTests(unittest.TestCase):
         self.assertEqual(corrected_period["gross_income_minor"], 0)
         self.assertEqual(corrected_period["operating_profit_minor"], 0)
 
+    def test_open_period_reorg_reversal_is_booked_in_same_period(self):
+        self.monitor.poll_once(period_id="2026-11")
+        self.chain.transfers = (observation(canonical=False, confirmations=0, finalized=False),)
+        self.monitor.poll_once(period_id="2026-11")
+        adjustment = self.finance.record_reorg_adjustment(
+            "testnet", "0xTx1", "log:0", adjustment_period_id="2026-11",
+            operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
+            evidence_ref="case://reorg/tx1", reviewed=True,
+        )
+        self.assertEqual(adjustment["adjustment_period_id"], "2026-11")
+        result = self.finance.close_profit_period(
+            "agent-a", "master", network="testnet", asset="USDC",
+            period_id="2026-11", reserve_bps=0, owner_share_bps=0,
+        )
+        self.assertEqual(result["gross_income_minor"], 2500)
+        self.assertEqual(result["operating_profit_minor"], 0)
+
     def test_reorg_adjustment_requires_exact_alert_and_unique_audit_record(self):
         self.monitor.poll_once(period_id="2026-11")
         self.chain.transfers = (observation(canonical=False, confirmations=0, finalized=False),)
         self.monitor.poll_once(period_id="2026-11")
-        with self.assertRaisesRegex(ValueError, "separate adjustment period"):
+        with self.assertRaisesRegex(ValueError, "open period must be corrected"):
             self.finance.record_reorg_adjustment(
                 "testnet", "0xTx1", "log:0", adjustment_period_id="2026-11",
                 operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
