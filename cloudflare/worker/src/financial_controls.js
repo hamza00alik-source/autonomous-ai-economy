@@ -18,7 +18,7 @@ function canonicalText(value) { return JSON.stringify(canonicalObject(value)); }
 function bytesToBase64Url(bytes) {
   let binary="";
   for (const byte of bytes) binary+=String.fromCharCode(byte);
-  return btoa(binary).replace(/=/g,"").replace(/\\+/g,"-").replace(/\\//g,"_");
+  return btoa(binary).split("=").join("").split("+").join("-").split("/").join("_");
 }
 function decodeBase64Url(value) {
   if(typeof value!=="string"||!/^[A-Za-z0-9_-]+$/.test(value)) return null;
