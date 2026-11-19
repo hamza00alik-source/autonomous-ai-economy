@@ -369,6 +369,72 @@ async function downloadInternalProduct(request, env, jobId) {
   });
 }
 
+async function inventoryPrivateArtifactObjects(env, url) {
+  if (!env.AAE_OWNER_ID || !env.EXECUTION_ARTIFACTS) {
+    return json({ error: "owner identity or private artifact storage is not configured" }, 503);
+  }
+  const requestedLimit = url.searchParams.get("limit");
+  const limit = requestedLimit === null ? 100 : Number(requestedLimit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    return json({ error: "limit must be an integer from 1 to 1000" }, 400);
+  }
+  const cursor = url.searchParams.get("cursor") || undefined;
+  if (cursor && cursor.length > 2048) return json({ error: "cursor is too long" }, 400);
+
+  // Read-only, one-page inventory. It never deletes, rewrites, or changes metadata.
+  const page = await env.EXECUTION_ARTIFACTS.list({
+    prefix: "internal-products/",
+    limit,
+    ...(cursor ? { cursor } : {}),
+  });
+  const objects = Array.isArray(page.objects) ? page.objects : [];
+  const keys = [...new Set(objects.map(object => object.key).filter(
+    key => typeof key === "string" && key.startsWith("internal-products/")
+  ))];
+  const matches = new Map();
+  if (keys.length) {
+    const placeholders = keys.map(() => "?").join(",");
+    const result = await env.DB.prepare(
+      "SELECT artifact_key,job_id,owner_id,status,artifact_sha256,artifact_size_bytes FROM internal_execution_jobs WHERE artifact_key IN (" + placeholders + ")"
+    ).bind(...keys).all();
+    for (const row of (result?.results || [])) matches.set(row.artifact_key, row);
+  }
+
+  const orphanCandidates = [];
+  const integrityWarnings = [];
+  let matched = 0;
+  for (const object of objects) {
+    if (typeof object.key !== "string" || !object.key.startsWith("internal-products/")) continue;
+    const row = matches.get(object.key);
+    if (!row) {
+      orphanCandidates.push({
+        key: object.key, size: object.size, uploaded: object.uploaded || null,
+        reason: "no_d1_artifact_record", action: "review_only",
+      });
+      continue;
+    }
+    matched++;
+    const metadata = object.customMetadata || {};
+    const reasons = [];
+    if (row.owner_id !== env.AAE_OWNER_ID) reasons.push("owner_mismatch");
+    if (row.status !== "delivery_ready") reasons.push("job_not_delivery_ready");
+    if (metadata.job_id && metadata.job_id !== row.job_id) reasons.push("job_id_metadata_mismatch");
+    if (metadata.owner_id && metadata.owner_id !== row.owner_id) reasons.push("owner_metadata_mismatch");
+    if (metadata.sha256 && metadata.sha256 !== row.artifact_sha256) reasons.push("sha256_metadata_mismatch");
+    if (Number.isFinite(row.artifact_size_bytes) && object.size !== row.artifact_size_bytes) reasons.push("size_mismatch");
+    if (reasons.length) integrityWarnings.push({ key: object.key, job_id: row.job_id, reasons });
+  }
+
+  return json({
+    mode: "dry_run_read_only", owner_id: env.AAE_OWNER_ID, prefix: "internal-products/",
+    page_limit: limit, objects_scanned: objects.length, matched_d1_records: matched,
+    orphan_candidate_count: orphanCandidates.length, orphan_candidates: orphanCandidates,
+    integrity_warning_count: integrityWarnings.length, integrity_warnings: integrityWarnings,
+    complete: !page.truncated, next_cursor: page.truncated ? page.cursor || null : null,
+    deletion_performed: false, metadata_modified: false,
+  });
+}
+
 async function taskStatus(request, env, taskId) {
   const row = await env.DB.prepare(
     "SELECT task_id,task_type,status,result_json,error,created_at,updated_at FROM ai_tasks WHERE task_id=?"
@@ -949,7 +1015,7 @@ export default {
       return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
-    const internalJobStatusMatch = url.pathname.match(/^\/v1\/owner\/internal-products\/jobs\/([0-9a-f-]{36})$/i);
+    if (url.pathname === "/v1/owner/internal-products/artifacts/inventory" && request.method === "GET") {\n      return inventoryPrivateArtifactObjects(env, url);\n    }\n    const internalJobStatusMatch = url.pathname.match(/^\/v1\/owner\/internal-products\/jobs\/([0-9a-f-]{36})$/i);
     if (internalJobStatusMatch && request.method === "GET") {
       return internalProductJobStatus(env, internalJobStatusMatch[1]);
     }
