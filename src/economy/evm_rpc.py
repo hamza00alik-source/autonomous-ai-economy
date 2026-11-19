@@ -123,6 +123,23 @@ class EVMJSONRPCSource:
         finalized = self._rpc_block("finalized")
         return self._quantity(finalized.get("number"), "finalized block number")
 
+    def token_balance(self, address: str) -> int:
+        """Read the raw ERC-20 balanceOf(address) amount for the configured token."""
+        if not _ADDRESS_RE.fullmatch(address or ""):
+            raise ValueError("address must be a valid EVM address")
+        actual_chain_id = self._quantity(self._rpc_call("eth_chainId", []), "chain ID")
+        if actual_chain_id != self.config.chain_id:
+            raise EVMRPCError(
+                f"RPC chain ID mismatch: expected {self.config.chain_id}, got {actual_chain_id}"
+            )
+        calldata = "0x70a08231" + ("0" * 24) + address[2:].lower()
+        result = self._rpc_call("eth_call", [
+            {"to": self.config.token_contract, "data": calldata}, "latest"
+        ])
+        if not isinstance(result, str) or not re.fullmatch(r"0x[0-9a-fA-F]{64}", result):
+            raise EVMRPCError("RPC returned malformed ERC-20 balanceOf result")
+        return int(result, 16)
+
     def is_transfer_canonical(
         self, *, network: str, token_contract: str, tx_hash: str,
         transfer_ref: str, expected_block_number: int, expected_block_hash: str,
