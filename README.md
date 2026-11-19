@@ -226,3 +226,5 @@ Cloud financial control implementation includes authenticated owner APIs, locall
 
  
 Cloud owner enrollment now uses a one-time proof-of-possession challenge. The Android-friendly owner dashboard can generate/import an Ed25519 key, sign enrollment and cloud policies locally with WebCrypto, and submit only public key material and signatures. Private keys stay in browser-tab memory; generated key backups must be saved securely. The local `economy-finance cloud-enrollment-sign` and `cloud-policy-sign` commands are available as an alternative. Enrollment creates empty accounts and leaves emergency pause active; it does not fund agents or enable payments. See [cloud financial controls and enrollment](docs/cloud-financial-source-of-truth.md).
+
+Provider settlement is deliberately not connected to cloud agent budgets yet. Plisio remains a conditional technical candidate only; Pakistan merchant eligibility, the legal perimeter, final payout evidence, token-asset accounting and owner-signed allocation shares remain unresolved. See [provider settlement readiness](docs/provider-settlement-readiness.md).
