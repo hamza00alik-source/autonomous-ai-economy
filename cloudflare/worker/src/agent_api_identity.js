@@ -55,7 +55,7 @@ export async function registerAgentApiKey(db,{ownerId,agentId,publicKeyJwk,owner
   return {ok:true,idempotent:false,key_id:keyId,key_fingerprint:fingerprint};
 }
 export async function authenticateAgentRequest(db,{agentId,method,path,body,timestamp,nonce,signature,keyFingerprint,nowMs=Date.now()}={}) {
-  if(!ID.test(agentId||"")||!Number.isSafeInteger(Number(timestamp))||!B64URL.test(nonce||"")||nonce.length<16||nonce.length>96) return {ok:false,reason:"invalid_agent_auth_headers"};
+  if(!ID.test(agentId||"")||typeof keyFingerprint!=="string"||!/^[0-9a-f]{64}$/.test(keyFingerprint)||!Number.isSafeInteger(Number(timestamp))||!B64URL.test(nonce||"")||nonce.length<16||nonce.length>96) return {ok:false,reason:"invalid_agent_auth_headers"};
   const requestTime=Number(timestamp);
   if(Math.abs(nowMs-requestTime)>300_000) return {ok:false,reason:"agent_request_timestamp_outside_window"};
   const key=await db.prepare("SELECT key_id,owner_id,agent_id,public_key_jwk FROM financial_agent_api_keys WHERE agent_id=? AND key_fingerprint=? AND status='active'")
