@@ -89,6 +89,17 @@ class CollectiveTreasuryStore:
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY(network, tx_hash, transfer_ref)
                 );
+                CREATE TABLE IF NOT EXISTS treasury_payment_intents (
+                    attribution_ref TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    expected_amount_minor INTEGER NOT NULL CHECK(expected_amount_minor > 0),
+                    status TEXT NOT NULL CHECK(status IN ('pending','settled')),
+                    settled_tx_hash TEXT,
+                    settled_transfer_ref TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE TABLE IF NOT EXISTS treasury_spend_reservations (
                     reservation_id TEXT PRIMARY KEY,
                     agent_id TEXT NOT NULL,
@@ -227,32 +238,89 @@ class CollectiveTreasuryStore:
         if isinstance(transfer.confirmations, bool) or not isinstance(transfer.confirmations, int) or transfer.confirmations < 1:
             raise ValueError("transfer must have at least one confirmation")
 
+    def create_payment_intent(self, agent_id: str, network: str, asset: str,
+                              expected_amount_minor: int, *, attribution_ref: str) -> None:
+        """Create the trusted internal mapping needed to attribute a shared-wallet deposit."""
+        if isinstance(expected_amount_minor, bool) or not isinstance(expected_amount_minor, int) or expected_amount_minor <= 0:
+            raise ValueError("expected_amount_minor must be a positive integer")
+        agent_id = self._required(agent_id, "agent_id")
+        network = self._required(network, "network")
+        asset = self._required(asset, "asset").upper()
+        attribution_ref = self._required(attribution_ref, "attribution_ref")
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            agent = db.execute(
+                "SELECT 1 FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
+                (agent_id, network, asset),
+            ).fetchone()
+            if not agent:
+                db.rollback()
+                raise ValueError("agent has no virtual treasury account")
+            existing = db.execute(
+                "SELECT * FROM treasury_payment_intents WHERE attribution_ref=?",
+                (attribution_ref,),
+            ).fetchone()
+            if existing:
+                expected = (existing["agent_id"], existing["network"], existing["asset"],
+                            existing["expected_amount_minor"])
+                actual = (agent_id, network, asset, expected_amount_minor)
+                if expected != actual:
+                    db.rollback()
+                    raise ValueError("payment intent reference already belongs to different terms")
+                db.commit()
+                return
+            db.execute(
+                """INSERT INTO treasury_payment_intents
+                   (attribution_ref,agent_id,network,asset,expected_amount_minor,status)
+                   VALUES(?,?,?,?,?,'pending')""",
+                (attribution_ref, agent_id, network, asset, expected_amount_minor),
+            )
+            db.commit()
+
     def record_receipt(self, transfer: VerifiedTransfer, *, period_id: str,
                        agent_id: str | None = None, attribution_ref: str | None = None) -> str:
-        """Credit a verified deposit, or hold it in suspense until attributed.
+        """Credit a verified deposit, or hold it in suspense until its intent is matched.
 
-        EVM ERC-20 transfers to one shared address carry no arbitrary memo. AAE
-        must match attribution_ref to an independently verified invoice/payment
-        intent; otherwise the receipt stays unallocated.
+        A shared EVM address has no memo field. Agent credit therefore requires a
+        pre-created internal payment intent with exact agent, network, asset and
+        amount. Unmatched transfers remain unallocated; caller-supplied labels alone
+        are never sufficient proof of ownership.
         """
         self._validate_transfer(transfer)
         period_id = self._required(period_id, "period_id")
         wallet = self.treasury_wallet(transfer.network, transfer.asset)
         if not wallet or transfer.destination.lower() != wallet.address.lower():
             raise ValueError("incoming transfer destination is not the collective treasury")
-        if agent_id:
-            with closing(self._connect()) as db:
-                agent = db.execute(
-                    "SELECT 1 FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
-                    (agent_id, transfer.network, transfer.asset.upper()),
-                ).fetchone()
-            if not agent:
-                raise ValueError("agent has no virtual treasury account")
-        account = f"agent:{agent_id}" if agent_id else "treasury:unallocated"
-        status = "allocated" if agent_id else "unallocated"
+        if agent_id and not (isinstance(attribution_ref, str) and attribution_ref.strip()):
+            raise ValueError("verified payment intent reference is required for direct agent credit")
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
+                intent = None
+                if attribution_ref:
+                    intent = db.execute(
+                        "SELECT * FROM treasury_payment_intents WHERE attribution_ref=?",
+                        (attribution_ref,),
+                    ).fetchone()
+                    if (not intent or intent["network"] != transfer.network
+                            or intent["asset"] != transfer.asset.upper()
+                            or intent["expected_amount_minor"] != transfer.amount_minor
+                            or intent["status"] != "pending"):
+                        raise ValueError("receipt does not match a pending verified payment intent")
+                    if agent_id and intent["agent_id"] != agent_id:
+                        raise ValueError("payment intent belongs to a different agent")
+                if agent_id:
+                    account = db.execute(
+                        "SELECT 1 FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
+                        (agent_id, transfer.network, transfer.asset.upper()),
+                    ).fetchone()
+                    if not account:
+                        raise ValueError("agent has no virtual treasury account")
+                    status = "allocated"
+                    account_id = f"agent:{agent_id}"
+                else:
+                    status = "unallocated"
+                    account_id = "treasury:unallocated"
                 db.execute(
                     """INSERT INTO treasury_receipts
                        (network,asset,tx_hash,transfer_ref,amount_minor,source_address,
@@ -262,20 +330,30 @@ class CollectiveTreasuryStore:
                      transfer.transfer_ref, transfer.amount_minor, transfer.source,
                      transfer.destination, attribution_ref, agent_id, status, period_id),
                 )
-                self._insert_entry(db, account, transfer.network, transfer.asset.upper(),
+                self._insert_entry(db, account_id, transfer.network, transfer.asset.upper(),
                                    "receipt", "credit", transfer.amount_minor, period_id,
                                    "Verified on-chain treasury receipt", transfer.tx_hash,
                                    transfer.transfer_ref)
+                if agent_id and intent:
+                    db.execute(
+                        """UPDATE treasury_payment_intents
+                           SET status='settled',settled_tx_hash=?,settled_transfer_ref=?
+                           WHERE attribution_ref=? AND status='pending'""",
+                        (transfer.tx_hash, transfer.transfer_ref, attribution_ref),
+                    )
                 db.commit()
             except sqlite3.IntegrityError as exc:
                 db.rollback()
                 raise ValueError("duplicate or conflicting treasury receipt") from exc
+            except Exception:
+                db.rollback()
+                raise
         return "allocated" if agent_id else "unallocated"
 
     def attribute_receipt(self, network: str, asset: str, tx_hash: str,
                           transfer_ref: str, agent_id: str, *,
                           expected_attribution_ref: str) -> None:
-        """Move a suspense receipt to an agent only after payment-intent matching."""
+        """Allocate suspense only to the agent named by the exact pending intent."""
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             receipt = db.execute(
@@ -283,19 +361,21 @@ class CollectiveTreasuryStore:
                    WHERE network=? AND asset=? AND tx_hash=? AND transfer_ref=?""",
                 (network, asset.upper(), tx_hash, transfer_ref),
             ).fetchone()
-            agent = db.execute(
-                "SELECT 1 FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
-                (agent_id, network, asset.upper()),
+            intent = db.execute(
+                "SELECT * FROM treasury_payment_intents WHERE attribution_ref=?",
+                (expected_attribution_ref,),
             ).fetchone()
             if not receipt or receipt["status"] != "unallocated":
                 db.rollback()
                 raise ValueError("unallocated receipt not found")
-            if not agent:
+            if (not intent or intent["status"] != "pending"
+                    or intent["agent_id"] != agent_id
+                    or intent["network"] != network
+                    or intent["asset"] != asset.upper()
+                    or intent["expected_amount_minor"] != receipt["amount_minor"]
+                    or receipt["attribution_ref"] != expected_attribution_ref):
                 db.rollback()
-                raise ValueError("agent has no virtual treasury account")
-            if not expected_attribution_ref or receipt["attribution_ref"] != expected_attribution_ref:
-                db.rollback()
-                raise ValueError("payment attribution reference does not match verified payment intent")
+                raise ValueError("receipt does not match this agent's pending payment intent")
             self._insert_entry(db, "treasury:unallocated", network, asset.upper(),
                                "attribution_out", "debit", receipt["amount_minor"],
                                receipt["period_id"], "Receipt assigned from suspense",
@@ -308,6 +388,12 @@ class CollectiveTreasuryStore:
                 """UPDATE treasury_receipts SET attributed_agent_id=?,status='allocated'
                    WHERE network=? AND asset=? AND tx_hash=? AND transfer_ref=?""",
                 (agent_id, network, asset.upper(), tx_hash, transfer_ref),
+            )
+            db.execute(
+                """UPDATE treasury_payment_intents
+                   SET status='settled',settled_tx_hash=?,settled_transfer_ref=?
+                   WHERE attribution_ref=? AND status='pending'""",
+                (tx_hash, transfer_ref, expected_attribution_ref),
             )
             db.commit()
 
@@ -416,13 +502,14 @@ class CollectiveTreasuryStore:
             if cur.rowcount != 1:
                 raise ValueError("only a reserved spend can be marked broadcast")
 
-    def mark_uncertain(self, reservation_id: str) -> None:
-        """Hold funds after an ambiguous provider timeout; never blindly resend."""
+    def mark_uncertain(self, reservation_id: str, tx_hash: str | None = None) -> None:
+        """Hold funds after ambiguous submission; optionally persist its known tx hash."""
         with closing(self._connect()) as db:
             cur = db.execute(
-                """UPDATE treasury_spend_reservations SET status='uncertain'
-                   WHERE reservation_id=? AND status IN ('reserved','broadcast')""",
-                (reservation_id,),
+                """UPDATE treasury_spend_reservations SET status='uncertain',
+                       tx_hash=COALESCE(?,tx_hash)
+                   WHERE reservation_id=? AND status IN ('reserved','broadcast','uncertain')""",
+                (tx_hash, reservation_id),
             )
             if cur.rowcount != 1:
                 raise ValueError("spend reservation cannot enter uncertain state")
@@ -462,6 +549,9 @@ class CollectiveTreasuryStore:
             ):
                 db.rollback()
                 raise ValueError("verified settlement does not match the exact reservation")
+            if reservation["tx_hash"] and reservation["tx_hash"] != transfer.tx_hash:
+                db.rollback()
+                raise ValueError("verified transaction hash does not match recorded broadcast hash")
             try:
                 self._insert_entry(db, f"agent:{reservation['agent_id']}", transfer.network,
                                    transfer.asset.upper(), "expense", "debit",
@@ -491,6 +581,15 @@ class CollectiveTreasuryStore:
             if existing:
                 db.commit()
                 return dict(existing)
+            pending = db.execute(
+                """SELECT 1 FROM treasury_spend_reservations
+                   WHERE agent_id=? AND network=? AND asset=? AND period_id=?
+                     AND status IN ('reserved','broadcast','uncertain') LIMIT 1""",
+                (agent_id, network, asset.upper(), period_id),
+            ).fetchone()
+            if pending:
+                db.rollback()
+                raise ValueError("cannot close period while agent spend reservations are unresolved")
             totals = db.execute(
                 """SELECT
                     COALESCE(SUM(CASE WHEN entry_type='receipt' OR entry_type='attribution_in' THEN amount_minor ELSE 0 END),0) AS income,
