@@ -74,6 +74,7 @@ def test_rejects_illegal_state_skips_and_unverified_settlement():
         store = FulfillmentStore(
             Path(directory) / "fulfillment.sqlite3",
             identity_verifier=lambda *_: True,
+            owner_approval_verifier=lambda token, job_id, action: token == f"approved:{job_id}:{action}",
             acceptance_verifier=lambda *_: True,
             settlement_verifier=lambda *_: {"verified": False},
         )
