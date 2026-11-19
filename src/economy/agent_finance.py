@@ -109,6 +109,33 @@ class AgentFinanceStore:
                     UNIQUE(agent_id, network, asset, period_id),
                     UNIQUE(network, payout_tx_hash)
                 );
+                CREATE TABLE IF NOT EXISTS finance_adjustments (
+                    adjustment_id TEXT PRIMARY KEY,
+                    participant_id TEXT NOT NULL,
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    adjustment_type TEXT NOT NULL CHECK(adjustment_type='income_reversal'),
+                    amount_minor INTEGER NOT NULL CHECK(amount_minor > 0),
+                    original_tx_hash TEXT NOT NULL,
+                    original_transfer_ref TEXT NOT NULL,
+                    adjustment_period_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(network, original_tx_hash, original_transfer_ref)
+                );
+                CREATE INDEX IF NOT EXISTS idx_finance_adjustments_period
+                    ON finance_adjustments(participant_id, network, asset, adjustment_period_id);
+                CREATE TABLE IF NOT EXISTS reorg_alert_resolutions (
+                    network TEXT NOT NULL,
+                    tx_hash TEXT NOT NULL,
+                    transfer_ref TEXT NOT NULL,
+                    adjustment_id TEXT NOT NULL UNIQUE,
+                    operator_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    evidence_ref TEXT NOT NULL,
+                    reviewed_at TEXT NOT NULL,
+                    PRIMARY KEY(network, tx_hash, transfer_ref)
+                );
             """)
 
     def _connect(self) -> sqlite3.Connection:
@@ -245,8 +272,13 @@ class AgentFinanceStore:
             ).fetchone()
             if monitor_table:
                 unresolved_reorg = db.execute(
-                    """SELECT 1 FROM chain_monitor_events
-                       WHERE participant_id=? AND period_id=? AND status='reorg_alert' LIMIT 1""",
+                    """SELECT 1 FROM chain_monitor_events c
+                       WHERE c.participant_id=? AND c.period_id=? AND c.status='reorg_alert'
+                         AND NOT EXISTS (
+                           SELECT 1 FROM reorg_alert_resolutions r
+                           WHERE r.network=c.network AND r.tx_hash=c.tx_hash
+                             AND r.transfer_ref=c.transfer_ref
+                         ) LIMIT 1""",
                     (agent_id, period_id),
                 ).fetchone()
                 if unresolved_reorg:
@@ -261,7 +293,14 @@ class AgentFinanceStore:
                 (agent_id, network, asset, period_id),
             ).fetchone()
             income, expenses = int(totals["income"]), int(totals["expenses"])
-            operating_profit = max(0, income - expenses)
+            reversals = db.execute(
+                """SELECT COALESCE(SUM(amount_minor),0) AS amount
+                   FROM finance_adjustments
+                   WHERE participant_id=? AND network=? AND asset=? AND adjustment_period_id=?""",
+                (agent_id, network, asset, period_id),
+            ).fetchone()
+            income_reversals = int(reversals["amount"])
+            operating_profit = max(0, income - expenses - income_reversals)
             reserve = operating_profit * reserve_bps // 10_000
             distributable = operating_profit - reserve
             master_due = distributable * owner_share_bps // 10_000
@@ -284,6 +323,103 @@ class AgentFinanceStore:
             )
             db.commit()
             return dict(self.get_profit_period(agent_id, network, asset, period_id))
+
+    def record_reorg_adjustment(
+        self, network: str, tx_hash: str, transfer_ref: str, *,
+        adjustment_period_id: str, operator_id: str, reason: str,
+        evidence_ref: str, reviewed: bool,
+    ) -> dict:
+        """Record a reviewed full reversal without rewriting the original receipt.
+
+        The reversal is booked in a separate, still-open accounting period. The
+        caller must enforce operator authorization and independently review the
+        evidence before setting reviewed=True; this method records that audit
+        assertion but is not an authentication system.
+        """
+        required = (network, tx_hash, transfer_ref, adjustment_period_id,
+                    operator_id, reason, evidence_ref)
+        if not all(isinstance(v, str) and v.strip() for v in required):
+            raise ValueError("network, transfer identity, adjustment period, operator, reason and evidence are required")
+        if len(reason.strip()) < 12:
+            raise ValueError("reason must explain the adjustment (12+ characters)")
+        if reviewed is not True:
+            raise ValueError("an explicit reviewed=True confirmation is required")
+        idempotency_key = f"reorg-income-reversal:{network}:{tx_hash}:{transfer_ref}"
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            prior = db.execute(
+                """SELECT a.*, r.operator_id, r.reason, r.evidence_ref
+                   FROM finance_adjustments a
+                   JOIN reorg_alert_resolutions r ON r.adjustment_id=a.adjustment_id
+                   WHERE a.network=? AND a.original_tx_hash=? AND a.original_transfer_ref=?""",
+                (network, tx_hash, transfer_ref),
+            ).fetchone()
+            if prior:
+                if (prior["adjustment_period_id"] != adjustment_period_id
+                        or prior["operator_id"] != operator_id
+                        or prior["reason"] != reason.strip()
+                        or prior["evidence_ref"] != evidence_ref.strip()):
+                    db.rollback()
+                    raise ValueError("reorg adjustment already exists with different audit details")
+                db.commit()
+                return dict(prior)
+            alert = db.execute(
+                """SELECT * FROM chain_monitor_events
+                   WHERE network=? AND tx_hash=? AND transfer_ref=? AND status='reorg_alert'""",
+                (network, tx_hash, transfer_ref),
+            ).fetchone()
+            if not alert:
+                db.rollback()
+                raise ValueError("an active reorganization alert is required")
+            original = db.execute(
+                """SELECT * FROM finance_events
+                   WHERE network=? AND tx_hash=? AND transfer_ref=?""",
+                (network, tx_hash, transfer_ref),
+            ).fetchone()
+            if (not original or original["participant_id"] != alert["participant_id"]
+                    or original["event_type"] != "income"
+                    or int(original["amount_minor"]) != int(alert["amount_minor"])):
+                db.rollback()
+                raise ValueError("alert does not match an original credited income event")
+            if adjustment_period_id == alert["period_id"]:
+                db.rollback()
+                raise ValueError("reorg correction must be booked in a separate adjustment period")
+            closed = db.execute(
+                """SELECT 1 FROM profit_periods
+                   WHERE agent_id=? AND network=? AND asset=? AND period_id=?""",
+                (alert["participant_id"], network, alert["asset"], adjustment_period_id),
+            ).fetchone()
+            if closed:
+                db.rollback()
+                raise ValueError("adjustment period is already closed")
+            adjustment_id = "adj_" + uuid.uuid4().hex
+            created_at = _now()
+            db.execute(
+                """INSERT INTO finance_adjustments
+                   (adjustment_id,participant_id,network,asset,adjustment_type,amount_minor,
+                    original_tx_hash,original_transfer_ref,adjustment_period_id,idempotency_key,created_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (adjustment_id, alert["participant_id"], network, alert["asset"],
+                 "income_reversal", int(original["amount_minor"]), tx_hash, transfer_ref,
+                 adjustment_period_id, idempotency_key, created_at),
+            )
+            db.execute(
+                """INSERT INTO reorg_alert_resolutions
+                   (network,tx_hash,transfer_ref,adjustment_id,operator_id,reason,evidence_ref,reviewed_at)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                (network, tx_hash, transfer_ref, adjustment_id, operator_id,
+                 reason.strip(), evidence_ref.strip(), created_at),
+            )
+            db.commit()
+            return {
+                "adjustment_id": adjustment_id, "participant_id": alert["participant_id"],
+                "network": network, "asset": alert["asset"], "adjustment_type": "income_reversal",
+                "amount_minor": int(original["amount_minor"]), "original_tx_hash": tx_hash,
+                "original_transfer_ref": transfer_ref, "adjustment_period_id": adjustment_period_id,
+                "idempotency_key": idempotency_key, "operator_id": operator_id,
+                "reason": reason.strip(), "evidence_ref": evidence_ref.strip(),
+                "created_at": created_at,
+            }
 
     def list_pending_distributions(self, limit: int = 100) -> list[dict]:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
