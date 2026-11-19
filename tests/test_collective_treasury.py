@@ -324,11 +324,12 @@ class CollectiveTreasuryTests(unittest.TestCase):
             )
 
     def test_suspense_attribution_rechecks_cap_at_allocation_time(self):
-        self.store.record_receipt(
-            self.transfer(amount=1, tx="0x" + "9" * 64), period_id="2026-11",
-        )
         self.store.create_payment_intent(
             "agent-a", "base-sepolia", "USDC", 1,
+            attribution_ref="invoice:suspense-cap",
+        )
+        self.store.record_receipt(
+            self.transfer(amount=1, tx="0x" + "9" * 64), period_id="2026-11",
             attribution_ref="invoice:suspense-cap",
         )
         # Simulate an out-of-band/legacy ledger credit between intent creation
