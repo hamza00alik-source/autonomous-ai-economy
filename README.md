@@ -223,3 +223,6 @@ The private owner console now also supports registering a policy signed locally 
 
 
 Cloud financial control implementation includes authenticated owner APIs, locally signed policy registration, D1-triggered reservation caps, atomic simulated expense journaling, retry-safe recurring occurrences, reservation expiry and owner emergency pause. The owner dashboard displays policies, budgets, reservations and schedules. This branch is still unmerged and un-deployed; cloud owner/operator/agent enrollment, account funding/allocation, production D1 migration and owner-specific authentication hardening are activation gates.
+
+ 
+Cloud owner enrollment now uses a one-time proof-of-possession challenge. The Android-friendly owner dashboard can generate/import an Ed25519 key, sign enrollment and cloud policies locally with WebCrypto, and submit only public key material and signatures. Private keys stay in browser-tab memory; generated key backups must be saved securely. The local `economy-finance cloud-enrollment-sign` and `cloud-policy-sign` commands are available as an alternative. Enrollment creates empty accounts and leaves emergency pause active; it does not fund agents or enable payments. See [cloud financial controls and enrollment](docs/cloud-financial-source-of-truth.md).
