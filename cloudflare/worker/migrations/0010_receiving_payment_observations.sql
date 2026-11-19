@@ -31,3 +31,22 @@ BEGIN SELECT RAISE(ABORT,'payment observation evidence is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_financial_receiving_observations_no_delete
 BEFORE DELETE ON financial_receiving_payment_observations
 BEGIN SELECT RAISE(ABORT,'payment observation evidence is retained'); END;
+
+-- Insert only against an invoice that is still awaiting payment; atomically
+-- advance the invoice to confirmed or review with the immutable observation.
+CREATE TRIGGER IF NOT EXISTS trg_financial_receiving_observation_requires_open_invoice
+BEFORE INSERT ON financial_receiving_payment_observations
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM financial_receiving_invoices i
+    WHERE i.invoice_id=NEW.invoice_id AND i.owner_id=NEW.owner_id AND i.agent_id=NEW.agent_id
+      AND i.network=NEW.network AND i.status='awaiting_payment'
+  ) THEN RAISE(ABORT,'receiving invoice is not open for payment observation') END;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_receiving_observation_updates_invoice
+AFTER INSERT ON financial_receiving_payment_observations
+BEGIN
+  UPDATE financial_receiving_invoices SET status=NEW.status,updated_at=NEW.observed_at
+  WHERE invoice_id=NEW.invoice_id AND status='awaiting_payment';
+END;
