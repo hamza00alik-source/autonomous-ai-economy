@@ -553,6 +553,15 @@ test("owner business pipeline returns honest product, listing, delivery and reco
                 if (sql.includes("COUNT(*)") && sql.includes("agent_revenue_events")) return { results: [
                   { status: "settled_pending_reconciliation", total: 1, gross_minor: 500, reconciled_net_minor: 0 },
                 ] };
+                if (sql.includes("FROM revenue_opportunity_imports") && sql.includes("GROUP BY source")) return { results: [{ source: "taskmarket", total: 1 }] };
+                if (sql.includes("FROM revenue_opportunity_imports")) return { results: [{
+                  source: "taskmarket", external_id: "0x" + "1".repeat(64), title: "Build a small API",
+                  url: "https://taskmarket.example/tasks/1", currency: "USDC", gross_reward: "2.00", net_reward: "1.80",
+                  source_status: "ready_for_owner_review", priority_score: 90, fit_score: 80, evidence_confidence: 100,
+                  source_escrow_claimed: 1, reasons_json: "[]", discovered_at: "2026-11-19T10:00:00.000Z",
+                  imported_at: "2026-11-19T10:05:00.000Z", review_status: "needs_owner_review",
+                  independent_escrow_verified: 0, payment_verified: 0, claim_allowed: 0,
+                }] };
                 if (sql.includes("FROM agent_revenue_events")) return { results: [{
                   order_id: "moba-order-001", status: "settled_pending_reconciliation",
                   gross_amount_minor: 500, gross_currency: "usd", net_amount_minor: null,
@@ -571,7 +580,12 @@ test("owner business pipeline returns honest product, listing, delivery and reco
   assert.equal(response.status, 200);
   const result = await response.json();
   assert.equal(result.product.product_id, "moba-objective-props");
-  assert.equal(result.stages.opportunity_discovery.status, "not_connected");
+  assert.equal(result.stages.opportunity_discovery.status, "imported_shortlist_available");
+  assert.equal(result.stages.opportunity_discovery.total, 1);
+  assert.equal(result.opportunities[0].source_escrow_claimed, true);
+  assert.equal(result.opportunities[0].independent_escrow_verified, false);
+  assert.equal(result.opportunities[0].payment_verified, false);
+  assert.equal(result.opportunities[0].claim_allowed, false);
   assert.equal(result.stages.quality_assurance.visual_review_required, true);
   assert.equal(result.stages.listing.publication_enabled, false);
   assert.equal(result.stages.checkout.enabled, false);
@@ -585,7 +599,7 @@ test("owner business pipeline returns honest product, listing, delivery and reco
   assert.equal(result.revenue_events[0].net_amount_minor, null);
   assert.equal(result.controls.read_only, true);
   assert.equal(result.controls.revenue_counted_only_when_reconciled, true);
-  assert.equal(queries.length, 8);
+  assert.equal(queries.length, 10);
   assert.ok(queries.some(query => query.sql.includes("WHERE owner_id=?") && query.values[0] === "owner-001"));
   assert.ok(queries.some(query => query.sql.includes("WHERE product_id=?") && query.values[0] === "moba-objective-props"));
 });
@@ -608,4 +622,83 @@ test("owner business pipeline validates limits and authenticates before touching
     DB: { prepare() { throw new Error("missing owner must not query D1"); } },
   });
   assert.equal(missingOwner.status, 503);
+});
+
+
+function opportunityImportRequest(payload, token = "owner-token", contentType = "application/json") {
+  return new Request("https://aae.example/v1/owner/revenue-opportunities/import", {
+    method: "POST",
+    headers: { authorization: "Bearer " + token, "content-type": contentType },
+    body: JSON.stringify(payload),
+  });
+}
+
+function sampleImportedOpportunity(overrides = {}) {
+  return {
+    source: "taskmarket", external_id: "task-001", title: "Build a small API",
+    url: "https://taskmarket.example/tasks/1", currency: "USDC",
+    gross_reward: "2.00", net_reward: "1.80", status: "ready_for_owner_review",
+    priority_score: 90, fit_score: 80, evidence_confidence: 100,
+    escrow_verified: true, reasons: [], discovered_at: "2026-11-19T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+test("owner opportunity import stores untrusted candidates as owner-review-only", async () => {
+  const writes = [];
+  const env = {
+    AAE_QUEUE_TOKEN: "owner-token", AAE_OWNER_ID: "owner-001",
+    DB: { prepare(sql) { return { bind(...values) { return { async run() { writes.push({ sql, values }); return { success: true }; } }; } }; } },
+  };
+  const response = await worker.fetch(opportunityImportRequest({ opportunities: [sampleImportedOpportunity()] }), env);
+  assert.equal(response.status, 202);
+  const result = await response.json();
+  assert.equal(result.imported, 1);
+  assert.equal(result.enforced.review_status, "needs_owner_review");
+  assert.equal(result.enforced.independent_escrow_verified, false);
+  assert.equal(result.enforced.payment_verified, false);
+  assert.equal(result.enforced.claim_allowed, false);
+  assert.equal(writes.length, 1);
+  assert.match(writes[0].sql, /independent_escrow_verified,payment_verified,claim_allowed/);
+  assert.match(writes[0].sql, /'needs_owner_review',0,0,0/);
+  assert.equal(writes[0].values[0], "owner-001");
+  assert.equal(writes[0].values[12], 1);
+});
+
+test("owner opportunity import rejects unsafe or oversized input before D1 writes", async () => {
+  let touched = false;
+  const env = {
+    AAE_QUEUE_TOKEN: "owner-token", AAE_OWNER_ID: "owner-001",
+    DB: { prepare() { touched = true; throw new Error("invalid input must not write"); } },
+  };
+  const invalid = await worker.fetch(opportunityImportRequest({
+    opportunities: [sampleImportedOpportunity({ url: "http://unsafe.example/task" })],
+  }), env);
+  assert.equal(invalid.status, 400);
+  const unknownField = await worker.fetch(opportunityImportRequest({
+    opportunities: [sampleImportedOpportunity({ claim_allowed: true })],
+  }), env);
+  assert.equal(unknownField.status, 400);
+  const tooMany = await worker.fetch(opportunityImportRequest({
+    opportunities: Array.from({ length: 26 }, (_, i) => sampleImportedOpportunity({ external_id: "task-" + i })),
+  }), env);
+  assert.equal(tooMany.status, 400);
+  const unauthorized = await worker.fetch(opportunityImportRequest({
+    opportunities: [sampleImportedOpportunity()],
+  }, "wrong-token"), env);
+  assert.equal(unauthorized.status, 401);
+  assert.equal(touched, false);
+});
+
+test("owner opportunity import requires JSON and configured owner identity", async () => {
+  const noJson = await worker.fetch(opportunityImportRequest({ opportunities: [sampleImportedOpportunity()] }, "owner-token", "text/plain"), {
+    AAE_QUEUE_TOKEN: "owner-token", AAE_OWNER_ID: "owner-001",
+    DB: { prepare() { throw new Error("wrong content type must not write"); } },
+  });
+  assert.equal(noJson.status, 415);
+  const noOwner = await worker.fetch(opportunityImportRequest({ opportunities: [sampleImportedOpportunity()] }), {
+    AAE_QUEUE_TOKEN: "owner-token",
+    DB: { prepare() { throw new Error("missing owner must not write"); } },
+  });
+  assert.equal(noOwner.status, 503);
 });
