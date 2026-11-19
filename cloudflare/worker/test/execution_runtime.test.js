@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { webcrypto, createHmac } from "node:crypto";
 import worker from "../src/index.js";
+import { createExecutionApprovalChallenge } from "../src/execution_approval.js";
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
 
@@ -11,8 +12,8 @@ async function sha256(value) {
   return hex(await crypto.subtle.digest("SHA-256", value));
 }
 
-function fakeDb() {
-  const state = { job: null, events: [] };
+function fakeDb(publicKeyJwk) {
+  const state = { job: null, events: [], consumed: new Set() };
   return {
     state,
     prepare(sql) {
@@ -20,7 +21,7 @@ function fakeDb() {
       return {
         bind(...args) { values = args; return this; },
         async first() {
-          if (sql.includes("FROM financial_participants")) return { participant_id: "owner-001" };
+          if (sql.includes("FROM financial_participants")) return { participant_id: "owner-001", public_key_jwk: JSON.stringify(publicKeyJwk) };
           if (sql.startsWith("SELECT artifact_key,artifact_sha256")) {
             if (state.job && state.job.job_id === values[0] && state.job.owner_id === values[1]) return state.job;
             return null;
@@ -40,6 +41,12 @@ function fakeDb() {
           return null;
         },
         async run() {
+          if (sql.startsWith("INSERT INTO internal_execution_approval_nonces")) {
+            const nonceKey = values[0] + ":" + values[1];
+            if (state.consumed.has(nonceKey)) throw new Error("UNIQUE constraint failed");
+            state.consumed.add(nonceKey);
+            return { success: true };
+          }
           if (sql.startsWith("INSERT OR IGNORE INTO internal_execution_jobs")) {
             if (!state.job) {
               state.job = {
@@ -72,8 +79,14 @@ function fakeDb() {
   };
 }
 
-function makeEnv() {
-  const DB = fakeDb();
+async function makeEnv() {
+  const ownerKeys = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+  const publicKeyJwk = await crypto.subtle.exportKey("jwk", ownerKeys.publicKey);
+  const DB = fakeDb(publicKeyJwk);
+  const idempotencyKey = "internal-pack-v1";
+  const challenge = await createExecutionApprovalChallenge(DB, { ownerId: "owner-001", idempotencyKey });
+  const signature = await crypto.subtle.sign({ name: "Ed25519" }, ownerKeys.privateKey, new TextEncoder().encode(challenge.canonical_payload));
+  const approvalBody = { idempotency_key: idempotencyKey, approval: { canonical_payload: challenge.canonical_payload, signature: Buffer.from(signature).toString("base64url") } };
   const stored = new Map();
   const digestPromise = sha256(bytes);
   const env = {
@@ -116,7 +129,7 @@ function makeEnv() {
       }
     }
   };
-  return { env, DB, stored };
+  return { env, DB, stored, approvalBody };
 }
 
 function downloadRequest(jobId, token = "owner-token") {
@@ -149,16 +162,16 @@ test("internal product execution requires owner authentication before touching D
 });
 
 test("owner execution request rejects arbitrary fields and invalid idempotency keys", async () => {
-  const { env } = makeEnv();
-  const extra = await worker.fetch(request({ idempotency_key: "internal-pack-v1", spec: "arbitrary" }), env);
+  const { env, approvalBody } = await makeEnv();
+  const extra = await worker.fetch(request({ ...approvalBody, spec: "arbitrary" }), env);
   assert.equal(extra.status, 400);
-  const malformed = await worker.fetch(request({ idempotency_key: "x" }), env);
+  const malformed = await worker.fetch(request({ ...approvalBody, idempotency_key: "x" }), env);
   assert.equal(malformed.status, 400);
 });
 
 test("owner-approved product execution stores a verified private artifact and is idempotent", async () => {
-  const { env, DB, stored } = makeEnv();
-  const first = await worker.fetch(request(), env);
+  const { env, DB, stored, approvalBody } = await makeEnv();
+  const first = await worker.fetch(request(approvalBody), env);
   assert.equal(first.status, 201);
   const result = await first.json();
   assert.equal(result.status, "delivery_ready");
@@ -170,7 +183,7 @@ test("owner-approved product execution stores a verified private artifact and is
   assert.equal(stored.size, 1);
   assert.equal(DB.state.events.length, 3);
 
-  const second = await worker.fetch(request(), env);
+  const second = await worker.fetch(request(approvalBody), env);
   assert.equal(second.status, 200);
   const repeated = await second.json();
   assert.equal(repeated.job_id, result.job_id);
@@ -185,7 +198,7 @@ test("owner-approved product execution stores a verified private artifact and is
 });
 
 test("private artifact download requires the owner bearer token", async () => {
-  const { env } = makeEnv();
+  const { env } = await makeEnv();
   const response = await worker.fetch(downloadRequest("123e4567-e89b-42d3-a456-426614174000", "wrong-token"), env);
   assert.equal(response.status, 401);
 });
@@ -193,6 +206,6 @@ test("private artifact download requires the owner bearer token", async () => {
 test("execution fails closed when private runtime bindings are missing", async () => {
   const { env } = makeEnv();
   delete env.EXECUTION_RUNTIME;
-  const response = await worker.fetch(request(), env);
+  const response = await worker.fetch(request(approvalBody), env);
   assert.equal(response.status, 503);
 });
