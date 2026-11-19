@@ -5,6 +5,7 @@ verifier. It never accepts an LLM-supplied 'verified' boolean or handles keys.
 """
 from __future__ import annotations
 
+from contextlib import closing
 from typing import Protocol
 
 from .agent_finance import AgentFinanceStore, VerifiedTransfer
@@ -49,7 +50,7 @@ class ProfitPayoutWorker:
                 continue
             # A reorg discovered after period close must still stop an automatic
             # payout. Keep the obligation pending until the accounting is reconciled.
-            with self.store._connect() as db:
+            with closing(self.store._connect()) as db:
                 monitor_table = db.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='chain_monitor_events'"
                 ).fetchone()
