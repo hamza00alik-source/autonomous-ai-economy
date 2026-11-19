@@ -67,6 +67,16 @@ class AgentFinanceTests(unittest.TestCase):
         )
         self.assertEqual(first, second)
 
+
+    def test_closed_period_rejects_late_cashflow_events(self):
+        self.store.record_receipt("agent-a", self.transfer("income", 1000), period_id="nov")
+        self.store.close_profit_period(
+            "agent-a", "master", network="base", asset="USDC", period_id="nov",
+            reserve_bps=0, owner_share_bps=5000,
+        )
+        with self.assertRaisesRegex(ValueError, "already closed"):
+            self.store.record_receipt("agent-a", self.transfer("late-income", 100), period_id="nov")
+
     def test_owner_payout_requires_verified_transfer_to_master_wallet(self):
         self.store.record_receipt("agent-a", self.transfer("income", 1000), period_id="nov")
         self.store.close_profit_period(
