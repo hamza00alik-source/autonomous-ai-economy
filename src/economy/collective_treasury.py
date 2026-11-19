@@ -196,6 +196,8 @@ class CollectiveTreasuryStore:
     def register_treasury_wallet(self, wallet: TreasuryWallet) -> None:
         network = self._required(wallet.network, "network")
         asset = self._required(wallet.asset, "asset").upper()
+        if asset != "USDC":
+            raise ValueError("the shared USD 500 holding cap is currently denominated in USDC")
         provider = self._required(wallet.provider, "provider")
         wallet_id = self._required(wallet.provider_wallet_id, "provider_wallet_id")
         address = self._required(wallet.address, "address")
@@ -383,6 +385,29 @@ class CollectiveTreasuryStore:
                         raise ValueError("receipt does not match a pending verified payment intent")
                     if agent_id and intent["agent_id"] != agent_id:
                         raise ValueError("payment intent belongs to a different agent")
+                # Recheck the entire pooled wallet at receipt ingestion time.
+                # Unsolicited transfers can arrive at any public EVM address and
+                # cannot be rejected on-chain; if they consume reserved capacity,
+                # do not attribute the later payment to an agent.
+                wallet_policy = db.execute(
+                    "SELECT max_balance_minor FROM treasury_wallets WHERE network=? AND asset=?",
+                    (transfer.network, transfer.asset.upper()),
+                ).fetchone()
+                pooled = db.execute(
+                    """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
+                               ELSE -amount_minor END),0) AS amount
+                       FROM treasury_entries WHERE network=? AND asset=?""",
+                    (transfer.network, transfer.asset.upper()),
+                ).fetchone()
+                pending = db.execute(
+                    """SELECT COALESCE(SUM(expected_amount_minor),0) AS amount
+                       FROM treasury_payment_intents
+                       WHERE network=? AND asset=? AND status='pending'
+                         AND attribution_ref != ?""",
+                    (transfer.network, transfer.asset.upper(), attribution_ref or ""),
+                ).fetchone()
+                if int(pooled["amount"]) + int(pending["amount"]) + transfer.amount_minor > int(wallet_policy["max_balance_minor"]):
+                    agent_id = None
                 if agent_id:
                     account = db.execute(
                         "SELECT 1 FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
@@ -531,6 +556,8 @@ class CollectiveTreasuryStore:
             "max_balance_minor": cap,
             "remaining_capacity_minor": max(0, cap - current - reserved_incoming),
             "over_cap": current > cap,
+            "excess_minor": max(0, current - cap),
+            "spending_blocked": current > cap,
             "max_balance_usd": cap / 1_000_000 if asset == "USDC" else None,
             "custody_model": "single_shared_treasury",
         }
