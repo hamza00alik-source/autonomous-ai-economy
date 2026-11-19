@@ -2,7 +2,7 @@
 
 ## What this milestone does
 
-Each enrolled agent can be assigned one owner-authorized public receiving address for Base mainnet USDC. The address is stored separately from the agent's internal accounting account. The agent can then create an idempotent, expiring payment request that returns an EIP-681 token-transfer URI for a buyer's compatible wallet.
+Each enrolled agent can be assigned one owner-authorized public receiving address for Base mainnet USDC. The address is stored separately from the agent's internal accounting account. The authenticated AAE service can create an idempotent, expiring payment request for an agent; the current endpoint is protected by the existing owner bearer token, not a dedicated per-agent credential.
 
 The supported asset is deliberately narrow:
 - Network: Base mainnet (chain ID 8453)
@@ -20,8 +20,8 @@ Independent chain observation is still required. A later settlement verifier mus
 
 ## Wallet control
 
-This is a public-address registry, not a wallet generator or signer. The address must already belong to a merchant-controlled wallet or an approved restricted signing service. The AI never receives the private key. Agent-initiated outgoing transfers are not implemented.
+This is an owner-authorized public-address registry, not proof that an AI legally owns the wallet, a wallet generator, or a signer. The address must already belong to a merchant-controlled wallet or an approved restricted signing service. The AI never receives the private key. Dedicated agent authentication, policy-limited transaction signing, outgoing transfers, and autonomous wallet operations are not implemented.
 
-## Activation boundary
+## Remaining autonomy work\n\nThis milestone lets the AAE service issue a direct-payment instruction for an agent-associated address. It does not yet let an independently authenticated agent call the invoice API without the owner service credential, observe chain events, or control funds after receipt. Those require agent-scoped credentials, an independent Base chain observer, a restricted signer/smart-account design, and asset-aware settlement/allocation accounting.\n\n## Activation boundary
 
 This code is not deployed. The existing production Worker and D1 database are unchanged. No live checkout is enabled and no payment provider account is created. The existing NOWPayments integration remains a separate provider route and is not selected for Pakistan merchant use. Owner/operator enrollment, migration, wallet registration, chain verification, legal review, and production approval remain separate gates.
