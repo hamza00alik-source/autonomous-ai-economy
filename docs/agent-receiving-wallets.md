@@ -2,7 +2,7 @@
 
 ## What this milestone does
 
-Each enrolled agent can be assigned one owner-authorized public receiving address for Base mainnet USDC. The authenticated AAE service can create an idempotent, expiring payment request for an agent. The current invoice and verification endpoints use the existing owner bearer token; dedicated per-agent credentials are not implemented.
+Each enrolled agent can be assigned one owner-authorized public receiving address for Base mainnet USDC. The authenticated AAE service can create an idempotent, expiring payment request for an agent. Agents can be registered with a dedicated Ed25519 API public key. The owner authorizes the canonical key-registration payload and the agent proves possession of the matching private key. The private key is generated and retained by the agent runtime, never stored in D1. The signed invoice endpoint accepts method/path/timestamp/nonce/body-hash signatures and rejects stale or replayed requests. The legacy owner-authenticated invoice route remains available for compatibility.
 
 Supported asset:
 - Network: Base mainnet (chain ID 8453)
@@ -44,7 +44,7 @@ The owner-authorized address registry does not prove that the AI controls the re
 
 Still required before the agent can independently use received funds:
 1. Prove wallet control or provision an agent-owned smart account through a suitable restricted signer.
-2. Give each agent a dedicated authenticated identity and narrowly scoped API capability.
+2. Provision the agent key securely in its runtime and rotate/revoke it through owner authorization; the signed API scope currently covers only creation of that agent's receiving invoices.
 3. Add owner-signed USDC allocation/spending policies and asset-aware reservations and limits.
 4. Execute transfers through a restricted signer or smart account, with on-chain transaction verification and replay protection.
 5. Complete Pakistan legal/provider eligibility review before live commercial activation.
