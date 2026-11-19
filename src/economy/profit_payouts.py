@@ -47,6 +47,22 @@ class ProfitPayoutWorker:
                 results.append({"period_key": period["period_key"], "status": "blocked",
                                 "reason": "agent or master wallet is not registered"})
                 continue
+            # A reorg discovered after period close must still stop an automatic
+            # payout. Keep the obligation pending until the accounting is reconciled.
+            with self.store._connect() as db:
+                monitor_table = db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='chain_monitor_events'"
+                ).fetchone()
+                if monitor_table:
+                    alert = db.execute(
+                        """SELECT 1 FROM chain_monitor_events
+                           WHERE participant_id=? AND period_id=? AND status='reorg_alert' LIMIT 1""",
+                        (agent_id, period["period_id"]),
+                    ).fetchone()
+                    if alert:
+                        results.append({"period_key": period["period_key"], "status": "blocked",
+                                        "reason": "unresolved chain reorganization alert"})
+                        continue
             amount = int(period["master_due_minor"])
             # Stable idempotency key lets the signer safely resume after worker restarts.
             idempotency_key = "master-profit:" + period["period_key"]
