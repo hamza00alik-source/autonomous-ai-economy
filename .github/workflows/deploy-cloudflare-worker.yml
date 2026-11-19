@@ -2,6 +2,12 @@ name: Deploy private Cloudflare AI worker
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm_deployment:
+        description: 'Explicitly authorize deployment of the private AAE Cloudflare Workers and D1 migrations'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -14,10 +20,13 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Require explicit deployment approval
+        if: ${{ !inputs.confirm_deployment }}
+        run: |
+          echo 'Deployment blocked: set confirm_deployment=true only after reviewing resources, secrets, and expected costs.'
+          exit 1
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v6
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
       - name: Set up Node.js
