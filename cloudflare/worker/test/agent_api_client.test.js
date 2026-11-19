@@ -14,7 +14,7 @@ test("agent runtime generates non-exportable private key and owner-authorized en
   const owner=await crypto.subtle.generateKey({name:"Ed25519"},false,["sign","verify"]);
   const envelope=await createAgentKeyEnrollment({identity,ownerPrivateKey:owner.privateKey,ownerId:"owner-001",agentId:"agent-001"});
   assert.equal(envelope.public_key_jwk.d,undefined);
-  const payload=JSON.stringify({version:1,owner_id:"owner-001",agent_id:"agent-001",public_key_jwk:envelope.public_key_jwk});
+  const payload=JSON.stringify({agent_id:"agent-001",owner_id:"owner-001",public_key_jwk:envelope.public_key_jwk,version:1});
   const ownerOk=await crypto.subtle.verify({name:"Ed25519"},owner.publicKey,decode(envelope.owner_signature),enc.encode(payload));
   const proof=await crypto.subtle.verify({name:"Ed25519"},await crypto.subtle.importKey("jwk",envelope.public_key_jwk,{name:"Ed25519"},false,["verify"]),decode(envelope.proof_signature),enc.encode("AAE-AGENT-KEY-PROOF:v1:"+identity.keyFingerprint));
   assert.equal(ownerOk,true);assert.equal(proof,true);
