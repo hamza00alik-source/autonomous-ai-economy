@@ -14,27 +14,27 @@ function fixture({amount="0x16e360",block="0x64",finalized="0x70",timestamp="0x6
   return {chainId:"0x2105",receipt,receiptBlock:{number:block,hash,timestamp},finalizedBlock:{number:finalized}};
 }
 test("confirms exact USDC transfer only after canonical block is finalized",()=>{
-  const result=inspectBaseUsdcReceipt(fixture({timestamp:"0x691e0a00"}),{});
+  const result=inspectBaseUsdcReceipt({...fixture({timestamp:"0x691e0a00"}),invoice});
   assert.equal(result.ok,true);
   assert.equal(result.status,"confirmed");
   assert.equal(result.amount_minor,1_500_000);
 });
 test("does not confirm a transaction before finalized block reaches it",()=>{
-  const result=inspectBaseUsdcReceipt(fixture({block:"0x70",finalized:"0x69"}),{});
+  const result=inspectBaseUsdcReceipt({...fixture({block:"0x70",finalized:"0x69"}),invoice});
   assert.equal(result.reason,"pending_finality");
 });
 test("rejects wrong chain and failed transaction",()=>{
-  assert.equal(inspectBaseUsdcReceipt({...fixture(),chainId:"0x1"}).reason,"wrong_chain");
-  assert.equal(inspectBaseUsdcReceipt(fixture({status:"0x0"})).reason,"transaction_failed");
+  assert.equal(inspectBaseUsdcReceipt({...fixture(),invoice,chainId:"0x1"}).reason,"wrong_chain");
+  assert.equal(inspectBaseUsdcReceipt({...fixture({status:"0x0"}),invoice}).reason,"transaction_failed");
 });
 test("detects amount mismatch and late payments for manual review",()=>{
-  assert.equal(inspectBaseUsdcReceipt(fixture({amount:"0x1"}),{...invoice}).status,"review");
+  assert.equal(inspectBaseUsdcReceipt({...fixture({amount:"0x1"}),invoice}).status,"review");
   const late={...invoice,expires_at:"2020-01-01T00:00:00.000Z"};
-  assert.equal(inspectBaseUsdcReceipt(fixture(),late).reason,"payment_after_invoice_expiry");
+  assert.equal(inspectBaseUsdcReceipt({...fixture(),invoice:late}).reason,"payment_after_invoice_expiry");
 });
 test("rejects noncanonical block hash and unrelated token logs",()=>{
   const bad=fixture();bad.receiptBlock.hash="0x"+"c".repeat(64);
-  assert.equal(inspectBaseUsdcReceipt(bad,invoice).reason,"receipt_block_not_canonical");
+  assert.equal(inspectBaseUsdcReceipt({...bad,invoice}).reason,"receipt_block_not_canonical");
   const unrelated=fixture();unrelated.receipt.logs[0].address="0x"+"2".repeat(40);
-  assert.equal(inspectBaseUsdcReceipt(unrelated,invoice).reason,"matching_usdc_transfer_not_found");
+  assert.equal(inspectBaseUsdcReceipt({...unrelated,invoice}).reason,"matching_usdc_transfer_not_found");
 });
