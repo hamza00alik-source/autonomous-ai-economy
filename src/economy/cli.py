@@ -391,8 +391,53 @@ def main() -> None:
     authorize.add_argument("--approval-ref")
     authorize.add_argument("--data-dir", type=Path, default=Path("./data"))
 
+
+    reconcile_chain = sub.add_parser(
+        "reconcile-chain-once",
+        help="reconcile recent credited EVM transfers against a quorum of read-only RPC providers",
+    )
+    reconcile_chain.add_argument("--rpc-urls", default=os.environ.get("AAE_EVM_RPC_URLS", ""),
+                                 help="comma-separated independent HTTPS RPC URLs; prefer AAE_EVM_RPC_URLS")
+    reconcile_chain.add_argument("--network", required=True)
+    reconcile_chain.add_argument("--chain-id", type=int, required=True)
+    reconcile_chain.add_argument("--asset", required=True)
+    reconcile_chain.add_argument("--token-contract", required=True)
+    reconcile_chain.add_argument("--lookback-blocks", type=int, default=256)
+    reconcile_chain.add_argument("--batch-size", type=int, default=500)
+    reconcile_chain.add_argument("--quorum", type=int)
+    reconcile_chain.add_argument("--data-dir", type=Path, default=Path("./data"))
+
     args = parser.parse_args()
-    if args.command == "demo":
+
+    if args.command == "reconcile-chain-once":
+        from .agent_finance import AgentFinanceStore
+        from .evm_rpc import EVMJSONRPCSource, EVMRPCConfig
+        from .quorum_verifier import QuorumEVMVerifier
+        from .reorg_reconciler import ChainReorgReconciler
+
+        urls = [item.strip() for item in args.rpc_urls.split(",") if item.strip()]
+        if not urls:
+            raise SystemExit("Provide at least one RPC URL using --rpc-urls or AAE_EVM_RPC_URLS.")
+        if len(urls) != len(set(urls)):
+            raise SystemExit("RPC URLs must be unique; configure genuinely independent providers.")
+        providers = [EVMJSONRPCSource(EVMRPCConfig(
+            rpc_url=url, network=args.network, chain_id=args.chain_id,
+            asset=args.asset, token_contract=args.token_contract,
+            start_block=0,
+        )) for url in urls]
+        verifier = QuorumEVMVerifier(providers, quorum=args.quorum)
+        store = AgentFinanceStore(args.data_dir / "agent_finance.sqlite3")
+        result = ChainReorgReconciler(
+            store, verifier, network=args.network, token_contract=args.token_contract,
+            lookback_blocks=args.lookback_blocks, batch_size=args.batch_size,
+        ).reconcile_once()
+        print(json.dumps({
+            **result,
+            "providers_configured": len(providers),
+            "quorum": verifier.quorum,
+            "notice": "One-shot reconciliation only. Schedule this command externally; RPC URLs and results do not prove independent ownership or provider honesty.",
+        }, indent=2))
+    elif args.command == "demo":
         demo(args.data_dir)
     elif args.command == "artifact-manifest":
         print(json.dumps(create_manifest(args.artifact, args.media_type), indent=2))
