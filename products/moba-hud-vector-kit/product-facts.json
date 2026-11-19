@@ -1,0 +1,11 @@
+{
+  "product_name":"MOBA HUD Vector Kit",
+  "buyer_segment":"Indie game developers and hobbyists building fantasy, RPG and MOBA prototypes",
+  "product_summary":"Original scalable vector UI pack with 24 ability/item/status icons and six HUD panel frames.",
+  "included_files":["24 individual SVG icons","6 HUD panel/frame SVGs","README","SHA-256 manifest"],
+  "formats":["SVG"],
+  "known_limits":["art assets only; no functioning HUD code","no gameplay logic or multiplayer integration","no raster PNG exports","verify import scaling in target engine"],
+  "engine":"Engine-agnostic SVG for Godot 4, Unity, Unreal or web UI",
+  "license_summary":"Draft license permits personal and commercial game use but prohibits standalone redistribution; review legal terms before sale.",
+  "ai_disclosure":"AI-assisted procedural vector generation."
+}
