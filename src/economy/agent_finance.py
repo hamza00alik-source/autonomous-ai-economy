@@ -106,7 +106,8 @@ class AgentFinanceStore:
                     status TEXT NOT NULL CHECK(status IN ('no_distribution','pending_payout','paid')),
                     payout_tx_hash TEXT,
                     created_at TEXT NOT NULL,
-                    UNIQUE(agent_id, network, asset, period_id)
+                    UNIQUE(agent_id, network, asset, period_id),
+                    UNIQUE(network, payout_tx_hash)
                 );
             """)
 
