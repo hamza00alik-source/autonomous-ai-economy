@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Protocol, Sequence
 
 from .agent_finance import VerifiedTransfer
 from .chain_monitor import ChainTransferObservation, TransferPage
@@ -23,6 +23,55 @@ _ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
 class TreasuryReceiptSource(Protocol):
     def fetch_transfers(self, *, network: str, token_contract: str,
                         addresses: tuple[str, ...], cursor: str | None) -> TransferPage: ...
+
+
+class QuorumTreasuryReceiptSource:
+    """Require matching finalized transfer pages from independent RPC sources.
+
+    This strict page quorum may temporarily stall when providers have different
+    finalized heights. It fails closed rather than merging inconsistent pages.
+    """
+
+    def __init__(self, sources: Sequence[TreasuryReceiptSource], *, quorum: int | None = None) -> None:
+        self.sources = tuple(sources)
+        if len(self.sources) < 2:
+            raise ValueError("at least two independent receipt sources are required")
+        self.quorum = quorum if quorum is not None else (len(self.sources) // 2 + 1)
+        if isinstance(self.quorum, bool) or not isinstance(self.quorum, int) or not 1 <= self.quorum <= len(self.sources):
+            raise ValueError("quorum must be between one and source count")
+
+    @staticmethod
+    def _fingerprint(page: TransferPage) -> tuple:
+        if not isinstance(page, TransferPage):
+            raise ValueError("receipt source returned an invalid page")
+        ordered = tuple(sorted(
+            page.transfers,
+            key=lambda item: (item.tx_hash, item.transfer_ref),
+        ))
+        return page.next_cursor, ordered
+
+    def fetch_transfers(self, *, network: str, token_contract: str,
+                        addresses: tuple[str, ...], cursor: str | None) -> TransferPage:
+        votes: dict[tuple, list[TransferPage]] = {}
+        errors = []
+        for source in self.sources:
+            try:
+                page = source.fetch_transfers(
+                    network=network, token_contract=token_contract,
+                    addresses=addresses, cursor=cursor,
+                )
+                fingerprint = self._fingerprint(page)
+                votes.setdefault(fingerprint, []).append(page)
+            except Exception as exc:
+                errors.append(exc)
+        winners = [pages for pages in votes.values() if len(pages) >= self.quorum]
+        if len(winners) != 1:
+            raise RuntimeError(
+                f"receipt RPC providers disagree or are unavailable; "
+                f"matching page votes={[len(pages) for pages in votes.values()]}, "
+                f"quorum={self.quorum}"
+            ) from (errors[0] if errors else None)
+        return winners[0][0]
 
 
 class CollectiveTreasuryReceiptMonitor:
@@ -243,4 +292,4 @@ class CollectiveTreasuryReceiptMonitor:
         return {**counts, "next_cursor": page.next_cursor}
 
 
-__all__ = ["CollectiveTreasuryReceiptMonitor", "TreasuryReceiptSource"]
+__all__ = ["CollectiveTreasuryReceiptMonitor", "QuorumTreasuryReceiptSource", "TreasuryReceiptSource"]
