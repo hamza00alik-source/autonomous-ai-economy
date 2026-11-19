@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,7 +61,7 @@ class AgentFinanceStore:
     def __init__(self, path: str | Path = "./data/agent_finance.sqlite3") -> None:
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS finance_wallets (
                     participant_id TEXT NOT NULL,
@@ -102,7 +103,7 @@ class AgentFinanceStore:
                     owner_share_bps INTEGER NOT NULL,
                     master_due_minor INTEGER NOT NULL,
                     agent_retained_minor INTEGER NOT NULL,
-                    status TEXT NOT NULL CHECK(status IN ('no_profit','pending_payout','paid')),
+                    status TEXT NOT NULL CHECK(status IN ('no_distribution','pending_payout','paid')),
                     payout_tx_hash TEXT,
                     created_at TEXT NOT NULL,
                     UNIQUE(agent_id, network, asset, period_id)
@@ -248,7 +249,7 @@ class AgentFinanceStore:
                 if not master_wallet:
                     db.rollback()
                     raise ValueError("master payout wallet must be registered before profit distribution")
-            status = "pending_payout" if master_due else "no_profit"
+            status = "pending_payout" if master_due else "no_distribution"
             db.execute(
                 """INSERT INTO profit_periods VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (key, agent_id, master_id, network, asset, period_id, income,
