@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from economy.agent_finance import AgentFinanceStore, Wallet
+from economy.agent_finance import AgentFinanceStore, VerifiedTransfer, Wallet
 from economy.chain_monitor import (
     ChainMonitor, ChainTransferObservation, MonitoredAsset, TransferPage,
 )
@@ -50,7 +50,7 @@ class ChainMonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate"):
             self.finance.record_receipt(
                 "agent-a",
-                __import__("economy.agent_finance", fromlist=["VerifiedTransfer"]).VerifiedTransfer(
+                VerifiedTransfer(
                     "testnet", "USDC", "0xTx1", "log:0", "0xAgent", 2500, 12, True,
                     source="0xCustomer",
                 ),
@@ -87,6 +87,22 @@ class ChainMonitorTests(unittest.TestCase):
         self.chain.transfers = (observation(block_hash="0xDifferentBlock"),)
         result = self.monitor.poll_once(period_id="2026-11")
         self.assertEqual(result["reorg_alerts"], 1)
+
+
+    def test_reorg_alert_blocks_profit_close_and_acknowledgement_does_not_clear_hold(self):
+        self.monitor.poll_once(period_id="2026-11")
+        self.chain.transfers = (observation(canonical=False),)
+        self.monitor.poll_once(period_id="2026-11")
+        with self.assertRaisesRegex(ValueError, "reorganization alert"):
+            self.finance.close_profit_period(
+                "agent-a", "master", network="testnet", asset="USDC",
+                period_id="2026-11", reserve_bps=0, owner_share_bps=5000,
+            )
+        self.monitor.resolve_reorg_alert(
+            "testnet", "0xTx1", "log:0",
+            resolution_note="Reviewed explorer and opened manual ledger adjustment",
+        )
+        self.assertEqual(len(self.monitor.list_reorg_alerts()), 1)
 
     def test_cursor_is_forwarded_and_persisted(self):
         self.monitor.poll_once(period_id="2026-11")
