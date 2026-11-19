@@ -47,6 +47,7 @@ class VerifiedTransfer:
     amount_minor: int
     confirmations: int
     verified: bool
+    source: str = ""
 
 
 class AgentFinanceStore:
@@ -167,8 +168,12 @@ class AgentFinanceStore:
         if not participant_id.strip() or not period_id.strip():
             raise ValueError("participant_id and period_id are required")
         wallet = self.wallet(participant_id, "agent", transfer.network, transfer.asset)
-        if wallet is None or wallet.address != transfer.destination:
-            raise ValueError("verified transfer destination does not match the agent wallet")
+        if wallet is None:
+            raise ValueError("agent wallet is not registered")
+        if event_type == "income" and wallet.address != transfer.destination:
+            raise ValueError("receipt destination does not match the agent wallet")
+        if event_type == "expense" and wallet.address != transfer.source:
+            raise ValueError("expense source does not match the agent wallet")
         event_id = "fin_" + uuid.uuid4().hex
         with self._connect() as db:
             try:
@@ -189,11 +194,7 @@ class AgentFinanceStore:
 
     def record_expense(self, agent_id: str, transfer: VerifiedTransfer, *,
                        period_id: str) -> str:
-        """Record an agent expense after adapter-confirmed outgoing settlement.
-
-        The adapter must set destination to the agent wallet for incoming refunds
-        only; outgoing expenses therefore use a separate explicit method below.
-        """
+        """Record an expense only when the verified sender is the agent wallet."""
         return self._record_event(agent_id, "expense", transfer, period_id)
 
     def close_profit_period(self, agent_id: str, master_id: str, *,
@@ -249,7 +250,7 @@ class AgentFinanceStore:
                     raise ValueError("master payout wallet must be registered before profit distribution")
             status = "pending_payout" if master_due else "no_profit"
             db.execute(
-                """INSERT INTO profit_periods VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO profit_periods VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (key, agent_id, master_id, network, asset, period_id, income,
                  expenses, operating_profit, reserve, distributable, owner_share_bps,
                  master_due, retained, status, None, _now()),
