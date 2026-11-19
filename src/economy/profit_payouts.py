@@ -58,10 +58,19 @@ class ProfitPayoutWorker:
                     alert = db.execute(
                         """SELECT 1 FROM chain_monitor_events c
                            WHERE c.participant_id=? AND c.period_id=? AND c.status='reorg_alert'
-                             AND NOT EXISTS (
-                               SELECT 1 FROM reorg_alert_resolutions r
-                               WHERE r.network=c.network AND r.tx_hash=c.tx_hash
-                                 AND r.transfer_ref=c.transfer_ref
+                             AND (
+                               NOT EXISTS (
+                                 SELECT 1 FROM reorg_alert_resolutions r
+                                 WHERE r.network=c.network AND r.tx_hash=c.tx_hash
+                                   AND r.transfer_ref=c.transfer_ref
+                               )
+                               OR EXISTS (
+                                 SELECT 1 FROM reorg_alert_resolutions r
+                                 JOIN finance_adjustments a ON a.adjustment_id=r.adjustment_id
+                                 WHERE r.network=c.network AND r.tx_hash=c.tx_hash
+                                   AND r.transfer_ref=c.transfer_ref
+                                   AND a.adjustment_period_id<>c.period_id
+                               )
                              ) LIMIT 1""",
                         (agent_id, period["period_id"]),
                     ).fetchone()
