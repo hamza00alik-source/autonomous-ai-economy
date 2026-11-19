@@ -278,79 +278,100 @@ class CollectiveTreasuryTests(unittest.TestCase):
         self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 7000)
 
 
-    def test_each_agent_has_shared_real_address_and_hard_500_usdc_cap(self):
+    def test_shared_wallet_has_one_global_500_cap_but_agents_can_earn_more_over_time(self):
         view = self.store.agent_wallet("agent-a", "base-sepolia", "USDC")
         self.assertEqual(view["address"], "0x" + "a" * 40)
         self.assertEqual(view["custody_model"], "shared_treasury")
         self.assertEqual(view["max_balance_usd"], 500)
-        self.assertEqual(view["max_balance_minor"], 500_000_000)
+        self.assertEqual(view["shared_wallet_cap_minor"], 500_000_000)
 
+        # The total wallet capacity is shared by all agents, not duplicated per agent.
         self.store.create_payment_intent(
             "agent-a", "base-sepolia", "USDC", 500_000_000,
             attribution_ref="invoice:cap-full",
         )
-        # Replaying the same exact intent is idempotent and does not reserve
-        # the same capacity twice.
         self.store.create_payment_intent(
             "agent-a", "base-sepolia", "USDC", 500_000_000,
             attribution_ref="invoice:cap-full",
         )
-        with self.assertRaisesRegex(ValueError, r"\$500 balance cap"):
+        with self.assertRaisesRegex(ValueError, r"shared treasury \$500 total holding cap"):
             self.store.create_payment_intent(
-                "agent-a", "base-sepolia", "USDC", 1,
+                "agent-b", "base-sepolia", "USDC", 1,
                 attribution_ref="invoice:cap-over",
             )
-
         self.store.record_receipt(
             self.transfer(amount=500_000_000), period_id="2026-11",
             agent_id="agent-a", attribution_ref="invoice:cap-full",
         )
-        # A settled intent can still be safely replayed without reserving
-        # capacity or crediting the agent a second time.
+        capacity = self.store.shared_wallet_capacity("base-sepolia", "USDC")
+        self.assertEqual(capacity["balance_minor"], 500_000_000)
+        self.assertEqual(capacity["remaining_capacity_minor"], 0)
+        self.assertFalse(capacity["over_cap"])
+        self.assertEqual(
+            self.store.agent_wallet("agent-b", "base-sepolia", "USDC")["address"],
+            view["address"],
+        )
+
+        # Agent A spends $300, then earns another $300. Lifetime earnings are
+        # $800, while the shared wallet's current balance remains exactly $500.
+        self.store.add_agent(
+            "agent-a", "base-sepolia", "USDC",
+            daily_limit_minor=1_000_000_000, per_tx_limit_minor=1_000_000_000,
+            allowed_destinations=("0x" + "b" * 40, "0x" + "c" * 40),
+        )
+        reservation = self.store.reserve_spend(
+            "agent-a", "base-sepolia", "USDC", "0x" + "b" * 40, 300_000_000,
+            idempotency_key="agent-a:spend-300", period_id="2026-11",
+        )
+        self.store.mark_broadcast(reservation, "0x" + "2" * 64)
+        self.store.settle_spend(
+            reservation,
+            self.transfer(
+                tx="0x" + "2" * 64, ref="log:spend", amount=300_000_000,
+                source="0x" + "a" * 40, destination="0x" + "b" * 40,
+            ),
+        )
         self.store.create_payment_intent(
-            "agent-a", "base-sepolia", "USDC", 500_000_000,
-            attribution_ref="invoice:cap-full",
+            "agent-a", "base-sepolia", "USDC", 300_000_000,
+            attribution_ref="invoice:second-earning",
+        )
+        self.store.record_receipt(
+            self.transfer(tx="0x" + "3" * 64, ref="log:second", amount=300_000_000),
+            period_id="2026-11", agent_id="agent-a",
+            attribution_ref="invoice:second-earning",
         )
         view = self.store.agent_wallet("agent-a", "base-sepolia", "USDC")
         self.assertEqual(view["balance_minor"], 500_000_000)
-        self.assertEqual(view["available_minor"], 500_000_000)
-        self.assertEqual(view["address"], self.store.agent_wallet(
-            "agent-b", "base-sepolia", "USDC"
-        )["address"])
-        with self.assertRaisesRegex(ValueError, r"\$500 balance cap"):
-            self.store.create_payment_intent(
-                "agent-a", "base-sepolia", "USDC", 1,
-                attribution_ref="invoice:after-cap",
-            )
+        self.assertEqual(view["shared_wallet_balance_minor"], 500_000_000)
+        with self.store._connect() as db:
+            lifetime_receipts = db.execute(
+                """SELECT COALESCE(SUM(amount_minor),0) AS amount FROM treasury_receipts
+                   WHERE attributed_agent_id='agent-a'"""
+            ).fetchone()["amount"]
+        self.assertEqual(lifetime_receipts, 800_000_000)
 
-    def test_suspense_attribution_rechecks_cap_at_allocation_time(self):
+    def test_suspense_receipt_can_be_allocated_without_per_agent_earning_cap(self):
         self.store.create_payment_intent(
-            "agent-a", "base-sepolia", "USDC", 1,
-            attribution_ref="invoice:suspense-cap",
+            "agent-a", "base-sepolia", "USDC", 500_000_000,
+            attribution_ref="invoice:suspense-full",
         )
         self.store.record_receipt(
-            self.transfer(amount=1, tx="0x" + "9" * 64), period_id="2026-11",
-            attribution_ref="invoice:suspense-cap",
+            self.transfer(amount=500_000_000), period_id="2026-11",
+            attribution_ref="invoice:suspense-full",
         )
-        # Simulate an out-of-band/legacy ledger credit between intent creation
-        # and suspense allocation; allocation must recheck the hard cap.
-        with self.store._connect() as db:
-            db.execute(
-                """INSERT INTO treasury_entries
-                   (account_id,network,asset,entry_type,direction,amount_minor,
-                    period_id,memo)
-                   VALUES('agent:agent-a','base-sepolia','USDC','receipt',
-                          'credit',500000000,'2026-11','legacy test credit')"""
-            )
-        with self.assertRaisesRegex(ValueError, r"\$500 balance cap"):
-            self.store.attribute_receipt(
-                "base-sepolia", "USDC", "0x" + "9" * 64, "log:1", "agent-a",
-                expected_attribution_ref="invoice:suspense-cap",
-            )
+        self.store.attribute_receipt(
+            "base-sepolia", "USDC", "0x" + "1" * 64, "log:1", "agent-a",
+            expected_attribution_ref="invoice:suspense-full",
+        )
         self.assertEqual(
-            self.store.balance("treasury:unallocated", "base-sepolia", "USDC"),
-            1,
+            self.store.balance("agent:agent-a", "base-sepolia", "USDC"),
+            500_000_000,
         )
+        self.assertEqual(
+            self.store.shared_wallet_capacity("base-sepolia", "USDC")["balance_minor"],
+            500_000_000,
+        )
+
 
 
 class CDPAdapterTests(unittest.IsolatedAsyncioTestCase):
