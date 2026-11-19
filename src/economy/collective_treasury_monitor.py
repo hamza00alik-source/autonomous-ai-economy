@@ -129,15 +129,14 @@ class CollectiveTreasuryReceiptMonitor:
                     PRIMARY KEY(network, asset, tx_hash, transfer_ref)
                 );
             """)
-            columns = {row["name"] for row in store._connect().execute(
+            columns = {row["name"] for row in db.execute(
                 "PRAGMA table_info(treasury_receipt_monitor_events)"
             )}
             if "block_number" not in columns:
-                with closing(store._connect()) as db:
-                    db.execute(
-                        "ALTER TABLE treasury_receipt_monitor_events "
-                        "ADD COLUMN block_number INTEGER NOT NULL DEFAULT 0"
-                    )
+                db.execute(
+                    "ALTER TABLE treasury_receipt_monitor_events "
+                    "ADD COLUMN block_number INTEGER NOT NULL DEFAULT 0"
+                )
 
     def _raise_reorg_alert(self, *, network: str, asset: str, tx_hash: str,
                            transfer_ref: str, expected_block_hash: str,
