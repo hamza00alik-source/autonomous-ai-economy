@@ -172,7 +172,7 @@ export async function completeCloudOwnerEnrollment(db,{
 export async function getCloudFinancialControls(db, ownerId, { limit = 25 } = {}) {
   if (!validId(ownerId)) return { ok: false, reason: "invalid_owner_id" };
   const safeLimit = Number.isInteger(limit) ? Math.min(100, Math.max(1, limit)) : 25;
-  const [control, agents, budgets, reservations, schedules, occurrences, policies] = await Promise.all([
+  const [control, agents, budgets, reservations, schedules, occurrences, policies, receivingWallets] = await Promise.all([
     db.prepare("SELECT emergency_paused,pause_reason,changed_at FROM financial_control_state WHERE owner_id=?").bind(ownerId).first(),
     db.prepare("SELECT participant_id,status,operator_id FROM financial_participants WHERE owner_id=? AND participant_type='agent' ORDER BY participant_id").bind(ownerId).all(),
     db.prepare(
@@ -184,10 +184,12 @@ export async function getCloudFinancialControls(db, ownerId, { limit = 25 } = {}
     db.prepare("SELECT reservation_id,agent_id,policy_id,policy_version,destination,currency,amount_minor,status,expires_at,created_at FROM financial_budget_reservations WHERE owner_id=? ORDER BY created_at DESC LIMIT ?").bind(ownerId,safeLimit).all(),
     db.prepare("SELECT schedule_id,agent_id,policy_id,policy_version,destination,currency,amount_minor,interval_seconds,next_due_at,status,created_at FROM financial_expense_schedules WHERE owner_id=? ORDER BY created_at DESC LIMIT ?").bind(ownerId,safeLimit).all(),
     db.prepare("SELECT occurrence_id,schedule_id,agent_id,due_at,status,reason_code,created_at,updated_at FROM financial_expense_occurrences WHERE owner_id=? ORDER BY created_at DESC LIMIT ?").bind(ownerId,safeLimit).all(),
-    db.prepare("SELECT policy_id,version,agent_id,signer_id,currency,per_transaction_limit_minor,daily_spend_limit_minor,status,created_at FROM financial_policies WHERE owner_id=? ORDER BY created_at DESC LIMIT ?").bind(ownerId,safeLimit).all()
+    db.prepare("SELECT policy_id,version,agent_id,signer_id,currency,per_transaction_limit_minor,daily_spend_limit_minor,status,created_at FROM financial_policies WHERE owner_id=? ORDER BY created_at DESC LIMIT ?").bind(ownerId,safeLimit).all(),
+    db.prepare("SELECT wallet_id,agent_id,network,chain_id,asset_code,token_contract,token_decimals,receiving_address,status,created_at FROM financial_agent_receiving_wallets WHERE owner_id=? ORDER BY created_at DESC LIMIT ?").bind(ownerId,safeLimit).all()
   ]);
   return {
     ok: true,
+    owner_id: ownerId,
     emergency_paused: !control || control.emergency_paused !== 0,
     pause_reason: control?.pause_reason || "Cloud spending remains paused until the owner explicitly enables it.",
     pause_changed_at: control?.changed_at || null,
@@ -196,6 +198,7 @@ export async function getCloudFinancialControls(db, ownerId, { limit = 25 } = {}
     reservations: reservations.results || [],
     schedules: schedules.results || [],
     policies: policies.results || [],
+    receiving_wallets: receivingWallets.results || [],
     occurrences: occurrences.results || [],
     source_of_truth: "Cloudflare D1",
     live_transfers_enabled: false
