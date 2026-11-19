@@ -156,6 +156,14 @@ class CollectiveTreasuryStore:
                     UNIQUE(agent_id, network, asset, period_id)
                 );
             """)
+            # Upgrade databases created during the first gas-accounting iteration.
+            gas_columns = {
+                row["name"] for row in db.execute("PRAGMA table_info(treasury_gas_costs)")
+            }
+            if "asset" not in gas_columns:
+                db.execute(
+                    "ALTER TABLE treasury_gas_costs ADD COLUMN asset TEXT NOT NULL DEFAULT 'USDC'"
+                )
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=20, isolation_level=None)
