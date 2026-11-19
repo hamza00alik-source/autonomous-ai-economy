@@ -77,7 +77,19 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
 <label class="muted">Ledger currencies (three-letter codes; currently USD recommended)<input id="enrollmentCurrencies" value="USD" maxlength="50"></label>
 <div id="enrollmentChallengeSummary" class="notice">A challenge will appear here after you request one.</div>
 <button id="completeEnrollment" type="button" disabled>Sign and complete owner enrollment</button>
-<div class="muted">Enrollment creates empty cloud accounts and starts with emergency pause enabled. It does not fund accounts or enable payments. USDC/USDT asset codes are not yet supported by the current three-letter ledger schema.</div>
+<div class="muted">Enrollment creates empty cloud accounts and starts with emergency pause enabled. It does not fund accounts or enable payments. The USD simulated ledger is separate from the new Base USDC pending-custody ledger. Confirmed USDC receipts remain nonspendable until wallet control is proven.</div>
+<h2 style="margin-top:20px">Agent receiving wallets</h2>
+<p class="muted">Assign an agent a public Base mainnet USDC receiving address. The owner key signs the exact wallet binding locally. This does not create a wallet or prove that a chain payment arrived; never enter a private key or recovery phrase.</p>
+<div class="tablewrap"><table><thead><tr><th>Agent</th><th>Network / asset</th><th>Receiving address</th><th>Status</th></tr></thead><tbody id="receivingWalletRows"><tr><td colspan="4">Not loaded</td></tr></tbody></table></div>
+<form id="receivingWalletForm" class="hidden" style="margin-top:16px;display:grid;gap:9px">
+<label class="muted">Enrolled agent ID<input id="receivingWalletAgent" required maxlength="80" placeholder="agent identifier"></label>
+<label class="muted">Existing public wallet address<input id="receivingWalletAddress" required maxlength="42" autocapitalize="off" spellcheck="false" placeholder="0x..."></label>
+<p class="muted">Only Base mainnet USDC is currently supported. The address must already be controlled by an approved wallet/signing arrangement. AAE does not generate or custody the wallet key.</p>
+<button type="submit">Sign and register receiving address</button>
+</form>
+<h2 style="margin-top:20px">Agent USDC receipts</h2>
+<p class="muted">Confirmed Base USDC receipts are recorded here as pending custody. These funds are not available for agent spending until control of the receiving wallet and a restricted signer are verified.</p>
+<div class="tablewrap"><table><thead><tr><th>Agent</th><th>Network / asset</th><th>Ledger state</th><th>Amount (minor units)</th></tr></thead><tbody id="assetBalanceRows"><tr><td colspan="4">No confirmed receipts</td></tr></tbody></table></div>
 <h2 style="margin-top:20px">Signed policy inventory</h2>
 <div class="tablewrap"><table><thead><tr><th>Policy</th><th>Version</th><th>Agent</th><th>Transaction cap</th><th>Daily cap</th><th>Status</th></tr></thead><tbody id="policyRows"><tr><td colspan="6">Not loaded</td></tr></tbody></table></div>
 <form id="policyForm" class="hidden" style="margin-top:16px;display:grid;gap:9px">
@@ -185,6 +197,16 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    if(!response.ok) throw new Error(data.error||"Request failed ("+response.status+")");
    return data;
  }
+ function renderReceivingWallets(rows) {
+   const body=$("receivingWalletRows");body.replaceChildren();
+   if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=4;td.textContent="No agent receiving wallets registered.";tr.appendChild(td);body.appendChild(tr);return;}
+   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.agent_id,item.network+" · "+item.asset_code,item.receiving_address,item.status]){const td=document.createElement("td");td.textContent=String(value);tr.appendChild(td);}body.appendChild(tr);}
+ }
+ function renderAssetBalances(rows) {
+   const body=$("assetBalanceRows");body.replaceChildren();
+   if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=4;td.textContent="No confirmed USDC receipts recorded.";tr.appendChild(td);body.appendChild(tr);return;}
+   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.agent_id,item.network+" · "+item.asset_code,item.account_type==="agent_pending_custody"?"Pending wallet control":"Available",number(item.balance_minor)]){const td=document.createElement("td");td.textContent=String(value);tr.appendChild(td);}body.appendChild(tr);}
+ }
  function renderPolicies(rows) {
    const body=$("policyRows");body.replaceChildren();
    if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.textContent="No cloud policies registered.";tr.appendChild(td);body.appendChild(tr);return;}
@@ -230,6 +252,9 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      $("financialNotice").textContent="Cloud D1 is the source of truth. Reservations and recurring expenses are simulated journal entries only; provider transfers and live payments are disabled.";
      $("scheduleForm").classList.remove("hidden");
      $("policyForm").classList.remove("hidden");
+     renderReceivingWallets(financialControls.receiving_wallets||[]);
+     renderAssetBalances(financialControls.asset_balances||[]);
+     $("receivingWalletForm").classList.remove("hidden");
      renderPolicies(financialControls.policies||[]);
      renderBudgets(financialControls.budgets||[]);
      renderReservations(financialControls.reservations||[]);
@@ -242,6 +267,9 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      $("scheduleForm").classList.add("hidden");
      $("financialNotice").textContent=error.message+" Cloud controls stay fail-closed; local SQLite balances are not mirrored here.";
      $("policyForm").classList.add("hidden");
+     $("receivingWalletForm").classList.add("hidden");
+     renderReceivingWallets([]);
+     renderAssetBalances([]);
      renderPolicies([]);
      renderBudgets([]);renderReservations([]);
      renderSchedules([]);
@@ -304,6 +332,26 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    try{await postJson("/v1/owner/financial-controls/emergency-pause",{paused,reason:paused?"Owner emergency pause":"Owner resumed simulated spending"});await loadFinancialControls();$("financialMessage").textContent=paused?"Emergency pause is active.":"Simulated cloud spending resumed.";}
    catch(error){$("financialMessage").textContent=error.message;}
    finally{$("emergencyPause").disabled=false;}
+ });
+ $("receivingWalletForm").addEventListener("submit",async event=>{
+   event.preventDefault();
+   if(!financialControls?.owner_id){$("financialMessage").textContent="Cloud owner identity is unavailable.";return;}
+   const agentId=$("receivingWalletAgent").value.trim();
+   const address=$("receivingWalletAddress").value.trim();
+   if(!/^[A-Za-z0-9][A-Za-z0-9._:-]{2,79}$/.test(agentId)||!/^0x[a-fA-F0-9]{40}$/.test(address)){
+     $("financialMessage").textContent="Enter an enrolled agent ID and a valid 20-byte EVM address.";return;
+   }
+   const payload={version:1,owner_id:financialControls.owner_id,agent_id:agentId,network:"base-mainnet",chain_id:8453,
+     asset_code:"USDC",token_contract:"0x833589fcd6ed6e08f4c7c32d4f71b54bdA02913",token_decimals:6,
+     receiving_address:address.toLowerCase()};
+   if(!window.confirm("Sign and register this public Base USDC receiving address for "+agentId+"? No funds will be moved or credited."))return;
+   try{
+     const signature=await signCanonical(payload);
+     await postJson("/v1/owner/agents/"+encodeURIComponent(agentId)+"/receiving-wallet",{address,signature_base64url:signature});
+     $("receivingWalletAddress").value="";
+     $("financialMessage").textContent="Owner-signed receiving address registered. Payment verification and wallet signing are not yet connected.";
+     await loadFinancialControls();
+   }catch(error){$("financialMessage").textContent=error.message;}
  });
  $("policyForm").addEventListener("submit",async event=>{
    event.preventDefault();
