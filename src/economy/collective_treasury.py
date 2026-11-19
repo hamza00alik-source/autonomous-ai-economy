@@ -55,8 +55,6 @@ class CollectiveTreasuryStore:
                     per_tx_limit_minor INTEGER NOT NULL CHECK(per_tx_limit_minor > 0),
                     allowed_destinations_json TEXT NOT NULL,
                     enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
-                    max_balance_minor INTEGER NOT NULL DEFAULT 500000000
-                        CHECK(max_balance_minor > 0),
                     PRIMARY KEY(agent_id, network, asset)
                 );
                 CREATE TABLE IF NOT EXISTS treasury_entries (
