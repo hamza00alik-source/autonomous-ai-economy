@@ -326,6 +326,14 @@ async function processOneApprovedInternalProduct(env) {
   }
 }
 
+async function internalProductJobStatus(env, jobId) {
+  const row=await env.DB.prepare(
+    "SELECT job_id,status,artifact_sha256,artifact_size_bytes,error_code,created_at,updated_at FROM internal_execution_jobs WHERE job_id=? AND owner_id=?"
+  ).bind(jobId,env.AAE_OWNER_ID).first();
+  if(!row) return json({error:"private execution job not found"},404);
+  return json({job_id:row.job_id,status:row.status,artifact_sha256:row.artifact_sha256,
+    artifact_size_bytes:row.artifact_size_bytes,error_code:row.error_code,created_at:row.created_at,updated_at:row.updated_at});
+}
 async function downloadInternalProduct(request, env, jobId) {
   if (!env.AAE_OWNER_ID || !env.EXECUTION_ARTIFACTS) {
     return json({ error: "owner identity or private artifact storage is not configured" }, 503);
@@ -940,6 +948,10 @@ export default {
       return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    const internalJobStatusMatch = url.pathname.match(/^\\/v1\\/owner\\/internal-products\\/jobs\\/([0-9a-f-]{36})$/i);
+    if (internalJobStatusMatch && request.method === "GET") {
+      return internalProductJobStatus(env, internalJobStatusMatch[1]);
+    }
     const internalArtifactMatch = url.pathname.match(/^\/v1\/owner\/internal-products\/jobs\/([0-9a-f-]{36})\/artifact$/i);
     if (internalArtifactMatch && request.method === "GET") {
       return downloadInternalProduct(request, env, internalArtifactMatch[1]);
