@@ -90,6 +90,14 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
             "2026-11-19T12:00:00+00:00",
         )
         monitor.poll_once(period_id="p2")
+        with self.assertRaisesRegex(ValueError, "master payout is held"):
+            self.store.mark_owner_distribution_paid(
+                "agent", "base", "USDC", "p2",
+                transfer=VerifiedTransfer(
+                    "base", "USDC", "0xpayout-direct", "0", "0xMaster",
+                    500, 12, True, source="0xAgent",
+                ),
+            )
         signer = FakeSigner()
         worker = ProfitPayoutWorker(self.store, signer, FakeVerifier(amount=500))
         results = worker.process_pending()
