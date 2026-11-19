@@ -631,6 +631,24 @@ class CollectiveTreasuryStore:
             "balanced": pool == virtual,
         }
 
+    def reconcile_onchain_balance(self, network: str, asset: str,
+                                   onchain_balance_minor: int) -> dict:
+        """Compare independent on-chain balance with the pool and virtual ledger."""
+        if (isinstance(onchain_balance_minor, bool)
+                or not isinstance(onchain_balance_minor, int)
+                or onchain_balance_minor < 0):
+            raise ValueError("onchain_balance_minor must be a non-negative integer")
+        snapshot = self.reconciliation_snapshot(network, asset)
+        snapshot["onchain_balance_minor"] = onchain_balance_minor
+        snapshot["onchain_difference_minor"] = (
+            onchain_balance_minor - snapshot["pool_balance_minor"]
+        )
+        snapshot["onchain_balanced"] = snapshot["onchain_difference_minor"] == 0
+        snapshot["fully_reconciled"] = (
+            snapshot["balanced"] and snapshot["onchain_balanced"]
+        )
+        return snapshot
+
     def close_period(self, agent_id: str, network: str, asset: str, period_id: str, *,
                      reserve_bps: int, owner_share_bps: int,
                      master_account: str = "master:owner") -> dict:
