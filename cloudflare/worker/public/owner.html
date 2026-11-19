@@ -284,6 +284,28 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      renderSchedules([]);
    }
  }
+ async function pollInternalProductJob(jobId) {
+   for(let attempt=0;attempt<120;attempt++){
+     await new Promise(resolve=>setTimeout(resolve,5000));
+     try {
+       const job=await get("/v1/owner/internal-products/jobs/"+encodeURIComponent(jobId));
+       if(job.status==="delivery_ready"){
+         $("downloadInternalProduct").disabled=false;
+         $("internalProductStatus").textContent="Private build ready · SHA-256 "+job.artifact_sha256+" · "+number(job.artifact_size_bytes)+" bytes. Not published, submitted, or sold.";
+         $("buildInternalProduct").disabled=!canSignWithOwnerKey();
+         return;
+       }
+       if(job.status==="failed"){
+         $("internalProductStatus").textContent="Build failed ("+(job.error_code||"execution_failed")+"). No artifact was delivered.";
+         $("buildInternalProduct").disabled=!canSignWithOwnerKey();
+         return;
+       }
+       $("internalProductStatus").textContent="Private build "+job.status+" · waiting for scheduled execution…";
+     } catch(error) { $("internalProductStatus").textContent="Waiting for private job status: "+error.message; }
+   }
+   $("internalProductStatus").textContent="Build remains queued or running. Refresh this page later to check its status.";
+   $("buildInternalProduct").disabled=!canSignWithOwnerKey();
+ }
  async function downloadInternalProductArtifact() {
    if(!lastInternalProductJobId) return;
    $("downloadInternalProduct").disabled=true;
@@ -325,8 +347,9 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      });
      pendingInternalProductIdempotencyKey=null;
      lastInternalProductJobId=result.job_id;
-     $("downloadInternalProduct").disabled=result.status!=="delivery_ready";
-     $("internalProductStatus").textContent="Private build ready · SHA-256 "+result.artifact_sha256+" · "+number(result.artifact_size_bytes)+" bytes. Not published, submitted, or sold.";
+     $("downloadInternalProduct").disabled=true;
+     $("internalProductStatus").textContent="Owner approval verified. Build queued for the scheduled private worker…";
+     await pollInternalProductJob(lastInternalProductJobId);
    } catch(error) {
      $("internalProductStatus").textContent=error.message;
    } finally {
