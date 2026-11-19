@@ -2,7 +2,7 @@
 
 ## What this milestone does
 
-Each enrolled agent can be assigned one owner-authorized public receiving address for Base mainnet USDC. The authenticated AAE service can create an idempotent, expiring payment request for an agent. Agents can be registered with a dedicated Ed25519 API public key. The owner authorizes the canonical key-registration payload and the agent proves possession of the matching private key. The private key is generated and retained by the agent runtime, never stored in D1. The signed invoice endpoint accepts method/path/timestamp/nonce/body-hash signatures and rejects stale or replayed requests. The legacy owner-authenticated invoice route remains available for compatibility.
+Each enrolled agent can be assigned one owner-authorized public receiving address for Base mainnet USDC. The authenticated AAE service can create an idempotent, expiring payment request for an agent. Agents can be registered with a dedicated Ed25519 API public key. The owner authorizes the canonical key-registration payload and the agent proves possession of the matching private key. The private key is generated and retained by the agent runtime, never stored in D1. The signed invoice endpoint accepts method/path/timestamp/nonce/body-hash signatures and rejects requests outside a five-minute clock window and reused nonces. Each request is scoped to the path agent and its owner. Owner-authorized key revocation is supported; a revoked fingerprint cannot be re-registered. The legacy owner-authenticated invoice route remains available for compatibility.
 
 Supported asset:
 - Network: Base mainnet (chain ID 8453)
@@ -11,6 +11,23 @@ Supported asset:
 - Precision: 6 decimals
 
 An owner signs the canonical receiving-wallet registration payload with the enrolled Ed25519 key. Only the public address, signature, and public metadata are stored. No private key, seed phrase, recovery phrase, or signing secret is accepted.
+
+
+### Agent key enrollment and request signing
+
+1. The agent runtime generates an Ed25519 key pair. The private key must remain in a protected runtime secret store and must never be sent to the Worker, D1, an LLM prompt, or a log.
+2. The owner signs this canonical JSON payload (keys sorted recursively):
+   `{"version":1,"owner_id":"...","agent_id":"...","public_key_jwk":{"crv":"Ed25519","kty":"OKP","x":"..."}}`
+   The JWK must contain public material only.
+3. The agent proves possession by signing UTF-8 text `AAE-AGENT-KEY-PROOF:v1:<sha256-of-canonical-public-jwk-json>`. Send the public JWK, owner signature and proof signature to `POST /v1/owner/agents/{agent_id}/api-key` using owner authentication.
+4. For each signed invoice request, sign UTF-8 text consisting of five newline-separated fields: uppercase HTTP method, URL pathname, Unix timestamp in milliseconds, a fresh random base64url nonce (at least 16 characters), and lowercase hex SHA-256 of the exact raw request body.
+5. Send headers `X-AAE-Key` (key fingerprint), `X-AAE-Timestamp`, `X-AAE-Nonce`, and `X-AAE-Signature` (base64url Ed25519 signature) to `POST /v1/agents/{agent_id}/receiving-invoices`.
+
+The registration payload owner signature uses the owner's enrolled Ed25519 key. Key revocation requires an owner signature over canonical JSON:
+`{"action":"revoke_agent_api_key","agent_id":"...","key_id":"...","owner_id":"...","version":1}`
+submitted to `POST /v1/owner/agents/{agent_id}/api-key/{key_id}/revoke`.
+
+This is a scoped authentication capability, not wallet custody or spending authority. The API currently permits invoice creation only. Key provisioning into an always-on agent runtime, encrypted-at-rest storage, backup/recovery, automated rotation UX, request-rate limiting and operational monitoring remain necessary before production use.
 
 ## Payment request and chain verification
 
