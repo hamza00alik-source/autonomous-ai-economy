@@ -4,7 +4,9 @@ from pathlib import Path
 
 from economy.chain_monitor import ChainTransferObservation, TransferPage
 from economy.collective_treasury import CollectiveTreasuryStore, TreasuryWallet
-from economy.collective_treasury_monitor import CollectiveTreasuryReceiptMonitor
+from economy.collective_treasury_monitor import (
+    CollectiveTreasuryReceiptMonitor, QuorumTreasuryReceiptSource,
+)
 
 
 WALLET = "0x" + "a" * 40
@@ -112,6 +114,28 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         self.assertEqual(result["allocated"], 1)
         self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 5000)
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 5000)
+
+    def test_quorum_source_requires_matching_provider_pages(self):
+        page_a = FakeSource([observation()])
+        page_b = FakeSource([observation()])
+        page_c = FakeSource([observation(tx="0x" + "f" * 64)])
+        quorum = QuorumTreasuryReceiptSource([page_a, page_b, page_c], quorum=2)
+        result = quorum.fetch_transfers(
+            network="base-sepolia", token_contract=TOKEN,
+            addresses=(WALLET,), cursor=None,
+        )
+        self.assertEqual(len(result.transfers), 1)
+        self.assertEqual(result.transfers[0].tx_hash, TX)
+
+    def test_quorum_source_fails_closed_without_matching_quorum(self):
+        first = FakeSource([observation()])
+        second = FakeSource([observation(tx="0x" + "e" * 64)])
+        quorum = QuorumTreasuryReceiptSource([first, second], quorum=2)
+        with self.assertRaisesRegex(RuntimeError, "providers disagree"):
+            quorum.fetch_transfers(
+                network="base-sepolia", token_contract=TOKEN,
+                addresses=(WALLET,), cursor=None,
+            )
 
     def test_changed_block_identity_fails_closed_after_credit(self):
         self.intent()
