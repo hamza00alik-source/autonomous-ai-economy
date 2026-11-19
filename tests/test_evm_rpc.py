@@ -225,6 +225,39 @@ class EVMRPCSourceTests(unittest.TestCase):
             source=CUSTOMER, destination=AGENT, amount_minor=123456,
         ))
 
+    def test_reads_finalized_transaction_fee_including_base_l1_and_blob_fees(self):
+        class FeeRPC(FakeRPC):
+            def __call__(self, method, params):
+                if method == "eth_getTransactionReceipt":
+                    return {
+                        "transactionHash": TX, "blockNumber": "0x64",
+                        "blockHash": BLOCK, "gasUsed": "0x5208",
+                        "effectiveGasPrice": "0x3b9aca00", "l1Fee": "0x10",
+                        "blobGasUsed": "0x2", "blobGasPrice": "0x3",
+                        "status": "0x1",
+                    }
+                return super().__call__(method, params)
+        source = EVMJSONRPCSource(self.config, rpc_call=FeeRPC())
+        fee = source.transaction_fee_wei(TX)
+        self.assertEqual(fee["execution_fee_wei"], 21000 * 1_000_000_000)
+        self.assertEqual(fee["l1_fee_wei"], 16)
+        self.assertEqual(fee["blob_fee_wei"], 6)
+        self.assertEqual(fee["total_fee_wei"], 21000 * 1_000_000_000 + 22)
+
+    def test_transaction_fee_rejects_unfinalized_receipt(self):
+        class PendingFeeRPC(FakeRPC):
+            def __call__(self, method, params):
+                if method == "eth_getTransactionReceipt":
+                    return {
+                        "transactionHash": TX, "blockNumber": "0x6a",
+                        "blockHash": BLOCK, "gasUsed": "0x5208",
+                        "effectiveGasPrice": "0x1", "status": "0x1",
+                    }
+                return super().__call__(method, params)
+        source = EVMJSONRPCSource(self.config, rpc_call=PendingFeeRPC())
+        with self.assertRaisesRegex(EVMRPCError, "not finalized"):
+            source.transaction_fee_wei(TX)
+
     def test_rejects_requested_network_or_token_mismatch(self):
         source = EVMJSONRPCSource(self.config, rpc_call=FakeRPC())
         with self.assertRaisesRegex(ValueError, "network"):
