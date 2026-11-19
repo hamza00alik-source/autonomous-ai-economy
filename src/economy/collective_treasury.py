@@ -127,6 +127,7 @@ class CollectiveTreasuryStore:
                     ON treasury_spend_reservations(agent_id, network, asset, created_at, status);
                 CREATE TABLE IF NOT EXISTS treasury_gas_costs (
                     network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
                     tx_hash TEXT NOT NULL,
                     reservation_id TEXT NOT NULL UNIQUE,
                     agent_id TEXT NOT NULL,
@@ -617,6 +618,10 @@ class CollectiveTreasuryStore:
         """
         if not isinstance(tx_hash, str) or len(tx_hash) != 66 or not tx_hash.startswith("0x"):
             raise ValueError("tx_hash must be a 32-byte EVM transaction hash")
+        try:
+            int(tx_hash[2:], 16)
+        except ValueError as exc:
+            raise ValueError("tx_hash must be hexadecimal") from exc
         for name, value in (("gas_fee_wei", gas_fee_wei), ("usdc_cost_minor", usdc_cost_minor)):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer")
@@ -640,15 +645,23 @@ class CollectiveTreasuryStore:
                     or reservation["tx_hash"].lower() != tx_hash.lower()):
                 db.rollback()
                 raise ValueError("gas cost transaction does not match the settled reservation")
+            already_closed = db.execute(
+                """SELECT 1 FROM treasury_period_closes
+                   WHERE agent_id=? AND network=? AND asset=? AND period_id=?""",
+                (reservation["agent_id"], network, reservation["asset"], reservation["period_id"]),
+            ).fetchone()
+            if already_closed:
+                db.rollback()
+                raise ValueError("cannot add gas cost after the accounting period is closed")
             try:
                 db.execute(
                     """INSERT INTO treasury_gas_costs
-                       (network,tx_hash,reservation_id,agent_id,period_id,gas_fee_wei,
+                       (network,asset,tx_hash,reservation_id,agent_id,period_id,gas_fee_wei,
                         usdc_cost_minor,price_source,price_observed_at)
-                       VALUES(?,?,?,?,?,?,?,?,?)""",
-                    (network, tx_hash.lower(), reservation_id, reservation["agent_id"],
-                     reservation["period_id"], str(gas_fee_wei), usdc_cost_minor,
-                     price_source.strip(), price_observed_at.strip()),
+                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (network, reservation["asset"], tx_hash.lower(), reservation_id,
+                     reservation["agent_id"], reservation["period_id"], str(gas_fee_wei),
+                     usdc_cost_minor, price_source.strip(), price_observed_at.strip()),
                 )
                 db.commit()
             except sqlite3.IntegrityError as exc:
@@ -755,8 +768,8 @@ class CollectiveTreasuryStore:
             gas_totals = db.execute(
                 """SELECT COALESCE(SUM(usdc_cost_minor),0) AS gas_expenses
                    FROM treasury_gas_costs
-                   WHERE agent_id=? AND network=? AND period_id=?""",
-                (agent_id, network, period_id),
+                   WHERE agent_id=? AND network=? AND asset=? AND period_id=?""",
+                (agent_id, network, asset.upper(), period_id),
             ).fetchone()
             income = int(totals["income"])
             gas_expenses = int(gas_totals["gas_expenses"])
