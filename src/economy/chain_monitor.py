@@ -176,7 +176,7 @@ class ChainMonitor:
                   "orphaned": 0, "reorg_alerts": 0}
         for item in page.transfers:
             self._validate(item)
-            event_period = self.period_resolver(item.block_timestamp) if self.period_resolver else event_period
+            event_period = self.period_resolver(item.block_timestamp) if self.period_resolver else period_id
             if not isinstance(event_period, str) or not event_period.strip():
                 raise ValueError("period resolver must return a non-empty accounting period")
             participant_id = owners.get(item.destination)
@@ -195,14 +195,14 @@ class ChainMonitor:
                         """INSERT INTO chain_monitor_events
                            (network,tx_hash,transfer_ref,participant_id,asset,token_contract,
                             source_address,destination_address,amount_minor,block_number,block_hash,
-                            confirmations,event_period,status)
+                            confirmations,period_id,status)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                            ON CONFLICT(network,tx_hash,transfer_ref) DO UPDATE SET
                              status=excluded.status,updated_at=CURRENT_TIMESTAMP""",
                         (item.network,item.tx_hash,item.transfer_ref,participant_id,
                          self.asset.asset.upper(),self.asset.token_contract,item.source,
                          item.destination,item.amount_minor,item.block_number,item.block_hash,
-                         item.confirmations,event_period,status),
+                         item.confirmations,period_id,status),
                     )
                     db.commit()
                     counts["reorg_alerts" if status == "reorg_alert" else "orphaned"] += 1
@@ -224,7 +224,7 @@ class ChainMonitor:
                         """INSERT INTO chain_monitor_events
                            (network,tx_hash,transfer_ref,participant_id,asset,token_contract,
                             source_address,destination_address,amount_minor,block_number,block_hash,
-                            confirmations,event_period,status)
+                            confirmations,period_id,status)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'observed')
                            ON CONFLICT(network,tx_hash,transfer_ref) DO UPDATE SET
                              confirmations=excluded.confirmations,updated_at=CURRENT_TIMESTAMP""",
@@ -253,7 +253,7 @@ class ChainMonitor:
                     continue
                 closed_period = db.execute(
                     """SELECT 1 FROM profit_periods
-                       WHERE agent_id=? AND network=? AND asset=? AND event_period=?""",
+                       WHERE agent_id=? AND network=? AND asset=? AND period_id=?""",
                     (participant_id, item.network, self.asset.asset.upper(), event_period),
                 ).fetchone()
                 if closed_period:
@@ -267,7 +267,7 @@ class ChainMonitor:
                     db.execute(
                         """INSERT INTO finance_events
                            (event_id,participant_id,event_type,network,asset,amount_minor,
-                            tx_hash,transfer_ref,event_period,created_at)
+                            tx_hash,transfer_ref,period_id,created_at)
                            VALUES(?,?,'income',?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
                         ("chain_" + item.tx_hash + "_" + item.transfer_ref,
                          participant_id,item.network,self.asset.asset.upper(),
@@ -275,21 +275,21 @@ class ChainMonitor:
                     )
                 except sqlite3.IntegrityError:
                     existing = db.execute(
-                        """SELECT participant_id,event_type,amount_minor,event_period
+                        """SELECT participant_id,event_type,amount_minor,period_id
                            FROM finance_events WHERE network=? AND tx_hash=? AND transfer_ref=?""",
                         (item.network,item.tx_hash,item.transfer_ref),
                     ).fetchone()
                     if (not existing or existing["participant_id"] != participant_id
                             or existing["event_type"] != "income"
                             or existing["amount_minor"] != item.amount_minor
-                            or existing["event_period"] != event_period):
+                            or existing["period_id"] != event_period):
                         db.rollback()
                         raise ValueError("transfer conflicts with an existing finance event")
                 db.execute(
                     """INSERT INTO chain_monitor_events
                        (network,tx_hash,transfer_ref,participant_id,asset,token_contract,
                         source_address,destination_address,amount_minor,block_number,block_hash,
-                        confirmations,event_period,status)
+                        confirmations,period_id,status)
                        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'credited')
                        ON CONFLICT(network,tx_hash,transfer_ref) DO UPDATE SET
                          confirmations=excluded.confirmations,status='credited',
