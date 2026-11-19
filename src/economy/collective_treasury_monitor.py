@@ -157,6 +157,12 @@ class CollectiveTreasuryReceiptMonitor:
             # A treasury-level canonicality incident freezes all agent spend policies
             # on the affected network/asset. Human review is required to resume.
             db.execute(
+                """UPDATE treasury_receipt_monitor_events SET status='orphaned',
+                   updated_at=CURRENT_TIMESTAMP
+                   WHERE network=? AND tx_hash=? AND transfer_ref=?""",
+                (network, tx_hash, transfer_ref),
+            )
+            db.execute(
                 "UPDATE treasury_agents SET enabled=0 WHERE network=? AND asset=?",
                 (network, asset.upper()),
             )
