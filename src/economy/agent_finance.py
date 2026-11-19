@@ -266,22 +266,27 @@ class AgentFinanceStore:
         return dict(row) if row else None
 
     def mark_owner_distribution_paid(self, agent_id: str, network: str, asset: str,
-                                     period_id: str, *, tx_hash: str,
-                                     destination: str, verified: bool) -> None:
-        """Finalize a master payout only after independent chain verification."""
-        if verified is not True or not tx_hash.strip():
-            raise ValueError("a verified payout transaction is required")
+                                     period_id: str, *, transfer: VerifiedTransfer) -> None:
+        """Finalize only an exact, independently verified agent-to-master transfer."""
+        self._validate_transfer(transfer)
         period = self.get_profit_period(agent_id, network, asset, period_id)
         if not period or period["status"] != "pending_payout":
             raise ValueError("no pending owner distribution exists")
+        agent = self.wallet(agent_id, "agent", network, asset)
         master = self.wallet(period["master_id"], "master", network, asset)
-        if not master or master.address != destination:
+        if transfer.network != network or transfer.asset.upper() != asset.upper():
+            raise ValueError("payout network or asset does not match the profit period")
+        if not agent or transfer.source != agent.address:
+            raise ValueError("payout source does not match the agent wallet")
+        if not master or master.address != transfer.destination:
             raise ValueError("payout destination does not match the registered master wallet")
+        if transfer.amount_minor != period["master_due_minor"]:
+            raise ValueError("payout amount does not match the master's calculated share")
         with self._connect() as db:
             cur = db.execute(
                 """UPDATE profit_periods SET status='paid', payout_tx_hash=?
                    WHERE period_key=? AND status='pending_payout'""",
-                (tx_hash, period["period_key"]),
+                (transfer.tx_hash, period["period_key"]),
             )
             if cur.rowcount != 1:
                 raise ValueError("distribution was already finalized or changed concurrently")
