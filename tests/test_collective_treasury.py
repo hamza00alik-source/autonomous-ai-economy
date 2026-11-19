@@ -216,6 +216,47 @@ class CollectiveTreasuryTests(unittest.TestCase):
         self.assertEqual(result, again)
 
 
+    def test_profit_close_requires_and_includes_verified_gas_cost_valuation(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:gas"
+        )
+        self.store.record_receipt(
+            self.transfer(), period_id="2026-11", agent_id="agent-a",
+            attribution_ref="invoice:gas",
+        )
+        destination = "0x" + "b" * 40
+        reservation = self.store.reserve_spend(
+            "agent-a", "base-sepolia", "USDC", destination, 1000,
+            idempotency_key="agent-a:gas-test", period_id="2026-11",
+        )
+        tx_hash = "0x" + "2" * 64
+        self.store.mark_broadcast(reservation, tx_hash)
+        self.store.settle_spend(reservation, VerifiedTransfer(
+            "base-sepolia", "USDC", tx_hash, "log:2", destination, 1000,
+            12, True, source="0x" + "a" * 40,
+        ))
+        with self.assertRaisesRegex(ValueError, "gas fee and USDC valuation"):
+            self.store.close_period(
+                "agent-a", "base-sepolia", "USDC", "2026-11",
+                reserve_bps=0, owner_share_bps=5000,
+            )
+        self.store.record_gas_cost(
+            reservation_id=reservation, network="base-sepolia", tx_hash=tx_hash,
+            gas_fee_wei=123456789, usdc_cost_minor=200,
+            price_source="operator-approved-price-feed",
+            price_observed_at="2026-11-19T12:00:00Z",
+        )
+        result = self.store.close_period(
+            "agent-a", "base-sepolia", "USDC", "2026-11",
+            reserve_bps=0, owner_share_bps=5000,
+        )
+        self.assertEqual(result["expenses_minor"], 1200)
+        self.assertEqual(result["net_profit_minor"], 6800)
+        self.assertEqual(result["owner_share_minor"], 3400)
+        # ETH gas is an operating expense, not a USDC pool debit.
+        self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 7000)
+
+
 class CDPAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_transfer_usdc_uses_policy_bound_account_and_atomic_amount(self):
         class Account:
