@@ -60,6 +60,13 @@ class QuorumVerifierTests(unittest.TestCase):
         with self.assertRaises(EVMRPCError):
             verifier.finalized_block_number()
 
+    def test_quorum_cannot_be_lowered_below_strict_majority(self):
+        a, b = FakeProvider(), FakeProvider()
+        with self.assertRaisesRegex(ValueError, "strict majority"):
+            QuorumEVMVerifier([a, b], quorum=1)
+        with self.assertRaisesRegex(ValueError, "same RPC provider"):
+            QuorumEVMVerifier([a, a])
+
     def test_mismatched_chains_rejected(self):
         a, b = FakeProvider(), FakeProvider()
         b.config = SimpleNamespace(chain_id=1, network="mainnet",
