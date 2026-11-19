@@ -29,6 +29,20 @@ class FakeVerifier:
                                 amount_minor, 12, True, source=source_address)
 
 
+class FakeGasFeeVerifier:
+    def transaction_fee_wei(self, tx_hash):
+        return {"tx_hash": tx_hash, "total_fee_wei": 123456789}
+
+
+class FakeGasPriceOracle:
+    async def quote_native_fee_usdc(self, *, network, fee_wei):
+        return {
+            "usdc_cost_minor": 5,
+            "price_source": "test-price-feed",
+            "price_observed_at": "2026-11-19T12:00:00Z",
+        }
+
+
 class CollectiveTreasuryExecutorTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -66,6 +80,23 @@ class CollectiveTreasuryExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "settled")
         self.assertEqual(signer.calls, 1)
         self.assertEqual(self.store.balance("agent:agent-x", "base-sepolia", "USDC"), 3000)
+
+    async def test_executor_records_gas_fee_valuation_before_profit_close(self):
+        reservation = self.reservation()
+        executor = CollectiveTreasuryPaymentExecutor(
+            self.store, FakeSigner(), FakeVerifier(),
+            gas_fee_verifier=FakeGasFeeVerifier(),
+            gas_price_oracle=FakeGasPriceOracle(),
+        )
+        result = await executor.execute(reservation)
+        self.assertEqual(result["status"], "settled")
+        self.assertEqual(result["gas_cost_status"], "recorded")
+        close = self.store.close_period(
+            "agent-x", "base-sepolia", "USDC", "p1",
+            reserve_bps=0, owner_share_bps=5000,
+        )
+        self.assertEqual(close["expenses_minor"], 1005)
+        self.assertEqual(close["net_profit_minor"], 2995)
 
     async def test_ambiguous_provider_failure_is_held_and_never_blindly_retried(self):
         reservation = self.reservation()
