@@ -154,6 +154,35 @@ async function enqueueCopy(request, env) {
   return json({ task_id: row.task_id, status: row.status, created_at: row.created_at, idempotent: true }, 202);
 }
 
+async function readBoundedRequestText(request, maxBytes) {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { return undefined; }
+}
+
 async function hmacSha256Hex(secret, message) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
     { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -173,8 +202,9 @@ async function executeInternalProduct(request, env) {
       !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
     return json({ error: "same-origin application/json request required" }, 403);
   }
-  const rawInput = await request.text();
-  if (new TextEncoder().encode(rawInput).length > 512) return json({ error: "request body too large" }, 413);
+  const rawInput = await readBoundedRequestText(request, 512);
+  if (rawInput === null) return json({ error: "request body too large" }, 413);
+  if (rawInput === undefined) return json({ error: "request body must be valid UTF-8" }, 400);
   let input;
   try { input = JSON.parse(rawInput); } catch { return json({ error: "invalid JSON" }, 400); }
   if (!input || typeof input !== "object" || Array.isArray(input) ||
