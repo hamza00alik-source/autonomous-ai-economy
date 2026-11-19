@@ -47,5 +47,5 @@ test("signed agent requests authenticate once and reject replay or body tamperin
 });
 test("agent requests outside the five-minute window are rejected",async()=>{
   const db=mockDb(null);
-  assert.deepEqual(await authenticateAgentRequest(db,{agentId:"agent-1",method:"POST",path:"/x",body:"{}",timestamp:"1000",nonce:"c".repeat(24),signature:"x",keyFingerprint:"x",nowMs:1_000_000}),{ok:false,reason:"agent_request_timestamp_outside_window"});
+  assert.deepEqual(await authenticateAgentRequest(db,{agentId:"agent-1",method:"POST",path:"/x",body:"{}",timestamp:"1000",nonce:"c".repeat(24),signature:"x",keyFingerprint:"a".repeat(64),nowMs:1_000_000}),{ok:false,reason:"agent_request_timestamp_outside_window"});
 });
