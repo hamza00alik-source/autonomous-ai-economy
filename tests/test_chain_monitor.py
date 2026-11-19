@@ -24,6 +24,7 @@ def observation(**overrides):
         tx_hash="0xTx1", transfer_ref="log:0", source="0xCustomer",
         destination="0xAgent", amount_minor=2500, block_number=100,
         block_hash="0xBlock100", confirmations=12, canonical=True, finalized=True,
+        block_timestamp="2026-11-19T12:00:00+00:00",
     )
     values.update(overrides)
     return ChainTransferObservation(**values)
@@ -103,6 +104,23 @@ class ChainMonitorTests(unittest.TestCase):
             resolution_note="Reviewed explorer and opened manual ledger adjustment",
         )
         self.assertEqual(len(self.monitor.list_reorg_alerts()), 1)
+
+
+    def test_period_resolver_assigns_each_transfer_by_block_timestamp(self):
+        self.chain.transfers = (
+            observation(block_timestamp="2026-10-31T23:59:00+00:00"),
+        )
+        monitor = ChainMonitor(
+            self.finance, self.chain,
+            MonitoredAsset("testnet", "USDC", "0xToken", 10),
+            period_resolver=lambda timestamp: "2026-10" if timestamp.startswith("2026-10") else "2026-11",
+        )
+        monitor.poll_once(period_id="fallback")
+        with self.finance._connect() as db:
+            row = db.execute(
+                "SELECT period_id FROM finance_events WHERE tx_hash='0xTx1'"
+            ).fetchone()
+        self.assertEqual(row["period_id"], "2026-10")
 
     def test_cursor_is_forwarded_and_persisted(self):
         self.monitor.poll_once(period_id="2026-11")
