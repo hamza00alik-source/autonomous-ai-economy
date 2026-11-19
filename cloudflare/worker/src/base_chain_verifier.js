@@ -87,8 +87,6 @@ export async function verifyBaseUsdcInvoicePayment(db,{ownerId,agentId,invoiceId
       db.prepare("INSERT INTO financial_receiving_payment_observations(observation_id,owner_id,agent_id,invoice_id,network,tx_hash,block_number,block_hash,amount_minor,matched_log_indices_json,status,evidence_json,observed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)")
         .bind(observationId,ownerId,agentId,invoiceId,"base-mainnet",txHash.toLowerCase(),inspected.block_number,inspected.block_hash,
           inspected.amount_minor,JSON.stringify(inspected.matched_log_indices),status,JSON.stringify(evidence),now),
-      db.prepare("UPDATE financial_receiving_invoices SET status=?,updated_at=? WHERE invoice_id=? AND status='awaiting_payment'")
-        .bind(status,now,invoiceId),
       db.prepare("INSERT INTO financial_audit_events(event_id,owner_id,actor_id,event_type,target_type,target_id,request_id,details_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)")
         .bind(eventId,ownerId,ownerId,status==="confirmed"?"financial.receiving_payment_confirmed":"financial.receiving_payment_review",
           "receiving_invoice",invoiceId,txHash.toLowerCase(),JSON.stringify(evidence),now)
