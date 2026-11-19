@@ -151,7 +151,7 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
  let ownerKeyGenerated = false;
  let ownerKeyBackedUp = false;
  let enrollmentChallenge = null;
- let lastInternalProductJobId = null;
+ let lastInternalProductJobId = sessionStorage.getItem("aae_internal_product_job_id");
  let pendingInternalProductIdempotencyKey = null;
  let generatedKeyBackupUrl = null;
  const stableObject = value => Array.isArray(value) ? value.map(stableObject) :
@@ -347,6 +347,7 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      });
      pendingInternalProductIdempotencyKey=null;
      lastInternalProductJobId=result.job_id;
+     sessionStorage.setItem("aae_internal_product_job_id",lastInternalProductJobId);
      $("downloadInternalProduct").disabled=true;
      $("internalProductStatus").textContent="Owner approval verified. Build queued for the scheduled private worker…";
      await pollInternalProductJob(lastInternalProductJobId);
@@ -507,7 +508,7 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    token="";sessionStorage.removeItem(tokenKey);$("token").value="";
    showDashboard(false);setMessage("Disconnected. The token was cleared from this tab.");
  });
- if(token) refresh();
+ if(token){refresh();if(lastInternalProductJobId)pollInternalProductJob(lastInternalProductJobId);}
 })();
 </script>
 </body>
