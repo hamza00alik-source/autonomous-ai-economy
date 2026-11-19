@@ -81,10 +81,10 @@ class EVMRPCSourceTests(unittest.TestCase):
         self.assertEqual(item.confirmations, 11)
         self.assertTrue(item.canonical)
         self.assertTrue(item.finalized)
-        self.assertEqual(page.next_cursor, "110")
+        self.assertEqual(page.next_cursor, "106")
         log_filter = next(params[0] for method, params in rpc.calls if method == "eth_getLogs")
         self.assertEqual(log_filter["fromBlock"], "0x5a")
-        self.assertEqual(log_filter["toBlock"], "0x6d")
+        self.assertEqual(log_filter["toBlock"], "0x69")
 
     def test_chain_id_mismatch_fails_closed(self):
         source = EVMJSONRPCSource(self.config, rpc_call=FakeRPC(chain_id="0x1"))
