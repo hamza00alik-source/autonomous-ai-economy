@@ -41,6 +41,9 @@ class CollectiveTreasuryExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.store.add_agent("agent-x", "base-sepolia", "USDC",
                              daily_limit_minor=5000, per_tx_limit_minor=3000,
                              allowed_destinations=(self.destination,))
+        self.store.create_payment_intent(
+            "agent-x", "base-sepolia", "USDC", 4000, attribution_ref="invoice:p1"
+        )
         self.store.record_receipt(VerifiedTransfer(
             "base-sepolia", "USDC", "0x" + "1" * 64, "log:1",
             self.treasury_address, 4000, 12, True, source="0x" + "c" * 40,
@@ -72,6 +75,18 @@ class CollectiveTreasuryExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "uncertain")
         with self.assertRaisesRegex(ValueError, "fresh reserved"):
             await executor.execute(reservation)
+        self.assertEqual(signer.calls, 1)
+
+    async def test_known_broadcast_hash_can_be_reconciled_without_resubmission(self):
+        reservation = self.reservation()
+        signer = FakeSigner()
+        executor = CollectiveTreasuryPaymentExecutor(self.store, signer, FakeVerifier(fail=True))
+        first = await executor.execute(reservation)
+        self.assertEqual(first["status"], "uncertain")
+        self.assertEqual(signer.calls, 1)
+        reconciler = CollectiveTreasuryPaymentExecutor(self.store, signer, FakeVerifier())
+        result = await reconciler.reconcile(reservation)
+        self.assertEqual(result["status"], "settled")
         self.assertEqual(signer.calls, 1)
 
     async def test_unfinalized_transfer_remains_uncertain(self):
