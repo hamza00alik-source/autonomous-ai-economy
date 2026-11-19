@@ -267,14 +267,25 @@ async function executeInternalProduct(request, env) {
 
 async function processOneApprovedInternalProduct(env) {
   if (!env.DB || !env.EXECUTION_RUNTIME || !env.EXECUTION_ARTIFACTS || !env.AAE_OWNER_ID || !env.AAE_EXECUTION_BRIDGE_SECRET) return;
-  const job = await env.DB.prepare(
-    "SELECT job_id,owner_id,execution_spec_json FROM internal_execution_jobs WHERE status='approved' ORDER BY created_at ASC LIMIT 1"
-  ).first();
-  if (!job || job.owner_id !== env.AAE_OWNER_ID || job.execution_spec_json !== JSON.stringify({kind:"moba_objective_props_v1"})) return;
   const now = new Date().toISOString();
+  const exhausted = await env.DB.prepare(
+    "SELECT job_id,owner_id FROM internal_execution_jobs WHERE status='running' AND lease_expires_at < ? AND attempt_count >= 3 ORDER BY lease_expires_at ASC LIMIT 1"
+  ).bind(now).first();
+  if (exhausted && exhausted.owner_id === env.AAE_OWNER_ID) {
+    await env.DB.prepare("UPDATE internal_execution_jobs SET status='failed',error_code='execution_lease_exhausted',updated_at=? WHERE job_id=? AND status='running' AND lease_expires_at < ?")
+      .bind(now,exhausted.job_id,now).run();
+    await env.DB.prepare("INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'execution_failed',?,?)")
+      .bind(crypto.randomUUID(),exhausted.job_id,env.AAE_OWNER_ID,JSON.stringify({reason:"execution_lease_exhausted",max_attempts:3}),now).run();
+    return;
+  }
+  const job = await env.DB.prepare(
+    "SELECT job_id,owner_id,execution_spec_json,attempt_count FROM internal_execution_jobs WHERE owner_id=? AND attempt_count < 3 AND (status='approved' OR (status='running' AND lease_expires_at < ?)) ORDER BY created_at ASC LIMIT 1"
+  ).bind(env.AAE_OWNER_ID,now).first();
+  if (!job || job.execution_spec_json !== JSON.stringify({kind:"moba_objective_props_v1"})) return;
+  const leaseExpires = new Date(Date.now()+10*60*1000).toISOString();
   const claimed = await env.DB.prepare(
-    "UPDATE internal_execution_jobs SET status='running',updated_at=? WHERE job_id=? AND status='approved' RETURNING job_id"
-  ).bind(now,job.job_id).first();
+    "UPDATE internal_execution_jobs SET status='running',attempt_count=attempt_count+1,lease_expires_at=?,updated_at=? WHERE job_id=? AND (status='approved' OR (status='running' AND lease_expires_at < ?)) RETURNING job_id"
+  ).bind(leaseExpires,now,job.job_id,now).first();
   if (!claimed) return;
   await env.DB.prepare(
     "INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'execution_started','{}',?)"
@@ -302,13 +313,13 @@ async function processOneApprovedInternalProduct(env) {
       customMetadata:{job_id:job.job_id,owner_id:env.AAE_OWNER_ID,sha256:digest}
     });
     const completedAt=new Date().toISOString();
-    await env.DB.prepare("UPDATE internal_execution_jobs SET status='delivery_ready',artifact_key=?,artifact_sha256=?,artifact_size_bytes=?,updated_at=? WHERE job_id=? AND status='running'")
+    await env.DB.prepare("UPDATE internal_execution_jobs SET status='delivery_ready',artifact_key=?,artifact_sha256=?,artifact_size_bytes=?,lease_expires_at=NULL,updated_at=? WHERE job_id=? AND status='running'")
       .bind(artifactKey,digest,artifact.byteLength,completedAt,job.job_id).run();
     await env.DB.prepare("INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'artifact_verified',?,?)")
       .bind(crypto.randomUUID(),job.job_id,env.AAE_OWNER_ID,JSON.stringify({artifact_key:artifactKey,sha256:digest,size_bytes:artifact.byteLength,qa_passed:true}),completedAt).run();
   } catch {
     const failedAt=new Date().toISOString();
-    await env.DB.prepare("UPDATE internal_execution_jobs SET status='failed',error_code='execution_failed',updated_at=? WHERE job_id=? AND status='running'")
+    await env.DB.prepare("UPDATE internal_execution_jobs SET status='failed',error_code='execution_failed',lease_expires_at=NULL,updated_at=? WHERE job_id=? AND status='running'")
       .bind(failedAt,job.job_id).run();
     await env.DB.prepare("INSERT INTO internal_execution_events(event_id,job_id,owner_id,event_type,evidence_json,created_at) VALUES(?,?,?,'execution_failed','{}',?)")
       .bind(crypto.randomUUID(),job.job_id,env.AAE_OWNER_ID,failedAt).run();
