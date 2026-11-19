@@ -105,3 +105,27 @@ def test_idempotency_and_event_log_are_stable():
                                     idempotency_key="same-key")
         assert repeated.state == first.state
         assert len(store.events(job.job_id)) == 2
+
+def test_only_independently_verified_revenue_candidates_enter_fulfillment():
+    with TemporaryDirectory() as directory:
+        store = store_at(Path(directory) / "fulfillment.sqlite3")
+        review_only = {
+            "source": "jobbi", "external_id": "gig-1",
+            "status": "needs_owner_review", "escrow_verified": False,
+            "claim_allowed": False, "payment_verified": False,
+        }
+        with pytest.raises(FulfillmentError, match="not eligible"):
+            store.create_from_candidate(review_only, agent_id="builder-1",
+                                         agent_key_fingerprint=FINGERPRINT,
+                                         idempotency_key="review-only")
+        ready = {
+            "source": "taskmarket", "external_id": "task-verified",
+            "status": "ready_for_owner_review", "escrow_verified": True,
+            "claim_allowed": False, "payment_verified": False,
+            "title": "Verified task",
+        }
+        job = store.create_from_candidate(ready, agent_id="builder-1",
+                                          agent_key_fingerprint=FINGERPRINT,
+                                          idempotency_key="verified-task")
+        assert job.state == "discovered"
+        assert job.payload["title"] == "Verified task"
