@@ -26,6 +26,18 @@ The runtime package is prepared from the canonical `src/economy/game_asset_pack.
 
 The artifact is not published, submitted, delivered to a customer, or counted as revenue. The owner can retrieve it through the bearer-authenticated `GET /v1/owner/internal-products/jobs/{job_id}/artifact` route; the route re-checks D1 ownership/state and verifies the R2 object size and SHA-256 before returning it.
 
+## Owner queue observability
+
+The private owner console at `/owner` includes read-only execution operations visibility when connected with the existing owner bearer token:
+
+- `GET /v1/owner/internal-products/operations?limit=25` returns per-status counts, the newest bounded set of jobs, execution attempt counts, lease expiry, artifact digest/size, error codes, retention-review timestamps, and recent append-only audit events.
+- The response is scoped to the configured `AAE_OWNER_ID`; the route is behind the owner bearer-token authorization gate. Limits are bounded to 1–100 jobs and at most 200 recent events.
+- The console shows approved/queued, running, delivery-ready and failed totals, job details and event evidence. Invalid event JSON is shown as unavailable rather than breaking the dashboard.
+- The console's artifact scan calls the existing read-only `GET /v1/owner/internal-products/artifacts/inventory` endpoint. It reports one R2 page at a time and exposes the next-page cursor; it does not change R2, D1 or audit records.
+- Refresh and artifact scans are observational only. They do not claim, retry, cancel, delete, publish, contact customers or spend funds.
+
+This is operational visibility, not an autonomous recovery control plane. Failed jobs require investigation; no automatic retry or lease extension is exposed in the console.
+
 ## Required configuration before any deployment
 
 These are manual owner-controlled prerequisites. This PR does not create resources, deploy services, or set secrets.
