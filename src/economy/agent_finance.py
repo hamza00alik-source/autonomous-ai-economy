@@ -271,6 +271,16 @@ class AgentFinanceStore:
             db.commit()
             return dict(self.get_profit_period(agent_id, network, asset, period_id))
 
+    def list_pending_distributions(self, limit: int = 100) -> list[dict]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                """SELECT * FROM profit_periods WHERE status='pending_payout'
+                   ORDER BY created_at LIMIT ?""", (limit,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def get_profit_period(self, agent_id: str, network: str,
                           asset: str, period_id: str) -> dict | None:
         key = f"{agent_id}:{network}:{asset.upper()}:{period_id}"
