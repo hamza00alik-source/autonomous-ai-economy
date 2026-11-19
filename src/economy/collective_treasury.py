@@ -320,8 +320,9 @@ class CollectiveTreasuryStore:
             pending_intents = db.execute(
                 """SELECT COALESCE(SUM(expected_amount_minor),0) AS amount
                    FROM treasury_payment_intents
-                   WHERE agent_id=? AND network=? AND asset=? AND status='pending'""",
-                (agent_id, network, asset),
+                   WHERE agent_id=? AND network=? AND asset=? AND status='pending'
+                     AND attribution_ref != ?""",
+                (agent_id, network, asset, attribution_ref),
             ).fetchone()
             if int(account["balance"]) + int(pending_intents["amount"]) + expected_amount_minor > int(policy["max_balance_minor"]):
                 db.rollback()
@@ -546,8 +547,15 @@ class CollectiveTreasuryStore:
         wallet = self.treasury_wallet(network, asset)
         if not policy or not wallet:
             raise ValueError("agent treasury wallet is not configured")
-        gross = self.balance(f"agent:{agent_id}", network, asset)
-        available = gross
+        with closing(self._connect()) as db:
+            ledger = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
+                           ELSE -amount_minor END),0) AS balance
+                   FROM treasury_entries WHERE account_id=? AND network=? AND asset=?""",
+                (f"agent:{agent_id}", network, asset),
+            ).fetchone()
+        gross = int(ledger["balance"])
+        available = self.balance(f"agent:{agent_id}", network, asset)
         return {
             "agent_id": agent_id,
             "network": network,
