@@ -10,7 +10,6 @@ from __future__ import annotations
 from contextlib import closing
 from typing import Callable, Protocol
 
-from .collective_treasury import CollectiveTreasuryStore
 from .collective_treasury_monitor import CollectiveTreasuryReceiptMonitor
 from .treasury_worker import CollectiveTreasuryWorker
 
