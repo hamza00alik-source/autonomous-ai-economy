@@ -2,7 +2,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from economy.agent_finance import VerifiedTransfer
 from economy.chain_monitor import ChainTransferObservation, TransferPage
 from economy.collective_treasury import CollectiveTreasuryStore, TreasuryWallet
 from economy.collective_treasury_monitor import CollectiveTreasuryReceiptMonitor
@@ -14,10 +13,10 @@ TOKEN = "0x" + "1" * 40
 TX = "0x" + "c" * 64
 
 
-def observation(*, tx=TX, amount=5000, source=PAYER, finalized=True, canonical=True):
+def observation(*, tx=TX, amount=5000, source=PAYER, finalized=True, canonical=True, block_hash="0x" + "d" * 64):
     return ChainTransferObservation(
         "base-sepolia", "USDC", TOKEN, tx, "log:0", source, WALLET,
-        amount, 100, "0x" + "d" * 64, 12 if finalized else 1,
+        amount, 100, block_hash, 12 if finalized else 1,
         canonical, finalized, "2026-11-19T12:00:00+00:00",
     )
 
@@ -112,6 +111,15 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         result = self.monitor.poll_once(network="base-sepolia", asset="USDC", period_id="2026-11")
         self.assertEqual(result["allocated"], 1)
         self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 5000)
+        self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 5000)
+
+    def test_changed_block_identity_fails_closed_after_credit(self):
+        self.intent()
+        self.monitor.bind_payer("invoice:1", PAYER)
+        self.monitor.poll_once(network="base-sepolia", asset="USDC", period_id="2026-11")
+        self.source.transfers = (observation(block_hash="0x" + "e" * 64),)
+        with self.assertRaisesRegex(ValueError, "changed block identity"):
+            self.monitor.poll_once(network="base-sepolia", asset="USDC", period_id="2026-11")
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 5000)
 
 
