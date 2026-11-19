@@ -41,3 +41,15 @@ This is still not a signer or live wallet. The production signer must enforce th
 `src/economy/profit_payouts.py` adds a worker that reads pending profit obligations, resolves the registered agent and master wallet addresses, requests the exact amount from a policy-enforcing signer using a stable idempotency key, asks an independent chain verifier to confirm final settlement, and only then marks the obligation paid. Failed broadcasts or verification leave the obligation pending for a later retry.
 
 This is orchestration, not a live payment adapter. No production signer or chain verifier is included. The worker must be scheduled by the always-on runtime after those adapters are implemented. The signer must be idempotent for the supplied key and must enforce destination/amount limits independently of the agent model.
+
+## Machine-to-machine service payments (x402)
+
+The planned service-payment adapter will target x402 v2 rather than inventing a private HTTP payment format. x402 lets a client agent receive machine-readable payment requirements, select a supported scheme/network, authorize payment with its wallet signer, and retry the resource request with the signed payment. A service agent can expose a paid resource and receive settlement to its own configured wallet. x402 is a payment protocol, not a wallet, key manager, or autonomous business engine.
+
+Implementation must use the official x402 SDK rather than manually constructing protocol headers. It must apply AAE's own per-agent destination allowlist and budget controls before signing, and must verify settled receipts before crediting revenue. Do not advertise a scheme/network until the configured facilitator or self-hosted settlement implementation confirms production support.
+
+References:
+- x402 v2 specification: https://github.com/x402-foundation/x402/blob/main/specs/x402-specification-v2.md
+- Official Python SDK: https://github.com/x402-foundation/x402/tree/main/python/x402
+- HTTP transport v2: https://github.com/x402-foundation/x402/blob/main/specs/transports-v2/http.md
+- Solana agentic payments overview: https://solana.com/docs/payments/agentic-payments/x402
