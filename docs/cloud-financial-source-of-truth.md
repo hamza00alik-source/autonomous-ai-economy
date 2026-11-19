@@ -120,3 +120,20 @@ economy-finance --data-dir ./data cloud-policy-sign ./cloud-policy.json \
 ```
 
 The cloud owner/operator enrollment ceremony is still a prerequisite: this command does not create cloud identities, upload public keys, or provision agent records. Do not upload a local SQLite policy export as if it were a cloud envelope. The Android dashboard accepts the resulting signed envelope, but the user must protect the local key file and review the exact policy terms before signing.
+
+## Owner/operator enrollment
+
+Migration `0008_owner_key_enrollment.sql` adds a short-lived, single-pending-challenge enrollment ceremony. The authenticated owner obtains a five-minute challenge from `GET /v1/owner/financial-controls/enrollment/challenge`; the browser signs a canonical proof with an Ed25519 private key, then submits only the public JWK, signature, selected local agent IDs and supported currency codes to `POST /v1/owner/financial-controls/enrollment/complete`.
+
+The owner and operator IDs are configured out of band using Worker variables `AAE_OWNER_ID` and `AAE_OPERATOR_ID`. Enrollment verifies proof of possession before creating an owner, operator, owner-bound agents, empty ledger accounts and an emergency-pause row. It is idempotent for the exact completed challenge and rejects key/identity conflicts. All new cloud spending remains paused. The enrollment proves control of a signing key and an authenticated owner session; it is not government identity verification, KYC/AML clearance, or authorization to operate a regulated payment service.
+
+The Android-friendly owner dashboard supports:
+- Generate a new Ed25519 key in the browser, or import an existing unencrypted PKCS#8 PEM key.
+- Keep the private key in browser-tab memory only; it is never sent to the Worker or saved in browser storage.
+- Download a private-key backup when generating a new key. The owner must protect this file; losing it means losing the ability to sign future policies unless a separately authorized key-rotation/recovery process is completed.
+- Sign the enrollment challenge and subsequent cloud policy JSON locally in the browser.
+- Submit only public key material, canonical policy data and signatures to authenticated same-origin endpoints.
+
+WebCrypto Ed25519 support is required. If the browser does not support it, the dashboard fails closed; the local `economy-finance cloud-enrollment-sign` and `cloud-policy-sign` commands are available on a trusted machine instead. Neither workflow uploads private key material.
+
+The current cloud ledger accepts only three-letter uppercase currency codes. This is suitable for USD-denominated accounting but does not yet represent four-letter stablecoin assets such as USDC/USDT. Do not label USD ledger balances as stablecoin balances or enable crypto asset allocations until asset-code support and provider settlement mapping are separately implemented and tested.
