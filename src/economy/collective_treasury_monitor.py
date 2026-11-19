@@ -146,10 +146,28 @@ class CollectiveTreasuryReceiptMonitor:
         for item in page.transfers:
             if not isinstance(item, ChainTransferObservation):
                 raise ValueError("receipt source returned an invalid observation")
+            if (not isinstance(item.network, str) or not isinstance(item.asset, str)
+                    or not isinstance(item.token_contract, str)
+                    or not isinstance(item.destination, str)
+                    or not isinstance(item.source, str)
+                    or not isinstance(item.tx_hash, str)
+                    or not isinstance(item.transfer_ref, str)
+                    or not isinstance(item.block_hash, str)):
+                raise ValueError("observation contains invalid identity fields")
             if (item.network != network or item.asset.upper() != asset.upper()
                     or item.token_contract.lower() != self.token_contract.lower()
                     or item.destination.lower() != wallet.address.lower()):
                 raise ValueError("observation does not match the configured treasury")
+            if (not _ADDRESS.fullmatch(item.source) or not _ADDRESS.fullmatch(item.destination)
+                    or not re.fullmatch(r"0x[0-9a-fA-F]{64}", item.tx_hash)
+                    or not re.fullmatch(r"0x[0-9a-fA-F]{64}", item.block_hash)
+                    or not item.transfer_ref.startswith("log:")
+                    or not item.transfer_ref[4:].isdigit()
+                    or isinstance(item.amount_minor, bool) or not isinstance(item.amount_minor, int)
+                    or item.amount_minor <= 0
+                    or isinstance(item.confirmations, bool) or not isinstance(item.confirmations, int)
+                    or item.confirmations < 0):
+                raise ValueError("observation has malformed transfer fields")
             if not item.canonical:
                 counts["orphaned"] += 1
                 continue
