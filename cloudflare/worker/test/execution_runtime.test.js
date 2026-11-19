@@ -27,7 +27,10 @@ function fakeDb(publicKeyJwk) {
             return null;
           }
           if (sql.includes("attempt_count < 3") || sql.includes("WHERE status='approved'")) {
-            return state.job?.status === "approved" ? { job_id: state.job.job_id, owner_id: state.job.owner_id, execution_spec_json: JSON.stringify({kind:"moba_objective_props_v1"}) } : null;
+            const leaseExpired = state.job?.status === "running" && Date.parse(state.job.lease_expires_at || "") < Date.parse(values[1]);
+            return state.job && (state.job.status === "approved" || leaseExpired)
+              ? { job_id: state.job.job_id, owner_id: state.job.owner_id, execution_spec_json: JSON.stringify({kind:"moba_objective_props_v1"}), attempt_count: state.job.attempt_count || 0 }
+              : null;
           }
           if (sql.startsWith("SELECT job_id,status,artifact_key")) {
             if (state.job && state.job.owner_id === values[0] && state.job.idempotency_key === values[1]) return state.job;
@@ -230,6 +233,19 @@ test("owner-approved product execution stores a verified private artifact and is
   assert.deepEqual(new Uint8Array(await download.arrayBuffer()), bytes);
 });
 
+test("scheduled worker reclaims an expired execution lease within the retry budget", async () => {
+  const { env, DB, approvalBody } = await makeEnv();
+  const queuedResponse = await worker.fetch(request(approvalBody), env);
+  assert.equal(queuedResponse.status, 202);
+  DB.state.job.status = "running";
+  DB.state.job.attempt_count = 1;
+  DB.state.job.lease_expires_at = new Date(Date.now() - 60_000).toISOString();
+  const scheduledPromises = [];
+  await worker.scheduled({}, env, { waitUntil(promise) { scheduledPromises.push(promise); } });
+  await Promise.all(scheduledPromises);
+  assert.equal(DB.state.job.status, "delivery_ready");
+  assert.equal(DB.state.job.attempt_count, 2);
+});
 test("private artifact download requires the owner bearer token", async () => {
   const { env } = await makeEnv();
   const response = await worker.fetch(downloadRequest("123e4567-e89b-42d3-a456-426614174000", "wrong-token"), env);
