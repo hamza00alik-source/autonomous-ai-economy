@@ -8,7 +8,7 @@ export default defineConfig({
     }),
   ],
   test: {
-    include: ["test/*.workers.test.js"],
+    include: ["test/*.workers.spec.js"],
     testTimeout: 30_000,
     hookTimeout: 30_000,
   },
