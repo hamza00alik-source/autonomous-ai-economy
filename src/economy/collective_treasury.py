@@ -125,6 +125,20 @@ class CollectiveTreasuryStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_treasury_spend_daily
                     ON treasury_spend_reservations(agent_id, network, asset, created_at, status);
+                CREATE TABLE IF NOT EXISTS treasury_gas_costs (
+                    network TEXT NOT NULL,
+                    tx_hash TEXT NOT NULL,
+                    reservation_id TEXT NOT NULL UNIQUE,
+                    agent_id TEXT NOT NULL,
+                    period_id TEXT NOT NULL,
+                    gas_fee_wei TEXT NOT NULL,
+                    usdc_cost_minor INTEGER NOT NULL CHECK(usdc_cost_minor >= 0),
+                    price_source TEXT NOT NULL,
+                    price_observed_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(network, tx_hash),
+                    FOREIGN KEY(reservation_id) REFERENCES treasury_spend_reservations(reservation_id)
+                );
                 CREATE TABLE IF NOT EXISTS treasury_period_closes (
                     close_key TEXT PRIMARY KEY,
                     agent_id TEXT NOT NULL,
@@ -592,6 +606,55 @@ class CollectiveTreasuryStore:
                 db.rollback()
                 raise ValueError("duplicate or conflicting treasury settlement") from exc
 
+    def record_gas_cost(self, *, reservation_id: str, network: str, tx_hash: str,
+                        gas_fee_wei: int, usdc_cost_minor: int,
+                        price_source: str, price_observed_at: str) -> None:
+        """Record independently verified native gas and its trusted USDC valuation.
+
+        The fee amount must come from a finalized RPC receipt. The USDC valuation
+        must come from an explicitly named price source with an observation time;
+        AAE deliberately does not invent or silently fetch an exchange rate.
+        """
+        if not isinstance(tx_hash, str) or len(tx_hash) != 66 or not tx_hash.startswith("0x"):
+            raise ValueError("tx_hash must be a 32-byte EVM transaction hash")
+        for name, value in (("gas_fee_wei", gas_fee_wei), ("usdc_cost_minor", usdc_cost_minor)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        if gas_fee_wei <= 0:
+            raise ValueError("gas_fee_wei must be positive")
+        if not isinstance(price_source, str) or not price_source.strip():
+            raise ValueError("price_source is required")
+        if not isinstance(price_observed_at, str) or not price_observed_at.strip():
+            raise ValueError("price_observed_at is required")
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            reservation = db.execute(
+                "SELECT * FROM treasury_spend_reservations WHERE reservation_id=?",
+                (reservation_id,),
+            ).fetchone()
+            if not reservation or reservation["status"] != "settled":
+                db.rollback()
+                raise ValueError("gas cost can only be attached to a settled treasury spend")
+            if (reservation["network"] != network
+                    or not reservation["tx_hash"]
+                    or reservation["tx_hash"].lower() != tx_hash.lower()):
+                db.rollback()
+                raise ValueError("gas cost transaction does not match the settled reservation")
+            try:
+                db.execute(
+                    """INSERT INTO treasury_gas_costs
+                       (network,tx_hash,reservation_id,agent_id,period_id,gas_fee_wei,
+                        usdc_cost_minor,price_source,price_observed_at)
+                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (network, tx_hash.lower(), reservation_id, reservation["agent_id"],
+                     reservation["period_id"], str(gas_fee_wei), usdc_cost_minor,
+                     price_source.strip(), price_observed_at.strip()),
+                )
+                db.commit()
+            except sqlite3.IntegrityError as exc:
+                db.rollback()
+                raise ValueError("gas cost already recorded or conflicts with another spend") from exc
+
     def pool_balance(self, network: str, asset: str) -> int:
         """Ledger-tracked pooled cash: verified receipts minus verified external spends."""
         with closing(self._connect()) as db:
@@ -671,6 +734,17 @@ class CollectiveTreasuryStore:
             if pending:
                 db.rollback()
                 raise ValueError("cannot close period while agent spend reservations are unresolved")
+            missing_gas = db.execute(
+                """SELECT 1 FROM treasury_spend_reservations r
+                   LEFT JOIN treasury_gas_costs g
+                     ON g.reservation_id=r.reservation_id
+                   WHERE r.agent_id=? AND r.network=? AND r.asset=? AND r.period_id=?
+                     AND r.status='settled' AND g.reservation_id IS NULL LIMIT 1""",
+                (agent_id, network, asset.upper(), period_id),
+            ).fetchone()
+            if missing_gas:
+                db.rollback()
+                raise ValueError("cannot close period: settled spend is missing finalized gas fee and USDC valuation")
             totals = db.execute(
                 """SELECT
                     COALESCE(SUM(CASE WHEN entry_type='receipt' OR entry_type='attribution_in' THEN amount_minor ELSE 0 END),0) AS income,
@@ -678,7 +752,15 @@ class CollectiveTreasuryStore:
                    FROM treasury_entries WHERE account_id=? AND network=? AND asset=? AND period_id=?""",
                 (f"agent:{agent_id}", network, asset.upper(), period_id),
             ).fetchone()
-            income, expenses = int(totals["income"]), int(totals["expenses"])
+            gas_totals = db.execute(
+                """SELECT COALESCE(SUM(usdc_cost_minor),0) AS gas_expenses
+                   FROM treasury_gas_costs
+                   WHERE agent_id=? AND network=? AND period_id=?""",
+                (agent_id, network, period_id),
+            ).fetchone()
+            income = int(totals["income"])
+            gas_expenses = int(gas_totals["gas_expenses"])
+            expenses = int(totals["expenses"]) + gas_expenses
             profit = max(0, income - expenses)
             reserve = profit * reserve_bps // 10_000
             distributable = profit - reserve
