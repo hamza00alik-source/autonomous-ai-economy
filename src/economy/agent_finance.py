@@ -381,9 +381,17 @@ class AgentFinanceStore:
                     or int(original["amount_minor"]) != int(alert["amount_minor"])):
                 db.rollback()
                 raise ValueError("alert does not match an original credited income event")
-            if adjustment_period_id == alert["period_id"]:
+            original_period_closed = db.execute(
+                """SELECT 1 FROM profit_periods
+                   WHERE agent_id=? AND network=? AND asset=? AND period_id=?""",
+                (alert["participant_id"], network, alert["asset"], alert["period_id"]),
+            ).fetchone()
+            if original_period_closed and adjustment_period_id == alert["period_id"]:
                 db.rollback()
-                raise ValueError("reorg correction must be booked in a separate adjustment period")
+                raise ValueError("a closed period must be corrected in a separate adjustment period")
+            if not original_period_closed and adjustment_period_id != alert["period_id"]:
+                db.rollback()
+                raise ValueError("an open period must be corrected in that same accounting period")
             closed = db.execute(
                 """SELECT 1 FROM profit_periods
                    WHERE agent_id=? AND network=? AND asset=? AND period_id=?""",
