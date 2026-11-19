@@ -106,6 +106,8 @@ class WalletSpendController:
             raise ValueError("agent, network and asset are required")
         if not isinstance(policy.wallet_address, str) or not policy.wallet_address.strip():
             raise ValueError("agent wallet address is required")
+        if not isinstance(policy.enabled, bool):
+            raise ValueError("enabled must be a boolean")
         if not policy.allowed_destinations or any(
             not isinstance(v, str) or not v.strip() for v in policy.allowed_destinations
         ):
