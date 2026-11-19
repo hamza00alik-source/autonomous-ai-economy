@@ -10,6 +10,7 @@ const hex = bytes => Buffer.from(bytes).toString("hex");
 async function hash(value) {
   return hex(await crypto.subtle.digest("SHA-256", encoder.encode(value)));
 }
+const TEST_SECRET = "test-only-agent-key-encryption-secret-0123456789";
 function storageHarness() {
   const values = new Map();
   return {
@@ -20,19 +21,23 @@ function storageHarness() {
     },
   };
 }
-function vaultFor(harness) {
+function vaultFor(harness, id = "unit-test-agent-key-vault", secret = TEST_SECRET) {
   return new AgentKeyVaultCore({
+    id: { toString: () => id },
     storage: harness.storage,
     blockConcurrencyWhile: callback => callback(),
-  }, {});
+  }, { AAE_AGENT_KEY_ENCRYPTION_SECRET: secret });
 }
 
-test("agent signing identity survives a vault instance restart without exporting private JWK", async () => {
+test("agent identity survives restart using authenticated ciphertext, not CryptoKey structured cloning", async () => {
   const harness = storageHarness();
-  const first = vaultFor(harness);
-  const identity = await first.ensureIdentity("agent-001");
+  const identity = await vaultFor(harness).ensureIdentity("agent-001");
+  const stored = harness.values.get("agent-api-identity");
+  assert.equal(stored.privateKey, undefined);
+  assert.equal(stored.sealedPrivateKey.version, 1);
+  assert.ok(stored.sealedPrivateKey.ciphertext);
+  assert.equal(JSON.stringify(stored).includes("privateKey"), false);
   assert.equal(identity.public_key_jwk.d, undefined);
-  assert.equal(identity.key_fingerprint.length, 64);
 
   const restarted = vaultFor(harness);
   const proof = await restarted.createEnrollmentProof("agent-001");
@@ -68,6 +73,28 @@ test("vault signs only the owning agent invoice request and binds the exact body
   await assert.rejects(() => vault.signInvoiceRequest({
     agentId: "agent-001", method: "POST", path: "/v1/owner/finance/transfer", body,
   }), /only the agent's invoice-creation request may be signed/);
+});
+
+test("encrypted key is bound to its Durable Object identity and rejects tampering", async () => {
+  const harness = storageHarness();
+  const identity = await vaultFor(harness, "object-one").ensureIdentity("agent-001");
+  const wrongObject = vaultFor(harness, "object-two");
+  await assert.rejects(() => wrongObject.createEnrollmentProof("agent-001"));
+  const record = harness.values.get("agent-api-identity");
+  const ciphertext = decode(record.sealedPrivateKey.ciphertext);
+  ciphertext[0] ^= 1;
+  record.sealedPrivateKey.ciphertext = Buffer.from(ciphertext).toString("base64url");
+  harness.values.set("agent-api-identity", record);
+  await assert.rejects(() => vaultFor(harness, "object-one").createEnrollmentProof("agent-001"), /authenticated/);
+  assert.equal(identity.key_fingerprint.length, 64);
+});
+
+test("vault fails closed when its out-of-band encryption secret is missing", async () => {
+  const harness = storageHarness();
+  await assert.rejects(
+    () => vaultFor(harness, "no-secret", "").ensureIdentity("agent-001"),
+    /encryption secret is not configured/
+  );
 });
 
 test("vault cannot be rebound to another agent", async () => {
