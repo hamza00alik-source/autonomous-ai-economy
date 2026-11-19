@@ -119,7 +119,7 @@ class CollectiveAccountingRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_runtime_reconciles_before_spending(self):
         events = []
         runtime = CollectiveTreasuryAccountingRuntime(
-            store=None, receipt_monitor=FakeReceiptMonitor(events),
+            receipt_monitor=FakeReceiptMonitor(events),
             reorg_guard=FakeReorgGuard(events),
             balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
             worker=FakeWorker(events), network="base-sepolia", asset="USDC",
