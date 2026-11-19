@@ -253,7 +253,9 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      $("scheduleForm").classList.remove("hidden");
      $("policyForm").classList.remove("hidden");
      renderReceivingWallets(financialControls.receiving_wallets||[]);
-     renderAssetBalances(financialControls.asset_balances||[]);\n     $("receivingWalletForm").classList.remove("hidden");\n     renderPolicies(financialControls.policies||[]);
+     renderAssetBalances(financialControls.asset_balances||[]);
+     $("receivingWalletForm").classList.remove("hidden");
+     renderPolicies(financialControls.policies||[]);
      renderBudgets(financialControls.budgets||[]);
      renderReservations(financialControls.reservations||[]);
      renderSchedules(financialControls.schedules||[]);
