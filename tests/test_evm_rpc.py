@@ -154,6 +154,53 @@ class EVMRPCSourceTests(unittest.TestCase):
                 addresses=(AGENT,), cursor=None,
             )
 
+
+    def test_reconciles_transfer_against_canonical_receipt(self):
+        log = {
+            "address": TOKEN,
+            "topics": [TRANSFER_TOPIC, topic(CUSTOMER), topic(AGENT)],
+            "data": hex(123456),
+            "logIndex": "0x2",
+            "removed": False,
+        }
+        class ReceiptRPC(FakeRPC):
+            def __call__(self, method, params):
+                if method == "eth_getTransactionReceipt":
+                    return {"blockNumber": "0x64", "blockHash": BLOCK, "logs": [log]}
+                return super().__call__(method, params)
+        source = EVMJSONRPCSource(self.config, rpc_call=ReceiptRPC())
+        self.assertTrue(source.is_transfer_canonical(
+            network="evm-testnet", token_contract=TOKEN, tx_hash=TX,
+            transfer_ref="log:2", expected_block_number=100, expected_block_hash=BLOCK,
+            source=CUSTOMER, destination=AGENT, amount_minor=123456,
+        ))
+
+    def test_missing_receipt_is_noncanonical(self):
+        class MissingReceiptRPC(FakeRPC):
+            def __call__(self, method, params):
+                if method == "eth_getTransactionReceipt":
+                    return None
+                return super().__call__(method, params)
+        source = EVMJSONRPCSource(self.config, rpc_call=MissingReceiptRPC())
+        self.assertFalse(source.is_transfer_canonical(
+            network="evm-testnet", token_contract=TOKEN, tx_hash=TX,
+            transfer_ref="log:2", expected_block_number=100, expected_block_hash=BLOCK,
+            source=CUSTOMER, destination=AGENT, amount_minor=123456,
+        ))
+
+    def test_changed_block_hash_is_noncanonical(self):
+        class ChangedBlockRPC(FakeRPC):
+            def __call__(self, method, params):
+                if method == "eth_getTransactionReceipt":
+                    return {"blockNumber": "0x64", "blockHash": "0x" + "e" * 64, "logs": []}
+                return super().__call__(method, params)
+        source = EVMJSONRPCSource(self.config, rpc_call=ChangedBlockRPC())
+        self.assertFalse(source.is_transfer_canonical(
+            network="evm-testnet", token_contract=TOKEN, tx_hash=TX,
+            transfer_ref="log:2", expected_block_number=100, expected_block_hash=BLOCK,
+            source=CUSTOMER, destination=AGENT, amount_minor=123456,
+        ))
+
     def test_rejects_requested_network_or_token_mismatch(self):
         source = EVMJSONRPCSource(self.config, rpc_call=FakeRPC())
         with self.assertRaisesRegex(ValueError, "network"):
