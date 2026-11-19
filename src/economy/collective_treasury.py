@@ -330,8 +330,7 @@ class CollectiveTreasuryStore:
             pool = db.execute(
                 """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
                            ELSE -amount_minor END),0) AS balance
-                   FROM treasury_entries WHERE network=? AND asset=?
-                     AND account_id != 'treasury:unallocated'""",
+                   FROM treasury_entries WHERE network=? AND asset=?""",
                 (network, asset),
             ).fetchone()
             pending_intents = db.execute(
@@ -386,26 +385,11 @@ class CollectiveTreasuryStore:
                         raise ValueError("payment intent belongs to a different agent")
                 if agent_id:
                     account = db.execute(
-                        "SELECT max_balance_minor FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
+                        "SELECT 1 FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
                         (agent_id, transfer.network, transfer.asset.upper()),
                     ).fetchone()
                     if not account:
                         raise ValueError("agent has no virtual treasury account")
-                    current = db.execute(
-                        """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
-                                   ELSE -amount_minor END),0) AS balance
-                           FROM treasury_entries WHERE account_id=? AND network=? AND asset=?""",
-                        (f"agent:{agent_id}", transfer.network, transfer.asset.upper()),
-                    ).fetchone()
-                    other_intents = db.execute(
-                        """SELECT COALESCE(SUM(expected_amount_minor),0) AS amount
-                           FROM treasury_payment_intents
-                           WHERE agent_id=? AND network=? AND asset=? AND status='pending'
-                             AND attribution_ref != ?""",
-                        (agent_id, transfer.network, transfer.asset.upper(), attribution_ref or ""),
-                    ).fetchone()
-                    if int(current["balance"]) + int(other_intents["amount"]) + transfer.amount_minor > int(account["max_balance_minor"]):
-                        raise ValueError("agent wallet $500 balance cap would be exceeded")
                     status = "allocated"
                     account_id = f"agent:{agent_id}"
                 else:
@@ -473,28 +457,6 @@ class CollectiveTreasuryStore:
                     or receipt["attribution_ref"] != expected_attribution_ref):
                 db.rollback()
                 raise ValueError("receipt does not match this agent's pending payment intent")
-            agent_policy = db.execute(
-                "SELECT max_balance_minor FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
-                (agent_id, network, asset.upper()),
-            ).fetchone()
-            current_agent_balance = db.execute(
-                """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
-                           ELSE -amount_minor END),0) AS balance
-                   FROM treasury_entries WHERE account_id=? AND network=? AND asset=?""",
-                (f"agent:{agent_id}", network, asset.upper()),
-            ).fetchone()
-            other_pending = db.execute(
-                """SELECT COALESCE(SUM(expected_amount_minor),0) AS amount
-                   FROM treasury_payment_intents
-                   WHERE agent_id=? AND network=? AND asset=? AND status='pending'
-                     AND attribution_ref != ?""",
-                (agent_id, network, asset.upper(), expected_attribution_ref),
-            ).fetchone()
-            if (not agent_policy or int(current_agent_balance["balance"])
-                    + int(other_pending["amount"]) + int(receipt["amount_minor"])
-                    > int(agent_policy["max_balance_minor"])):
-                db.rollback()
-                raise ValueError("agent wallet $500 balance cap would be exceeded")
             self._insert_entry(db, "treasury:unallocated", network, asset.upper(),
                                "attribution_out", "debit", receipt["amount_minor"],
                                receipt["period_id"], "Receipt assigned from suspense",
@@ -535,41 +497,73 @@ class CollectiveTreasuryStore:
                 reserved = int(reserved_row["amount"])
         return int(row["balance"]) - reserved
 
-    def agent_wallet(self, agent_id: str, network: str, asset: str) -> dict:
-        """Return the real shared treasury address and this agent's capped account view.
-
-        The address is identical for every agent; balances and policy limits remain
-        internally attributed. No private key or signer credential is returned.
-        """
+    def shared_wallet_capacity(self, network: str, asset: str) -> dict:
+        """Return total pooled holdings and remaining capacity for the one wallet."""
         asset = self._required(asset, "asset").upper()
         with closing(self._connect()) as db:
-            policy = db.execute(
-                """SELECT max_balance_minor FROM treasury_agents
-                   WHERE agent_id=? AND network=? AND asset=?""",
+            wallet = db.execute(
+                "SELECT address,max_balance_minor FROM treasury_wallets WHERE network=? AND asset=?",
+                (network, asset),
+            ).fetchone()
+            if not wallet:
+                raise ValueError("collective treasury wallet is not configured")
+            balance = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
+                           ELSE -amount_minor END),0) AS amount
+                   FROM treasury_entries WHERE network=? AND asset=?""",
+                (network, asset),
+            ).fetchone()
+            pending = db.execute(
+                """SELECT COALESCE(SUM(expected_amount_minor),0) AS amount
+                   FROM treasury_payment_intents WHERE network=? AND asset=? AND status='pending'""",
+                (network, asset),
+            ).fetchone()
+        current = int(balance["amount"])
+        reserved_incoming = int(pending["amount"])
+        cap = int(wallet["max_balance_minor"])
+        return {
+            "address": wallet["address"],
+            "network": network,
+            "asset": asset,
+            "balance_minor": current,
+            "pending_incoming_minor": reserved_incoming,
+            "projected_balance_minor": current + reserved_incoming,
+            "max_balance_minor": cap,
+            "remaining_capacity_minor": max(0, cap - current - reserved_incoming),
+            "over_cap": current > cap,
+            "max_balance_usd": cap / 1_000_000 if asset == "USDC" else None,
+            "custody_model": "single_shared_treasury",
+        }
+
+    def agent_wallet(self, agent_id: str, network: str, asset: str) -> dict:
+        """Return the shared public address and an agent's uncapped accounting view."""
+        asset = self._required(asset, "asset").upper()
+        with closing(self._connect()) as db:
+            exists = db.execute(
+                "SELECT 1 FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
                 (agent_id, network, asset),
             ).fetchone()
-        wallet = self.treasury_wallet(network, asset)
-        if not policy or not wallet:
-            raise ValueError("agent treasury wallet is not configured")
-        with closing(self._connect()) as db:
             ledger = db.execute(
                 """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
                            ELSE -amount_minor END),0) AS balance
                    FROM treasury_entries WHERE account_id=? AND network=? AND asset=?""",
                 (f"agent:{agent_id}", network, asset),
             ).fetchone()
-        gross = int(ledger["balance"])
-        available = self.balance(f"agent:{agent_id}", network, asset)
+        if not exists:
+            raise ValueError("agent treasury account is not configured")
+        capacity = self.shared_wallet_capacity(network, asset)
         return {
             "agent_id": agent_id,
             "network": network,
             "asset": asset,
-            "address": wallet.address,
-            "provider": wallet.provider,
-            "balance_minor": gross,
-            "available_minor": available,
-            "max_balance_minor": int(policy["max_balance_minor"]),
-            "max_balance_usd": 500,
+            "address": capacity["address"],
+            "provider": (self.treasury_wallet(network, asset) or TreasuryWallet("", "", "", "", "")).provider,
+            "balance_minor": int(ledger["balance"]),
+            "available_minor": self.balance(f"agent:{agent_id}", network, asset),
+            "shared_wallet_balance_minor": capacity["balance_minor"],
+            "shared_wallet_cap_minor": capacity["max_balance_minor"],
+            "shared_wallet_remaining_minor": capacity["remaining_capacity_minor"],
+            "max_balance_usd": capacity["max_balance_usd"],
             "custody_model": "shared_treasury",
         }
 
