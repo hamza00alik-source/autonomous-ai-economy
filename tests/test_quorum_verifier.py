@@ -78,6 +78,22 @@ class QuorumVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "same RPC provider"):
             QuorumEVMVerifier([a, a])
 
+    def test_malformed_finalized_height_is_not_counted(self):
+        a, b = FakeProvider(), FakeProvider()
+        a.finalized_block_number = lambda: True
+        b.finalized_block_number = lambda: 100
+        verifier = QuorumEVMVerifier([a, b])
+        with self.assertRaises(EVMRPCError):
+            verifier.finalized_block_number()
+
+    def test_non_boolean_canonicality_is_not_counted(self):
+        a, b = FakeProvider(), FakeProvider()
+        a.is_transfer_canonical = lambda **kwargs: "false"
+        b.is_transfer_canonical = lambda **kwargs: True
+        verifier = QuorumEVMVerifier([a, b])
+        with self.assertRaises(EVMRPCError):
+            verifier.is_transfer_canonical()
+
     def test_mismatched_chains_rejected(self):
         a, b = FakeProvider(), FakeProvider()
         b.config = SimpleNamespace(chain_id=1, network="mainnet",
