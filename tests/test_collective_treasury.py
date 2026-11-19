@@ -121,8 +121,12 @@ class CollectiveTreasuryTests(unittest.TestCase):
         self.assertFalse(mismatch["onchain_balanced"])
 
     def test_spend_policy_and_balance_are_enforced(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 1000, attribution_ref="invoice:policy"
+        )
         self.store.record_receipt(
-            self.transfer(amount=1000), period_id="2026-11", agent_id="agent-a"
+            self.transfer(amount=1000), period_id="2026-11", agent_id="agent-a",
+            attribution_ref="invoice:policy",
         )
         with self.assertRaisesRegex(ValueError, "allowlisted"):
             self.store.reserve_spend(
@@ -142,6 +146,13 @@ class CollectiveTreasuryTests(unittest.TestCase):
             )
 
     def test_spend_submission_claim_is_atomic_and_single_use(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 1000, attribution_ref="invoice:claim"
+        )
+        self.store.record_receipt(
+            self.transfer(amount=1000), period_id="2026-11", agent_id="agent-a",
+            attribution_ref="invoice:claim",
+        )
         reservation = self.store.reserve_spend(
             "agent-a", "base-sepolia", "USDC", "0x" + "b" * 40, 1000,
             idempotency_key="single-claim", period_id="2026-11",
@@ -154,7 +165,8 @@ class CollectiveTreasuryTests(unittest.TestCase):
             "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:abc"
         )
         self.store.record_receipt(
-            self.transfer(), period_id="2026-11", agent_id="agent-a"
+            self.transfer(), period_id="2026-11", agent_id="agent-a",
+            attribution_ref="invoice:abc",
         )
         reservation = self.store.reserve_spend(
             "agent-a", "base-sepolia", "USDC", "0x" + "b" * 40, 1000,
@@ -204,7 +216,8 @@ class CollectiveTreasuryTests(unittest.TestCase):
             "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:abc"
         )
         self.store.record_receipt(
-            self.transfer(), period_id="2026-11", agent_id="agent-a"
+            self.transfer(), period_id="2026-11", agent_id="agent-a",
+            attribution_ref="invoice:abc",
         )
         result = self.store.close_period(
             "agent-a", "base-sepolia", "USDC", "2026-11",
