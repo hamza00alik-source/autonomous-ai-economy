@@ -502,7 +502,7 @@ function validOpportunityImport(item) {
       (typeof item.currency !== "string" || !/^[A-Z]{3}$/.test(item.currency))) return "invalid currency";
   for (const key of ["gross_reward","net_reward"]) {
     if (item[key] !== null && item[key] !== undefined &&
-        (typeof item[key] !== "string" || item[key].length > 40 || !/^[0-9]+(?:\\.[0-9]{1,18})?$/.test(item[key]))) return "invalid reward amount";
+        (typeof item[key] !== "string" || item[key].length > 40 || !/^[0-9]+(?:\.[0-9]{1,18})?$/.test(item[key]))) return "invalid reward amount";
   }
   if (!["ready_for_owner_review","needs_owner_review"].includes(item.status)) return "invalid source status";
   for (const key of ["priority_score","fit_score","evidence_confidence"]) {
