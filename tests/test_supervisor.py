@@ -166,3 +166,55 @@ def test_supervisor_continues_ai_lane_after_builtin_worker_error():
                       worker=normal_worker, ai_worker=ai_worker)
     assert calls == ["model"]
     assert stats == {"cycles": 1, "completed": 1, "idle": 0, "errors": 1}
+
+
+
+def test_supervisor_runs_optional_financial_scheduler_each_cycle():
+    calls = []
+    def financial_scheduler():
+        calls.append("financial")
+        return {"settled": 1, "blocked": 0}
+
+    stats = supervise(Store(), poll_seconds=0.1, max_cycles=2,
+                      worker=lambda _store: None,
+                      financial_scheduler=financial_scheduler)
+    assert calls == ["financial", "financial"]
+    assert stats == {"cycles": 2, "completed": 0, "idle": 0, "errors": 0}
+
+
+def test_supervisor_isolates_financial_scheduler_errors_from_worker_lane():
+    calls = []
+    def financial_scheduler():
+        raise RuntimeError("financial store unavailable")
+
+    def worker(_store):
+        calls.append("worker")
+        return {"status": "completed"}
+
+    stats = supervise(Store(), poll_seconds=0.1, max_cycles=1,
+                      worker=worker, financial_scheduler=financial_scheduler)
+    assert calls == ["worker"]
+    assert stats == {"cycles": 1, "completed": 1, "idle": 0, "errors": 1}
+
+
+def test_supervisor_rejects_malformed_financial_scheduler_result():
+    stats = supervise(Store(), poll_seconds=0.1, max_cycles=1,
+                      worker=lambda _store: None,
+                      financial_scheduler=lambda: {"settled": True, "blocked": 0})
+    assert stats == {"cycles": 1, "completed": 0, "idle": 0, "errors": 1}
+
+
+
+def test_opt_in_financial_scheduler_wiring_creates_no_default_policy(tmp_path):
+    from economy.supervisor import _build_simulated_financial_scheduler
+
+    callback = _build_simulated_financial_scheduler(tmp_path)
+    assert callback() == {"settled": 0, "blocked": 0}
+    assert (tmp_path / "participants.sqlite3").exists()
+    assert (tmp_path / "financial-policies.sqlite3").exists()
+    assert (tmp_path / "financial-ledger.sqlite3").exists()
+    assert (tmp_path / "financial-spending.sqlite3").exists()
+    assert (tmp_path / "financial-expense-schedules.sqlite3").exists()
+    import sqlite3
+    with sqlite3.connect(tmp_path / "financial-policies.sqlite3") as db:
+        assert db.execute("SELECT COUNT(*) FROM financial_policies").fetchone()[0] == 0

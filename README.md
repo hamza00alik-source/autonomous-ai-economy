@@ -98,6 +98,10 @@ economy-supervisor --data-dir ./data
 
 This requires configured Cloudflare Workers AI credentials. The supervisor runs the AI lane separately from the no-network sandbox; the agent cannot publish or contact customers. See `docs/ai-product-copy-agent.md` and `docs/ai-model-runtime.md`.
 
+## Private owner dashboard
+
+A mobile-first, read-only owner dashboard is served at `/owner` by the private Cloudflare Worker. Enter the existing owner bearer token to view Worker status, recent AI tasks and provider-settled agent revenue attribution. The dashboard does not expose payment or transfer actions. The local SQLite financial policies, simulated ledger, budgets and recurring schedules are not yet synchronized to Cloudflare D1 and are deliberately shown as unavailable. See [private owner dashboard](docs/private-owner-dashboard.md).
+
 ## Private Cloudflare worker pilot
 
 A Cloudflare Worker is deployed and configured with a five-minute scheduled AI product-copy lane using Workers AI and D1. It is private behind an owner bearer token and has a 6,500-estimated-neuron daily cap. The latest source includes a more tolerant model-response parser, but a live inference test is still pending because the previous production task failed. It cannot publish listings, contact customers, or move money. Public checkout and outbound payouts remain disabled. See `docs/cloudflare-private-worker.md` for the deployment and operating details.
@@ -198,3 +202,29 @@ economy-ai prepare-github-task-draft --url https://github.com/owner/repo/issues/
 ```
 
 The builder rechecks source state, rejects closed/merged items and high or unknown visible comment counts, then fetches the full issue body. It only marks a packet ready for human review when it detects an explicit deliverable and acceptance-criteria wording; otherwise it records blockers for review. The packet contains the original task text, detected scope lines, a local QA checklist and a response outline. It is not an AI-generated completed deliverable, does not prove payment or eligibility, and cannot claim or submit work. Output files are create-only and will not overwrite an existing packet.
+
+
+## Cloud financial source-of-truth foundation
+
+The next-stage cloud financial schema is defined in migration `0006_financial_control_foundation.sql`. It creates empty D1 tables for participants, currency-specific accounts, double-entry journal transactions/postings, provider settlement receipts, signed policy metadata, spending reservations, recurring schedules and audit events.
+
+This is schema-only groundwork: no local SQLite balances are copied, no cloud financial routes are enabled, and the current read-only dashboard remains explicit that local policies, budgets and schedules are not synchronized. The intended D1 source-of-truth decision, atomic write protocol, receipt-verification requirements, owner-key boundary and staged rollout gates are documented in [cloud financial source of truth](docs/cloud-financial-source-of-truth.md). The migration is exercised by the existing CI local D1 migration dry run; it has not been applied to production.
+
+
+The cloud financial foundation now also includes an isolated Ed25519 policy-verification service. It validates canonical signed policy bytes, exact destination allowlists, integer spending limits, public-key fingerprints, and the active owner → operator → agent relationship before treating a cloud policy as authorized. This verifier is covered by dedicated tests but is not yet exposed as an API or connected to financial writes. No owner private key is stored or uploaded. See [cloud financial source of truth](docs/cloud-financial-source-of-truth.md).
+
+The cloud layer also contains an internal double-entry journal writer. It validates balanced integer-minor-unit postings and active same-owner accounts, then writes the transaction, postings and audit record in one D1 batch with payload-hash idempotency. It is not routed publicly and is not yet connected to policy-enforced spending or provider settlement. SQLite schema-invariant tests cover the cloud migration and its database guards.
+
+
+Cloud financial controls are now implemented on the review branch: policy-verified reservations, D1-enforced transaction/daily/budget limits, atomic simulated expense journaling, opt-in recurring schedule execution, owner emergency pause, and mobile dashboard views/actions. They remain disabled and unprovisioned until owner identity, signed policies, accounts and explicit scheduler configuration are safely established. See [cloud financial controls](docs/cloud-financial-source-of-truth.md).
+
+
+The private owner console now also supports registering a policy signed locally by the enrolled operator key. Only the canonical policy, Ed25519 signature and public-key fingerprint are sent; private key material is never uploaded. Owner identity and public-key enrollment are still a provisioning prerequisite.
+
+
+Cloud financial control implementation includes authenticated owner APIs, locally signed policy registration, D1-triggered reservation caps, atomic simulated expense journaling, retry-safe recurring occurrences, reservation expiry and owner emergency pause. The owner dashboard displays policies, budgets, reservations and schedules. This branch is still unmerged and un-deployed; cloud owner/operator/agent enrollment, account funding/allocation, production D1 migration and owner-specific authentication hardening are activation gates.
+
+ 
+Cloud owner enrollment now uses a one-time proof-of-possession challenge. The Android-friendly owner dashboard can generate/import an Ed25519 key, sign enrollment and cloud policies locally with WebCrypto, and submit only public key material and signatures. Private keys stay in browser-tab memory; generated key backups must be saved securely. The local `economy-finance cloud-enrollment-sign` and `cloud-policy-sign` commands are available as an alternative. Enrollment creates empty accounts and leaves emergency pause active; it does not fund agents or enable payments. See [cloud financial controls and enrollment](docs/cloud-financial-source-of-truth.md).
+
+Provider settlement is deliberately not connected to cloud agent budgets yet. Plisio remains a conditional technical candidate only; Pakistan merchant eligibility, the legal perimeter, final payout evidence, token-asset accounting and owner-signed allocation shares remain unresolved. See [provider settlement readiness](docs/provider-settlement-readiness.md).

@@ -27,6 +27,7 @@ def supervise(
     max_cycles: int | None = None,
     worker: Callable[[TaskStore], dict | None] = run_once,
     ai_worker: Callable[[TaskStore], dict | None] | None = None,
+    financial_scheduler: Callable[[], dict[str, int]] | None = None,
 ) -> dict[str, int]:
     """Poll until stopped; AI worker is opt-in for tests and enabled by the CLI."""
     if poll_seconds < 0.1 or poll_seconds > 300:
@@ -46,6 +47,22 @@ def supervise(
                 errors += 1
                 cycle_had_error = True
                 LOG.exception("Accepted-order dispatch failed; queue remains the recovery source")
+        if financial_scheduler is not None:
+            try:
+                financial_result = financial_scheduler()
+                if not isinstance(financial_result, dict) or any(
+                    key not in financial_result or isinstance(financial_result[key], bool)
+                    or not isinstance(financial_result[key], int) or financial_result[key] < 0
+                    for key in ("settled", "blocked")
+                ):
+                    raise ValueError("financial scheduler must return non-negative settled and blocked counts")
+                LOG.info("Simulated financial scheduler: settled=%d blocked=%d", financial_result["settled"], financial_result["blocked"])
+                if financial_result["settled"] or financial_result["blocked"]:
+                    cycle_had_result = True
+            except Exception:
+                errors += 1
+                cycle_had_error = True
+                LOG.exception("Simulated financial scheduler failed; continuing worker lanes")
         callbacks = [worker]
         if ai_worker is not None:
             callbacks.append(ai_worker)
@@ -87,10 +104,35 @@ def supervise(
     return {"cycles": cycles, "completed": completed, "idle": idle, "errors": errors}
 
 
+
+ 
+def _build_simulated_financial_scheduler(data_dir: Path) -> Callable[[], dict[str, int]]:
+    """Build the explicitly opt-in local scheduler; never provisions a policy."""
+    from .expense_scheduler import AgentExpenseScheduler
+    from .financial_ledger import DoubleEntryLedger
+    from .financial_policy import FinancialPolicyStore
+    from .financial_spending import AgentSpending
+    from .identity import ParticipantRegistry
+
+    registry = ParticipantRegistry(data_dir / "participants.sqlite3")
+    policies = FinancialPolicyStore(registry, data_dir / "financial-policies.sqlite3")
+    ledger = DoubleEntryLedger(data_dir / "financial-ledger.sqlite3")
+    spending = AgentSpending(ledger, policies, data_dir / "financial-spending.sqlite3")
+    scheduler = AgentExpenseScheduler(spending, data_dir / "financial-expense-schedules.sqlite3")
+    LOG.warning(
+        "SIMULATED FINANCIAL SCHEDULER ENABLED: local journal only; "
+        "no provider calls, wallet signing, transfers or live payments"
+    )
+    return scheduler.run_due
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the local autonomous economy worker supervisor")
     parser.add_argument("--data-dir", type=Path, default=Path("./data"))
     parser.add_argument("--poll-seconds", type=float, default=2.0)
+    parser.add_argument(
+        "--enable-simulated-financial-scheduler", action="store_true",
+        help="opt in to local simulated recurring expenses; never makes real payments",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     stop = threading.Event()
@@ -110,10 +152,15 @@ def main() -> int:
         bool(__import__("os").environ.get("CLOUDFLARE_ACCOUNT_ID")
              and __import__("os").environ.get("CLOUDFLARE_API_TOKEN")),
     )
+    financial_scheduler = (
+        _build_simulated_financial_scheduler(args.data_dir)
+        if args.enable_simulated_financial_scheduler else None
+    )
     try:
         stats = supervise(
             store, agreements=agreements, poll_seconds=args.poll_seconds,
             stop_event=stop, ai_worker=run_ai_once,
+            financial_scheduler=financial_scheduler,
         )
     except ValueError as exc:
         parser.error(str(exc))

@@ -1,0 +1,102 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from economy.allocation import (
+    AllocationPolicy,
+    AllocationShare,
+    allocate_reconciled_receipt,
+)
+from economy.financial_ledger import DoubleEntryLedger, FinancialLedgerError
+
+
+class AllocationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ledger = DoubleEntryLedger(Path(self.tmp.name) / "journal.sqlite3")
+        self.policy = AllocationPolicy(
+            policy_id="pilot-policy",
+            version=1,
+            shares=(
+                AllocationShare("agent-budget:{agent_id}", 5000),
+                AllocationShare("treasury:reserve", 3000),
+                AllocationShare("owner-distribution:payable", 2000),
+            ),
+        )
+        self.ledger.record_simulated_receipt(
+            source_reference="receipt-1", agent_id="agent-a", currency="USD",
+            expected_gross_minor=101, expected_fee_minor=0,
+        )
+        self.ledger.confirm_simulated_receipt(
+            source_reference="receipt-1", received_gross_minor=101, received_fee_minor=0,
+        )
+        self.ledger.reconcile_simulated_receipt(source_reference="receipt-1")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def allocate(self, **overrides):
+        args = {
+            "agent_id": "agent-a",
+            "net_amount_minor": 101,
+            "currency": "USD",
+            "source_reference": "receipt-1",
+            "policy": self.policy,
+        }
+        args.update(overrides)
+        return allocate_reconciled_receipt(self.ledger, **args)
+
+    def test_exact_allocation_conserves_minor_units(self):
+        transaction_id = self.allocate()
+        self.assertEqual(self.ledger.balance_minor("treasury:available"), 0)
+        self.assertEqual(self.ledger.balance_minor("agent-budget:agent-a"), 51)
+        self.assertEqual(self.ledger.balance_minor("treasury:reserve"), 30)
+        self.assertEqual(self.ledger.balance_minor("owner-distribution:payable"), 20)
+        record = self.ledger.transaction(transaction_id)
+        debits = sum(x["amount_minor"] for x in record["lines"] if x["direction"] == "debit")
+        credits = sum(x["amount_minor"] for x in record["lines"] if x["direction"] == "credit")
+        self.assertEqual(debits, credits)
+
+    def test_pending_or_unreconciled_receipt_cannot_be_allocated(self):
+        self.ledger.record_simulated_receipt(
+            source_reference="pending-1", agent_id="agent-a", currency="USD",
+            expected_gross_minor=100, expected_fee_minor=0,
+        )
+        with self.assertRaisesRegex(FinancialLedgerError, "reconciled"):
+            self.allocate(source_reference="pending-1", net_amount_minor=100)
+
+    def test_insufficient_treasury_balance_fails_closed(self):
+        self.ledger.post(
+            idempotency_key="simulated-prior-expense",
+            description="Simulated use of cleared treasury funds",
+            currency="USD",
+            lines=[
+                {"account_id": "treasury:available", "direction": "credit",
+                 "amount_minor": 101, "reference": "prior-expense"},
+                {"account_id": "operating-expense:test", "direction": "debit",
+                 "amount_minor": 101, "reference": "prior-expense"},
+            ],
+        )
+        with self.assertRaisesRegex(FinancialLedgerError, "insufficient"):
+            self.allocate()
+
+    def test_repeated_allocation_is_idempotent(self):
+        first = self.allocate()
+        second = self.allocate()
+        self.assertEqual(first, second)
+        self.assertEqual(self.ledger.balance_minor("agent-budget:agent-a"), 51)
+
+    def test_live_money_allocation_is_disabled(self):
+        with self.assertRaisesRegex(FinancialLedgerError, "disabled"):
+            self.allocate(simulated=False)
+
+    def test_policy_must_conserve_100_percent(self):
+        with self.assertRaisesRegex(ValueError, "10000"):
+            AllocationPolicy(
+                policy_id="bad", version=1,
+                shares=(AllocationShare("agent", 9000),),
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

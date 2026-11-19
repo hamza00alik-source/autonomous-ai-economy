@@ -1,0 +1,319 @@
+-- Cloud financial-control foundation.
+-- Additive schema only: no rows are seeded, no local SQLite data is copied,
+-- and no Worker route reads or writes these tables yet.
+
+CREATE TABLE IF NOT EXISTS financial_participants (
+  participant_id TEXT PRIMARY KEY,
+  participant_type TEXT NOT NULL CHECK (participant_type IN ('owner','agent','operator')),
+  status TEXT NOT NULL CHECK (status IN ('active','suspended','revoked')),
+  owner_id TEXT,
+  operator_id TEXT,
+  public_key_jwk TEXT,
+  key_fingerprint TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (operator_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  CHECK (
+    (participant_type = 'owner' AND owner_id IS NULL AND operator_id IS NULL) OR
+    (participant_type = 'operator' AND owner_id IS NOT NULL AND operator_id IS NULL) OR
+    (participant_type = 'agent' AND owner_id IS NOT NULL AND operator_id IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_participants_status
+  ON financial_participants(participant_type, status);
+
+CREATE TABLE IF NOT EXISTS financial_accounts (
+  account_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  agent_id TEXT,
+  account_type TEXT NOT NULL CHECK (account_type IN (
+    'treasury','agent_operating','owner_payable','reserve','fee_expense','operating_expense'
+  )),
+  currency TEXT NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','frozen','closed')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (agent_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  CHECK (
+    (account_type = 'agent_operating' AND agent_id IS NOT NULL) OR
+    (account_type != 'agent_operating' AND agent_id IS NULL)
+  ),
+  UNIQUE(owner_id, agent_id, account_type, currency)
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_accounts_owner
+  ON financial_accounts(owner_id, status, currency);
+
+CREATE TABLE IF NOT EXISTS financial_journal_transactions (
+  transaction_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  payload_hash TEXT NOT NULL,
+  source_type TEXT NOT NULL CHECK (source_type IN (
+    'settlement','allocation','expense','adjustment','reversal'
+  )),
+  source_reference TEXT NOT NULL,
+  currency TEXT NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+  status TEXT NOT NULL CHECK (status = 'posted'),
+  description TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  UNIQUE(owner_id, source_type, source_reference, currency)
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_journal_owner_created
+  ON financial_journal_transactions(owner_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS financial_journal_postings (
+  transaction_id TEXT NOT NULL,
+  line_number INTEGER NOT NULL CHECK (line_number > 0),
+  account_id TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK (direction IN ('debit','credit')),
+  amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+  currency TEXT NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(transaction_id, line_number),
+  FOREIGN KEY (transaction_id) REFERENCES financial_journal_transactions(transaction_id) ON DELETE RESTRICT,
+  FOREIGN KEY (account_id) REFERENCES financial_accounts(account_id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_postings_account
+  ON financial_journal_postings(account_id, currency, transaction_id);
+
+CREATE TABLE IF NOT EXISTS financial_settlement_receipts (
+  receipt_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  provider_reference TEXT NOT NULL,
+  gross_amount_minor INTEGER NOT NULL CHECK (gross_amount_minor > 0),
+  fee_amount_minor INTEGER NOT NULL CHECK (fee_amount_minor >= 0 AND fee_amount_minor <= gross_amount_minor),
+  currency TEXT NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+  status TEXT NOT NULL CHECK (status IN ('pending','confirmed','reconciled','reversed','review')),
+  provider_event_reference TEXT,
+  provider_evidence_hash TEXT,
+  settled_at TEXT,
+  reconciled_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (agent_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  UNIQUE(provider, provider_reference)
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_receipts_agent_status
+  ON financial_settlement_receipts(agent_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS financial_policies (
+  policy_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version > 0),
+  owner_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  signer_id TEXT NOT NULL,
+  currency TEXT NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+  per_transaction_limit_minor INTEGER NOT NULL CHECK (per_transaction_limit_minor > 0),
+  daily_spend_limit_minor INTEGER NOT NULL CHECK (daily_spend_limit_minor > 0),
+  allowed_destinations_json TEXT NOT NULL,
+  canonical_payload TEXT NOT NULL,
+  signature_base64url TEXT NOT NULL,
+  signer_key_fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active','superseded','revoked')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(policy_id, version),
+  FOREIGN KEY (owner_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (agent_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (signer_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_financial_policy_one_active
+  ON financial_policies(owner_id, agent_id, policy_id)
+  WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS financial_budget_reservations (
+  reservation_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  policy_id TEXT NOT NULL,
+  policy_version INTEGER NOT NULL CHECK (policy_version > 0),
+  idempotency_key TEXT NOT NULL UNIQUE,
+  destination TEXT NOT NULL,
+  currency TEXT NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+  amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+  status TEXT NOT NULL CHECK (status IN ('reserved','settled','released','expired')),
+  expires_at TEXT NOT NULL,
+  settled_transaction_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (agent_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (policy_id, policy_version) REFERENCES financial_policies(policy_id, version) ON DELETE RESTRICT,
+  FOREIGN KEY (settled_transaction_id) REFERENCES financial_journal_transactions(transaction_id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_reservations_agent_status
+  ON financial_budget_reservations(agent_id, status, expires_at);
+
+CREATE TABLE IF NOT EXISTS financial_expense_schedules (
+  schedule_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  policy_id TEXT NOT NULL,
+  policy_version INTEGER NOT NULL CHECK (policy_version > 0),
+  destination TEXT NOT NULL,
+  currency TEXT NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
+  amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
+  interval_seconds INTEGER NOT NULL CHECK (interval_seconds BETWEEN 3600 AND 2678400),
+  next_due_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active','paused','cancelled','blocked')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (agent_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (policy_id, policy_version) REFERENCES financial_policies(policy_id, version) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_schedules_due
+  ON financial_expense_schedules(status, next_due_at);
+
+CREATE TABLE IF NOT EXISTS financial_audit_events (
+  event_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  request_id TEXT,
+  details_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (owner_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT,
+  FOREIGN KEY (actor_id) REFERENCES financial_participants(participant_id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_financial_audit_owner_created
+  ON financial_audit_events(owner_id, created_at DESC);
+
+-- Posted journal history and audit events are append-only.
+CREATE TRIGGER IF NOT EXISTS trg_financial_journal_transactions_no_update
+BEFORE UPDATE ON financial_journal_transactions
+BEGIN
+  SELECT RAISE(ABORT, 'posted journal transactions are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_journal_transactions_no_delete
+BEFORE DELETE ON financial_journal_transactions
+BEGIN
+  SELECT RAISE(ABORT, 'posted journal transactions are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_journal_postings_no_update
+BEFORE UPDATE ON financial_journal_postings
+BEGIN
+  SELECT RAISE(ABORT, 'posted journal postings are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_journal_postings_no_delete
+BEFORE DELETE ON financial_journal_postings
+BEGIN
+  SELECT RAISE(ABORT, 'posted journal postings are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_posting_currency_match
+BEFORE INSERT ON financial_journal_postings
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM financial_journal_transactions t
+  JOIN financial_accounts a ON a.account_id = NEW.account_id
+  WHERE t.transaction_id = NEW.transaction_id
+    AND t.currency = NEW.currency
+    AND a.currency = NEW.currency
+    AND a.owner_id = t.owner_id
+    AND a.status = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'posting currency must match transaction and account');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_audit_events_no_update
+BEFORE UPDATE ON financial_audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'financial audit events are append-only');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_audit_events_no_delete
+BEFORE DELETE ON financial_audit_events
+BEGIN
+  SELECT RAISE(ABORT, 'financial audit events are append-only');
+END;
+
+-- Signed policy content is immutable. Only an active version may transition
+-- once to superseded or revoked; a new version must be strictly monotonic.
+CREATE TRIGGER IF NOT EXISTS trg_financial_policy_monotonic_version
+BEFORE INSERT ON financial_policies
+WHEN EXISTS (
+  SELECT 1 FROM financial_policies p
+  WHERE p.policy_id = NEW.policy_id
+    AND p.owner_id = NEW.owner_id
+    AND p.agent_id = NEW.agent_id
+    AND p.version >= NEW.version
+)
+BEGIN
+  SELECT RAISE(ABORT, 'financial policy version must increase monotonically');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_policy_immutable_content
+BEFORE UPDATE ON financial_policies
+WHEN OLD.status != 'active'
+  OR NEW.status NOT IN ('superseded','revoked')
+  OR NEW.policy_id != OLD.policy_id
+  OR NEW.version != OLD.version
+  OR NEW.owner_id != OLD.owner_id
+  OR NEW.agent_id != OLD.agent_id
+  OR NEW.signer_id != OLD.signer_id
+  OR NEW.currency != OLD.currency
+  OR NEW.per_transaction_limit_minor != OLD.per_transaction_limit_minor
+  OR NEW.daily_spend_limit_minor != OLD.daily_spend_limit_minor
+  OR NEW.allowed_destinations_json != OLD.allowed_destinations_json
+  OR NEW.canonical_payload != OLD.canonical_payload
+  OR NEW.signature_base64url != OLD.signature_base64url
+  OR NEW.signer_key_fingerprint != OLD.signer_key_fingerprint
+  OR NEW.created_at != OLD.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'signed financial policy content is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_policy_no_delete
+BEFORE DELETE ON financial_policies
+BEGIN
+  SELECT RAISE(ABORT, 'signed financial policies cannot be deleted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_journal_owner_active
+BEFORE INSERT ON financial_journal_transactions
+WHEN NOT EXISTS (
+  SELECT 1 FROM financial_participants p
+  WHERE p.participant_id = NEW.owner_id
+    AND p.participant_type = 'owner'
+    AND p.status = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'journal owner must be an active owner participant');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_financial_audit_actor_active
+BEFORE INSERT ON financial_audit_events
+WHEN NOT EXISTS (
+  SELECT 1 FROM financial_participants actor
+  WHERE actor.participant_id = NEW.actor_id
+    AND actor.status = 'active'
+    AND (
+      actor.participant_id = NEW.owner_id OR
+      actor.owner_id = NEW.owner_id
+    )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'audit actor must be active and belong to owner');
+END;

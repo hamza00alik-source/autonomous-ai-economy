@@ -1,5 +1,6 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
+import { getCloudFinancialControls, setCloudEmergencyPause, createCloudExpenseSchedule, setCloudExpenseScheduleStatus, runDueCloudExpenseSchedules, registerCloudSignedFinancialPolicy, createCloudOwnerEnrollmentChallenge, completeCloudOwnerEnrollment } from "./financial_controls.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -531,6 +532,31 @@ async function downloadStoreProduct(request, env, orderId) {
 }
 
 
+async function ownerOverview(env) {
+  const operational = await (await status(env)).json();
+  const agents = await env.DB.prepare(
+    "SELECT agent_id,COUNT(CASE WHEN status!='reversed' THEN 1 END) AS sales_count," +
+    "COALESCE(SUM(CASE WHEN status!='reversed' THEN gross_amount_minor ELSE 0 END),0) AS gross_settled_minor," +
+    "COALESCE(SUM(CASE WHEN status='settled_pending_reconciliation' THEN gross_amount_minor ELSE 0 END),0) AS awaiting_reconciliation_minor," +
+    "COALESCE(SUM(CASE WHEN status='reconciled' THEN net_amount_minor ELSE 0 END),0) AS reconciled_net_minor," +
+    "COALESCE(SUM(CASE WHEN status='reconciled' THEN agent_credit_minor ELSE 0 END),0) AS credited_to_agent_minor " +
+    "FROM agent_revenue_events GROUP BY agent_id ORDER BY agent_id"
+  ).all();
+  return json({ model: operational.model, utc_day: operational.utc_day,
+    estimated_neurons_reserved: operational.estimated_neurons_reserved,
+    daily_safety_budget_neurons: operational.daily_safety_budget_neurons,
+    tasks: operational.tasks, public_checkout_enabled: operational.public_checkout_enabled,
+    outbound_payouts_enabled: false, agents: agents.results || [],
+    note: "Read-only Cloudflare Worker overview. Revenue remains pending until provider receipts, fees, refunds and allocation are reconciled. Local SQLite financial policies, budgets and schedules are not synchronized to this dashboard."
+  });
+}
+
+async function ownerTasks(env) {
+  const rows = await env.DB.prepare(
+    "SELECT task_id,task_type,status,created_at,updated_at FROM ai_tasks ORDER BY created_at DESC,task_id DESC LIMIT 25"
+  ).all();
+  return json({ tasks: rows.results || [], limit: 25 });
+}
 async function agentRevenue(env, agentId) {
   const summary = await env.DB.prepare(
     "SELECT COUNT(*) AS sales_count,COALESCE(SUM(gross_amount_minor),0) AS gross_settled_minor,COALESCE(SUM(CASE WHEN status='settled_pending_reconciliation' THEN gross_amount_minor ELSE 0 END),0) AS awaiting_reconciliation_minor,COALESCE(SUM(CASE WHEN status='reconciled' THEN net_amount_minor ELSE 0 END),0) AS reconciled_net_minor,COALESCE(SUM(CASE WHEN status='reconciled' THEN agent_credit_minor ELSE 0 END),0) AS credited_to_agent_minor FROM agent_revenue_events WHERE agent_id=?"
@@ -639,6 +665,18 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") {
       return json({ service: "autonomous-ai-economy", status: "ready", public_registration: false });
+    }
+    if ((url.pathname === "/owner" || url.pathname === "/owner/") && request.method === "GET") {
+      if (!env.ASSETS) return json({ error: "owner dashboard assets are not configured" }, 503);
+      const assetUrl = new URL("/owner.html", url);
+      const page = await env.ASSETS.fetch(new Request(assetUrl, { method: "GET" }));
+      if (!page.ok) return json({ error: "owner dashboard asset is unavailable" }, 404);
+      const headers = new Headers(page.headers);
+      headers.set("content-security-policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+      headers.set("referrer-policy", "no-referrer");
+      headers.set("x-content-type-options", "nosniff");
+      headers.set("cache-control", "no-store");
+      return new Response(page.body, { status: 200, headers });
     }
     if (url.pathname === "/v1/payments/nowpayments/ipn" && request.method === "POST") {
       return nowPaymentsIPN(request, env);
@@ -756,6 +794,121 @@ export default {
       }
     }
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
+    if (url.pathname === "/v1/owner/overview" && request.method === "GET") return ownerOverview(env);
+    if (url.pathname === "/v1/owner/tasks" && request.method === "GET") return ownerTasks(env);
+    if (url.pathname === "/v1/owner/financial-controls" && request.method === "GET") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned; financial controls remain unavailable" }, 503);
+      const result = await getCloudFinancialControls(env.DB, env.AAE_OWNER_ID);
+      return result.ok ? json(result) : json({ error: result.reason }, 400);
+    }
+    if (url.pathname === "/v1/owner/financial-controls/enrollment/challenge" && request.method === "GET") {
+      if (!env.AAE_OWNER_ID || !env.AAE_OPERATOR_ID) return json({ error: "AAE_OWNER_ID and AAE_OPERATOR_ID must be provisioned out of band" }, 503);
+      const result = await createCloudOwnerEnrollmentChallenge(env.DB, {
+        ownerId: env.AAE_OWNER_ID, operatorId: env.AAE_OPERATOR_ID
+      });
+      return result.ok ? json(result) : json({ error: result.reason }, 409);
+    }
+    if (url.pathname === "/v1/owner/financial-controls/enrollment/complete" && request.method === "POST") {
+      if (!env.AAE_OWNER_ID || !env.AAE_OPERATOR_ID) return json({ error: "AAE_OWNER_ID and AAE_OPERATOR_ID must be provisioned out of band" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 12000) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      const allowed = ["challenge_id","public_key_jwk","signature_base64url","agent_ids","currencies"];
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== allowed.length || Object.keys(body).some(key => !allowed.includes(key))) {
+        return json({ error: "owner enrollment envelope schema mismatch" }, 400);
+      }
+      const result = await completeCloudOwnerEnrollment(env.DB, {
+        ownerId: env.AAE_OWNER_ID, operatorId: env.AAE_OPERATOR_ID,
+        challengeId: body.challenge_id, publicKeyJwk: body.public_key_jwk,
+        signatureBase64Url: body.signature_base64url, agentIds: body.agent_ids,
+        currencies: body.currencies
+      });
+      return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
+    }
+    if (url.pathname === "/v1/owner/financial-controls/policies" && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 16000) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      const allowed = ["policy","canonical_payload","signature_base64url","signer_key_fingerprint"];
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== allowed.length || Object.keys(body).some(key => !allowed.includes(key))) {
+        return json({ error: "signed policy envelope schema mismatch" }, 400);
+      }
+      const result = await registerCloudSignedFinancialPolicy(env.DB, {
+        ownerId: env.AAE_OWNER_ID, policy: body.policy, canonicalPayload: body.canonical_payload,
+        signatureBase64Url: body.signature_base64url, signerKeyFingerprint: body.signer_key_fingerprint
+      });
+      return result.ok ? json(result, 201) : json({ error: result.reason }, 409);
+    }
+    if (url.pathname === "/v1/owner/financial-controls/emergency-pause" && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 512) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).some(key => !["paused","reason"].includes(key)) || typeof body.paused !== "boolean") {
+        return json({ error: "paused boolean and optional reason are required" }, 400);
+      }
+      const result = await setCloudEmergencyPause(env.DB, {
+        ownerId: env.AAE_OWNER_ID, actorId: env.AAE_OWNER_ID,
+        paused: body.paused, reason: body.reason
+      });
+      return result.ok ? json(result) : json({ error: result.reason }, 403);
+    }
+    if (url.pathname === "/v1/owner/financial-controls/schedules" && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 2048) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).some(key => !["agent_id","destination","currency","amount_minor","interval_seconds","next_due_at"].includes(key))) {
+        return json({ error: "invalid schedule fields" }, 400);
+      }
+      const result = await createCloudExpenseSchedule(env.DB, {
+        ownerId: env.AAE_OWNER_ID, scheduleId: crypto.randomUUID(),
+        agentId: body.agent_id, destination: body.destination, currency: body.currency,
+        amountMinor: body.amount_minor, intervalSeconds: body.interval_seconds, nextDueAt: body.next_due_at
+      });
+      return result.ok ? json(result, 201) : json({ error: result.reason }, 409);
+    }
+    const financialScheduleMatch = url.pathname.match(new RegExp("^/v1/owner/financial-controls/schedules/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})/status$"));
+    if (financialScheduleMatch && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 256) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      const result = await setCloudExpenseScheduleStatus(env.DB, {
+        ownerId: env.AAE_OWNER_ID, scheduleId: financialScheduleMatch[1], status: body?.status
+      });
+      return result.ok ? json(result) : json({ error: result.reason }, 409);
+    }
     if (url.pathname === "/v1/swarmmemo/work" && request.method === "GET") {
       const limit = Number(url.searchParams.get("limit") || 50);
       return json(await listSwarmMemoWork(env, limit));
@@ -779,6 +932,10 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env)]));
+    const tasks = [processOne(env), pollSwarmMemo(env)];
+    if (env.AAE_CLOUD_FINANCIAL_SCHEDULER_ENABLED === "true" && env.AAE_OWNER_ID) {
+      tasks.push(runDueCloudExpenseSchedules(env.DB, env.AAE_OWNER_ID));
+    }
+    ctx.waitUntil(Promise.allSettled(tasks));
   },
 };

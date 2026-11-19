@@ -29,7 +29,7 @@ Last reviewed: 2026-11-17
 - No production owner console, remote issuer authentication, unified external-action gateway, hardened key management or tamper-proof audit store.
 - No independent evidence verification, appeal workflow, formal dispute policy, legal contract workflow, refunds or settlement.
 - No live customer acquisition or confirmed paying customer. Simulated demo revenue is not actual income.
-- No live payment processing or blockchain transaction has been deployed. Source now includes a gated NOWPayments invoice/IPN adapter, D1 order records, a fixed-price storefront, buyer-token authentication, payment-gated automatic ZIP delivery via Worker Static Assets, and idempotent gross-revenue attribution to the internal `game-asset-builder` ID. It has no provider credentials, deployed Worker, public live checkout, or verified transaction. Net wallet proceeds, agent credits, cryptographic agent enrollment for this producer, outbound payouts, refunds, exchange, escrow, custody and treasury transfers are not integrated. Gross attribution remains pending reconciliation.
+- No live payment processing or blockchain transaction has been deployed. Source includes gated payment adapters, D1 order records, a fixed-price storefront, buyer-token authentication, payment-gated automatic ZIP delivery and gross-revenue attribution to an internal producer ID. There are no provider credentials, live checkout, or verified transactions. Net wallet proceeds, agent credits, cryptographic agent enrollment for the producer, outbound payouts, refunds, exchange, escrow, custody and treasury transfers are not integrated. Gross attribution remains pending reconciliation.
 
 ## Signed task-offer API
 
@@ -70,7 +70,6 @@ The prior Etsy listing-audit/Upwork freelancer pilot is deprecated and is not th
 
 No customer, revenue, public deployment, live payment or autonomous production operation is currently verified. Do not claim otherwise. Routine business operations should be autonomous within explicit capability, risk and spending limits; legally required checks and irreversible high-risk actions remain bounded by law and safety controls.
 
-
 ## Next engineering sequence
 
 1. Complete the minimum local marketplace and authorization work needed to record an owner-supervised pilot transaction without pretending a local ledger is payment processing.
@@ -82,3 +81,78 @@ This status distinguishes local prototype code from the future open economy. A c
 ## New bounded autonomy component
 
 - Added `src/economy/autonomy.py` and tests for a routine action allowlist, agent-specific enablement, per-order and daily order-exposure ceilings, idempotent reservation, changed-term replay rejection and fail-closed storage behavior. This removes the need for a separate owner approval for each preconfigured routine action at the component level. It is not yet integrated with authenticated API requests, signed capabilities/delegations, task execution, publication or payments; profile provisioning is currently caller-supplied and must be made owner-controlled before production. See [routine agent autonomy](routine-agent-autonomy.md).
+
+## Agent financial autonomy architecture
+
+- Added [Agent Financial Autonomy](agent-financial-autonomy.md), defining the separation between cryptographic agent identity, financial account, internal subledger and legal principal.
+- Specifies a double-entry ledger, settlement reconciliation, deterministic allocation policies, agent operating budgets, policy-controlled delegated signing, autonomous allowlisted expenses, audit/revocation and a phased delivery plan.
+- This is an architecture/acceptance contract only. No wallet, signer, real-money ledger, spend executor, payment route, production deployment or financial action has been enabled.
+
+
+## Simulated financial journal and allocation
+
+- Added `src/economy/financial_ledger.py`: SQLite-backed, atomic double-entry journal; each posting must balance by currency, uses integer minor units, and is idempotent with changed-term replay rejection.
+- Added `src/economy/allocation.py`: deterministic largest-remainder allocation from a simulated reconciled receipt into configured agent/treasury subaccounts, conserving every minor unit and rejecting insufficient cleared treasury balance.
+- Added focused tests for journal invariants and allocation conservation, replay safety, pending-receipt rejection and simulated-only behavior.
+- These modules are isolated local prototypes. They are not connected to payment adapters, the Cloudflare Worker/D1, authenticated participant identities, signed owner policies, live balances or a transaction executor. Settlement state and allocation policy are trusted caller inputs in this prototype and must not be treated as production authorization.
+
+
+## Simulated settlement reconciliation
+
+- Added a local SQLite receipt state machine: `pending → confirmed → reconciled`.
+- A pending receipt does not create a treasury balance. Confirmation requires exact gross and fee matches against the registered expected terms; reconciliation posts the net amount and fee as a balanced journal transaction.
+- Receipt registration, confirmation and reconciliation are idempotent; source-reference reuse with changed terms is rejected. Agent budget allocation now checks the ledger's own reconciled receipt record and verifies agent, currency and net amount instead of trusting a caller-supplied `settlement_state` string.
+- Added `tests/test_settlement.py` and updated allocation tests.
+- This remains a **simulated-only** state machine. The confirmation method currently accepts caller-supplied observations; it is not connected to a provider signature verifier, blockchain finality verifier, webhook authentication, legal entity verification or real funds. Never treat this state as proof of a live payment.
+
+
+## Owner-signed financial policy provisioning
+
+- Added `src/economy/financial_policy.py`: stores versioned Ed25519-signed financial policies for an enrolled agent, requires the active human/organization signer to be the agent's recorded operator, and uses the participant registry's current public key.
+- Policies define exact asset currency, per-transaction and daily limits, and non-wildcard allowlisted destinations. Versions are monotonic; key rotation or participant suspension invalidates the policy until re-signed.
+- Added tests for valid and invalid signatures, operator mismatch, inactive owners, policy versioning, key rotation and unsafe limits/destinations.
+- This provisions policy data only. It does not reserve balances, enforce daily spend counters, sign transactions, or execute transfers. The next layer must bind policy verification to a spend executor and durable budget reservations before any live integration.
+
+
+## Policy-enforced simulated agent operating budgets
+
+- Added \`src/economy/financial_spending.py\`: durable, idempotent reservations against each agent's allocated budget; exact destination allowlists; currency binding; per-transaction and UTC-day spending ceilings; expiry/release; and journal-backed expense settlement.
+- The reservation service rechecks the current owner-signed policy and active agent/operator authorization at reservation and settlement time. Policy key rotation, suspension or supersession blocks further settlement.
+- Expense settlement debits the agent budget and credits a simulated operating-expense account exactly once. It does not send money to the named destination or invoke a provider.
+- Added tests for replay conflicts, reservation capacity, daily/per-transaction limits, allowlist/currency rejection, release, settlement idempotency, policy rotation/supersession and participant suspension.
+- This remains a local simulated accounting component. It does not create provider payment instructions, sign or broadcast transactions, connect a wallet, or establish that a real service was paid. Production execution still requires a separately reviewed payment executor, provider/legal eligibility, custody/key controls and explicit owner approval.
+
+
+## Recurring simulated agent expenses
+
+- Added \`src/economy/expense_scheduler.py\`: durable recurring schedules with bounded intervals, exact signed-policy destination/currency checks, per-transaction caps, idempotent occurrences, pause/resume/cancel controls and a bounded \`run_due\` poll interface.
+- Every occurrence uses \`AgentSpending\` reservations and journal settlement; it cannot bypass agent budget availability, daily caps, owner-policy authorization or participant status.
+- A blocked occurrence remains due and can be retried after the agent budget is replenished by a reconciled-receipt allocation. The scheduler does not invent earnings or credit the budget itself.
+- Added tests for duplicate polling, daily caps, insufficient budget and later replenishment, policy allowlists, interval/timezone validation, lifecycle controls and idempotency.
+- This is a local simulated scheduler component, not hosted always-on scheduling and not a live payment executor. No vendor is contacted and no real expense is paid.
+
+
+## Supervisor integration for recurring simulated expenses
+
+- The local supervisor now accepts an optional `financial_scheduler` callback and invokes it once per bounded worker cycle before worker lanes. Pass an initialized `AgentExpenseScheduler.run_due` callback from trusted application wiring to share the supervisor's polling lifecycle.
+- Scheduler output is validated, logged, and isolated: an exception or malformed result increments the supervisor error count but does not prevent built-in or model-backed worker lanes from running.
+- The hook is deliberately opt-in. The default CLI does not instantiate financial identity, owner-signed policy or spending stores because no owner-approved policy provisioning/configuration exists in the supervisor startup path. No empty/default policy is created and no expense schedule runs unless trusted code explicitly supplies the callback.
+- Tests cover repeated bounded polling, malformed result rejection and exception isolation. This is local simulation only; it does not enable vendor payments, external signing, transfers, production Worker/D1 changes or hosted scheduler uptime.
+
+
+## Explicit supervisor startup wiring for simulated expenses
+
+- `economy-supervisor` now exposes `--enable-simulated-financial-scheduler`. Without this flag, no financial registry, policy, ledger, spending or schedule stores are initialized and the scheduler callback remains absent.
+- With the flag, the supervisor wires the existing local `ParticipantRegistry`, `FinancialPolicyStore`, `DoubleEntryLedger`, `AgentSpending` and `AgentExpenseScheduler` under the selected data directory, then polls due occurrences on each worker cycle.
+- Startup creates storage schemas only; it does not enroll participants, create/sign a policy, add budget, create a schedule, or make a payment. Existing schedules can execute only if their current owner-signed policy and allocated simulated budget authorize them.
+- The flag is explicitly simulation-only. It does not connect to providers, wallets, chains, bank rails or production Worker/D1. It is not enabled by default.
+- A test verifies that the opt-in callback initializes clean stores, returns zero activity, and does not create any financial policy automatically.
+
+
+## Local owner financial control console
+
+- Added the `economy-finance` local CLI for listing financial policy versions and their current authorization state, viewing an agent's simulated cleared budget/reservations/daily usage, and inspecting recurring expense schedules.
+- Added schedule pause/resume/cancel commands and an emergency `pause-all` operation that atomically pauses every currently active recurring schedule. The runner rechecks schedule status inside its start transaction, so stale due-work snapshots are skipped after a pause. Pausing does not reverse an already-settled journal entry or interrupt an occurrence that had already begun before the pause.
+- Added an unsigned policy-template workflow and a separate `policy-sign` command. The owner reviews the exact normalized JSON terms, then signs locally with their existing Ed25519 PEM key. The private key is read from a local file, never printed, persisted by AAE, or uploaded. The policy store verifies the signature against the currently enrolled owner's public key and active operator relationship.
+- The console is a trusted-local administrative CLI, not a public or remotely authenticated dashboard. Do not expose it through a web server or public internet. It creates no participant, policy, budget or schedule unless the owner explicitly runs the relevant command.
+- All budget figures and expense activity are simulated journal data only. A cleared simulated balance is not a bank, wallet or provider balance; policy authorization does not prove legal/KYC eligibility or permit real transfers.

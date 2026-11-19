@@ -138,6 +138,9 @@ class FakeD1Statement {
   constructor(db, sql) { this.db = db; this.sql = sql; this.values = []; }
   bind(...values) { this.values = values; return this; }
   async first() {
+    if (this.sql.includes("SELECT reserved_neurons FROM ai_daily_budget")) {
+      return this.db.dailyBudget || null;
+    }
     if (this.sql.includes("SELECT event_hash FROM crypto_payment_events")) {
       return this.db.events.get(this.values[0]) || null;
     }
@@ -164,6 +167,33 @@ class FakeD1Statement {
     return null;
   }
   async all() {
+    if (this.sql.includes("FROM ai_tasks GROUP BY status")) {
+      const counts = new Map();
+      for (const row of this.db.tasks || []) counts.set(row.status, (counts.get(row.status) || 0) + 1);
+      return { results: [...counts.entries()].map(([status,total]) => ({ status,total })) };
+    }
+    if (this.sql.includes("FROM agent_revenue_events GROUP BY agent_id")) {
+      const grouped = new Map();
+      for (const row of this.db.revenue.values()) {
+        if (!grouped.has(row.agent_id)) grouped.set(row.agent_id, []);
+        grouped.get(row.agent_id).push(row);
+      }
+      return { results: [...grouped.entries()].map(([agent_id, rows]) => ({
+        agent_id,
+        sales_count: rows.filter(row => row.status !== "reversed").length,
+        gross_settled_minor: rows.filter(row => row.status !== "reversed").reduce((n,row) => n + (row.gross_amount_minor || 0),0),
+        awaiting_reconciliation_minor: rows.filter(row => row.status === "settled_pending_reconciliation").reduce((n,row) => n + (row.gross_amount_minor || 0),0),
+        reconciled_net_minor: rows.filter(row => row.status === "reconciled").reduce((n,row) => n + (row.net_amount_minor || 0),0),
+        credited_to_agent_minor: rows.filter(row => row.status === "reconciled").reduce((n,row) => n + (row.agent_credit_minor || 0),0)
+      })) };
+    }
+    if (this.sql.includes("FROM ai_tasks ORDER BY created_at DESC")) {
+      const rows = (this.db.tasks || []).slice().sort((a,b) => b.created_at.localeCompare(a.created_at)).slice(0,25);
+      return { results: rows.map(row => ({
+        task_id: row.task_id, task_type: row.task_type, status: row.status,
+        created_at: row.created_at, updated_at: row.updated_at
+      })) };
+    }
     if (this.sql.includes("FROM agent_revenue_events WHERE agent_id=?")) {
       return { results: [...this.db.revenue.values()].filter(row => row.agent_id === this.values[0]) };
     }
@@ -258,6 +288,8 @@ function fakePaymentDb(invoice = null) {
     invoice,
     events: new Map(),
     revenue: new Map(),
+    tasks: [],
+    dailyBudget: null,
     prepare(sql) { return new FakeD1Statement(this, sql); }
   };
 }
@@ -558,4 +590,112 @@ test("storefront stays unpublished unless owner explicitly enables live crypto c
   assert.equal(visible.status, 200);
   assert.match(visible.headers.get("content-security-policy"), /default-src 'self'/);
   assert.equal(await visible.text(), "<html>private storefront</html>");
+});
+
+
+test("owner dashboard APIs require the owner bearer token before database access", async () => {
+  let touched = false;
+  const env = { AAE_QUEUE_TOKEN: "owner-secret-token", DB: { prepare() { touched = true; throw new Error("must not query"); } } };
+  for (const path of ["/v1/owner/overview", "/v1/owner/tasks"]) {
+    const response = await worker.fetch(new Request("https://worker.example" + path), env);
+    assert.equal(response.status, 401);
+  }
+  assert.equal(touched, false);
+});
+
+test("owner overview reports only reconciled agent credits and excludes reversed receipts", async () => {
+  const db = fakePaymentDb();
+  db.dailyBudget = { reserved_neurons: 120 };
+  db.tasks = [
+    { task_id: "task-new", task_type: "product_copy", status: "queued", created_at: "2026-11-18T10:00:00Z", updated_at: "2026-11-18T10:00:00Z" },
+    { task_id: "task-old", task_type: "product_copy", status: "completed", created_at: "2026-11-17T10:00:00Z", updated_at: "2026-11-17T10:05:00Z" }
+  ];
+  db.revenue.set("sale-pending", { agent_id: "agent-alpha", gross_amount_minor: 500, status: "settled_pending_reconciliation" });
+  db.revenue.set("sale-reconciled", { agent_id: "agent-alpha", gross_amount_minor: 900, status: "reconciled", net_amount_minor: 850, agent_credit_minor: 700 });
+  db.revenue.set("sale-reversed", { agent_id: "agent-alpha", gross_amount_minor: 200, status: "reversed" });
+  const response = await worker.fetch(new Request("https://worker.example/v1/owner/overview", {
+    headers: { authorization: "Bearer owner-secret-token" }
+  }), { AAE_QUEUE_TOKEN: "owner-secret-token", DB: db });
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.estimated_neurons_reserved, 120);
+  assert.equal(data.daily_safety_budget_neurons, DAILY_NEURON_BUDGET);
+  assert.equal(data.agents[0].sales_count, 2);
+  assert.equal(data.agents[0].gross_settled_minor, 1400);
+  assert.equal(data.agents[0].awaiting_reconciliation_minor, 500);
+  assert.equal(data.agents[0].reconciled_net_minor, 850);
+  assert.equal(data.agents[0].credited_to_agent_minor, 700);
+  assert.equal(data.outbound_payouts_enabled, false);
+  assert.match(data.note, /not synchronized to this dashboard/);
+});
+
+test("owner task endpoint returns bounded operational metadata only", async () => {
+  const db = fakePaymentDb();
+  db.tasks = [{ task_id: "task-123", task_type: "product_copy", status: "queued",
+    created_at: "2026-11-18T10:00:00Z", updated_at: "2026-11-18T10:00:00Z", error: "private detail" }];
+  const response = await worker.fetch(new Request("https://worker.example/v1/owner/tasks", {
+    headers: { authorization: "Bearer owner-secret-token" }
+  }), { AAE_QUEUE_TOKEN: "owner-secret-token", DB: db });
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.tasks.length, 1);
+  assert.equal(data.tasks[0].task_id, "task-123");
+  assert.equal("error" in data.tasks[0], false);
+  assert.equal(data.limit, 25);
+});
+
+test("owner dashboard shell is served without exposing owner data and has restrictive headers", async () => {
+  const assets = { fetch: async request => {
+    assert.equal(new URL(request.url).pathname, "/owner.html");
+    return new Response("<html>owner ui</html>", { status: 200 });
+  } };
+  const response = await worker.fetch(new Request("https://worker.example/owner"), { ASSETS: assets });
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-security-policy"), /default-src 'self'/);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+  assert.equal(await response.text(), "<html>owner ui</html>");
+});
+
+
+test("cloud financial owner endpoints require bearer authentication before touching D1", async () => {
+  let touched=false;
+  const env={AAE_QUEUE_TOKEN:"owner-secret-token",AAE_OWNER_ID:"owner-01",DB:{prepare(){touched=true;throw new Error("must not query");}}};
+  for(const [url,method] of [
+    ["/v1/owner/financial-controls","GET"],
+    ["/v1/owner/financial-controls/enrollment/challenge","GET"],
+    ["/v1/owner/financial-controls/enrollment/complete","POST"],
+    ["/v1/owner/financial-controls/policies","POST"],
+    ["/v1/owner/financial-controls/emergency-pause","POST"],
+    ["/v1/owner/financial-controls/schedules","POST"]
+  ]){
+    const response=await worker.fetch(new Request("https://worker.example"+url,{method}),env);
+    assert.equal(response.status,401);
+  }
+  assert.equal(touched,false);
+});
+
+test("cloud owner enrollment fails closed until both owner and operator IDs are configured", async () => {
+  let touched=false;
+  const env={AAE_QUEUE_TOKEN:"owner-secret-token",AAE_OWNER_ID:"owner-01",DB:{prepare(){touched=true;throw new Error("must not query without operator identity");}}};
+  const response=await worker.fetch(new Request("https://worker.example/v1/owner/financial-controls/enrollment/challenge",{
+    headers:{authorization:"Bearer owner-secret-token"}
+  }),env);
+  assert.equal(response.status,503);
+  assert.equal(touched,false);
+});
+
+test("cloud financial controls fail closed until owner identity is provisioned", async () => {
+  const response=await worker.fetch(new Request("https://worker.example/v1/owner/financial-controls",{
+    headers:{authorization:"Bearer owner-secret-token"}
+  }),{AAE_QUEUE_TOKEN:"owner-secret-token",DB:{prepare(){throw new Error("must not query without owner identity");}}});
+  assert.equal(response.status,503);
+});
+
+test("cloud financial mutation endpoints reject cross-origin requests", async () => {
+  const response=await worker.fetch(new Request("https://worker.example/v1/owner/financial-controls/emergency-pause",{
+    method:"POST",headers:{authorization:"Bearer owner-secret-token",origin:"https://attacker.example","content-type":"application/json"},
+    body:JSON.stringify({paused:true})
+  }),{AAE_QUEUE_TOKEN:"owner-secret-token",AAE_OWNER_ID:"owner-01",DB:{prepare(){throw new Error("must not query cross-origin request");}}});
+  assert.equal(response.status,403);
 });

@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101827">
+<meta name="description" content="Private owner dashboard for Autonomous AI Economy operations.">
+<title>AAE Owner Console</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,sans-serif;background:#0d1421;color:#edf2fb}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#24334b 0,#0d1421 58%);min-height:100vh}
+main{width:min(1040px,calc(100% - 28px));margin:auto;padding:24px 0 48px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:22px}
+.brand{font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;color:#a9bddc}
+h1{font-size:clamp(1.8rem,6vw,2.7rem);margin:8px 0 4px;letter-spacing:-.04em}
+.sub{color:#aebbd0;margin:0;line-height:1.5}
+.panel{background:#151f2f;border:1px solid #2b3a51;border-radius:16px;padding:17px;margin:14px 0}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+input{width:100%;min-width:0;background:#0d1624;color:#f4f7fc;border:1px solid #40516c;border-radius:10px;padding:13px;font-size:16px}
+button{border:0;border-radius:10px;padding:12px 15px;background:#c4d8ff;color:#122039;font-weight:750;font-size:.95rem;cursor:pointer}
+button.secondary{background:#2a3950;color:#e6eefb}
+button:disabled{opacity:.5}
+.authgrid{display:grid;grid-template-columns:1fr auto;gap:9px;margin-top:12px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.metric{background:#101a29;border:1px solid #293950;border-radius:13px;padding:14px;min-width:0}
+.metric small{display:block;color:#9fb0c8;font-size:.78rem}
+.metric strong{display:block;font-size:1.55rem;margin-top:7px;overflow-wrap:anywhere}
+h2{font-size:1.05rem;margin:0 0 12px}
+.muted{color:#9eacc1;font-size:.87rem;line-height:1.5}
+.status{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:6px 10px;background:#24354b;color:#dce9ff;font-size:.78rem}
+.status:before{content:"";width:7px;height:7px;border-radius:50%;background:#86c9a8}
+.status.offline:before{background:#e5ad70}
+.tablewrap{overflow:auto}
+table{width:100%;border-collapse:collapse;font-size:.86rem;min-width:460px}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #2a394f;vertical-align:top}
+th{color:#aebdd2;font-weight:600}
+code{overflow-wrap:anywhere;color:#c6d9ff}
+.notice{border-left:3px solid #d2aa69;padding:10px 12px;background:#211f1b;color:#d9c9a8;border-radius:7px;font-size:.85rem;line-height:1.5}
+.hidden{display:none!important}
+#message{margin-top:10px;color:#c4d2e6;font-size:.88rem;min-height:1.3em}
+footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
+@media(min-width:700px){main{padding-top:38px}.cards{grid-template-columns:repeat(4,minmax(0,1fr))}.panel{padding:20px}}
+</style>
+</head>
+<body>
+<main>
+<header><div><div class="brand">Autonomous AI Economy</div><h1>Owner console</h1><p class="sub">Private operational visibility · mobile-ready</p></div><span id="connection" class="status offline">Disconnected</span></header>
+<section class="panel" id="authPanel">
+<h2>Connect securely</h2>
+<p class="muted">Enter the existing owner bearer token. It stays in this browser tab's session storage and is never put in the URL.</p>
+<div class="authgrid"><input id="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Owner access token" aria-label="Owner access token"><button id="connect">Connect</button></div>
+<div id="message" role="status" aria-live="polite"></div>
+</section>
+<section id="dashboard" class="hidden">
+<div class="row" style="justify-content:space-between;margin:14px 2px"><span class="muted" id="updated">Not refreshed yet</span><div class="row"><button id="refresh" class="secondary">Refresh</button><button id="logout" class="secondary">Disconnect</button></div></div>
+<div class="cards" id="metrics">
+<div class="metric"><small>AI tasks queued</small><strong id="queued">—</strong></div>
+<div class="metric"><small>AI tasks running</small><strong id="running">—</strong></div>
+<div class="metric"><small>Estimated AI neurons reserved today</small><strong id="neurons">—</strong></div>
+<div class="metric"><small>Daily safety budget</small><strong id="budget">—</strong></div>
+</div>
+<section class="panel"><h2>Worker status</h2><div id="workerStatus" class="muted">Loading…</div><p class="muted" id="workerNote"></p></section>
+<section class="panel"><h2>Agent revenue attribution</h2><p class="muted">Only provider-settled events recorded in Cloudflare D1 appear here. Pending reconciliation is not spendable agent income.</p><div class="tablewrap"><table><thead><tr><th>Agent</th><th>Sales</th><th>Gross USD</th><th>Awaiting reconciliation</th><th>Credited to agent</th></tr></thead><tbody id="revenueRows"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></section>
+<section class="panel"><h2>Recent AI tasks</h2><div class="tablewrap"><table><thead><tr><th>Task</th><th>Status</th><th>Created</th><th>Updated</th></tr></thead><tbody id="taskRows"><tr><td colspan="4">Loading…</td></tr></tbody></table></div></section>
+<section class="panel">
+<h2>Cloud financial controls</h2>
+<p class="muted">Cloud D1 controls are separate from the local simulated SQLite subsystem. Emergency pause blocks new reservations and scheduled expense settlement.</p>
+<div class="row"><span id="financialState" class="status offline">Checking cloud controls…</span><button id="emergencyPause" class="secondary" disabled>Pause spending</button></div>
+<div id="financialMessage" class="muted" role="status" aria-live="polite"></div>
+<div class="notice" id="financialNotice">Cloud financial controls remain unavailable until the owner identity and signed policies are provisioned. No provider transfers or real payments are connected.</div>
+<h2 style="margin-top:20px">Owner key and cloud enrollment</h2>
+<p class="muted">Enroll the cloud owner/operator key using a one-time signed challenge. You may generate a new Ed25519 key here or import an existing unencrypted PKCS#8 PEM key. The private key stays in this browser tab and is never sent to the Worker. Save any generated key file somewhere secure.</p>
+<div class="row"><input id="ownerKeyFile" type="file" accept=".pem,.key,text/plain"><button id="generateOwnerKey" class="secondary" type="button">Generate new key</button></div>
+<div id="ownerKeyStatus" class="muted" role="status">No signing key loaded.</div>
+<div class="row"><button id="requestEnrollmentChallenge" type="button">Get enrollment challenge</button><span id="enrollmentState" class="muted">Not enrolled</span></div>
+<label class="muted">Local agent IDs (comma-separated)<input id="enrollmentAgents" maxlength="2000" placeholder="agent-01, agent-02"></label>
+<label class="muted">Ledger currencies (three-letter codes; currently USD recommended)<input id="enrollmentCurrencies" value="USD" maxlength="50"></label>
+<div id="enrollmentChallengeSummary" class="notice">A challenge will appear here after you request one.</div>
+<button id="completeEnrollment" type="button" disabled>Sign and complete owner enrollment</button>
+<div class="muted">Enrollment creates empty cloud accounts and starts with emergency pause enabled. It does not fund accounts or enable payments. USDC/USDT asset codes are not yet supported by the current three-letter ledger schema.</div>
+<h2 style="margin-top:20px">Signed policy inventory</h2>
+<div class="tablewrap"><table><thead><tr><th>Policy</th><th>Version</th><th>Agent</th><th>Transaction cap</th><th>Daily cap</th><th>Status</th></tr></thead><tbody id="policyRows"><tr><td colspan="6">Not loaded</td></tr></tbody></table></div>
+<form id="policyForm" class="hidden" style="margin-top:16px;display:grid;gap:9px">
+<label class="muted">Cloud policy JSON (exactly the eight policy fields)
+<textarea id="policyPayload" rows="7" placeholder='{"policy_id":"ops","version":1,"owner_id":"owner-id","agent_id":"agent-id","currency":"USD","per_transaction_limit_minor":250,"daily_spend_limit_minor":500,"allowed_destinations":["provider:exact"]}'></textarea></label>
+<p class="muted">The loaded Ed25519 key signs the policy locally in this tab. Only the policy, signature and public-key fingerprint are sent to Cloudflare. Never paste or upload private keys, seed phrases or recovery codes.</p>
+<button type="submit">Sign and register policy</button>
+</form>
+<h2 style="margin-top:20px">Agent budgets and reservations</h2>
+<div class="tablewrap"><table><thead><tr><th>Agent</th><th>Currency</th><th>Allocated (minor)</th><th>Reserved (minor)</th><th>Available (minor)</th></tr></thead><tbody id="budgetRows"><tr><td colspan="5">Not loaded</td></tr></tbody></table></div>
+<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Reservation</th><th>Agent</th><th>Destination</th><th>Amount</th><th>Status</th><th>Expires</th></tr></thead><tbody id="reservationRows"><tr><td colspan="6">Not loaded</td></tr></tbody></table></div>
+<h2 style="margin-top:20px">Recurring expense schedules</h2>
+<div class="tablewrap"><table><thead><tr><th>Agent</th><th>Destination</th><th>Amount</th><th>Interval</th><th>Next due</th><th>Status</th><th>Control</th></tr></thead><tbody id="scheduleRows"><tr><td colspan="7">Not loaded</td></tr></tbody></table></div>
+<form id="scheduleForm" class="hidden" style="margin-top:16px;display:grid;gap:9px">
+<label class="muted">Agent ID<input id="scheduleAgent" required maxlength="80" placeholder="agent identifier"></label>
+<label class="muted">Exact approved destination<input id="scheduleDestination" required maxlength="256" placeholder="provider:account:identifier"></label>
+<div class="row"><label class="muted" style="flex:1">Currency<input id="scheduleCurrency" required value="USD" maxlength="3"></label><label class="muted" style="flex:1">Amount (minor units)<input id="scheduleAmount" type="number" required min="1" step="1" placeholder="e.g. 500"></label></div>
+<label class="muted">Interval (seconds; 3600–2678400)<input id="scheduleInterval" type="number" required min="3600" max="2678400" step="1" value="86400"></label>
+<label class="muted">First due time<input id="scheduleDue" type="datetime-local" required></label>
+<button type="submit">Create signed-policy schedule</button>
+</form>
+</section>
+</section>
+<footer>AAE prototype · Private keys remain in browser memory only; financial actions are simulated journal operations. No checkout activation, publishing, wallet signing or external fund transfers are available from this page. Disconnect clears the browser-tab token.</footer>
+</main>
+<script>
+(() => {
+ const $ = id => document.getElementById(id);
+ const tokenKey = "aae-owner-console-token";
+ let token = sessionStorage.getItem(tokenKey) || "";
+ $("token").value = token;
+ const setMessage = text => { $("message").textContent = text; };
+ const headers = () => ({ authorization: "Bearer " + token });
+ const number = value => Number(value || 0).toLocaleString();
+ const money = minor => "$" + (Number(minor || 0) / 100).toFixed(2);
+ const time = value => value ? new Date(value).toLocaleString() : "—";
+ async function get(path) {
+   const response = await fetch(path,{headers:headers(),cache:"no-store"});
+   const data = await response.json().catch(()=>({}));
+   if (!response.ok) throw new Error(data.error || "Request failed ("+response.status+")");
+   return data;
+ }
+ function showDashboard(connected) {
+   $("dashboard").classList.toggle("hidden",!connected);
+   $("authPanel").classList.toggle("hidden",connected);
+   $("connection").textContent=connected?"Connected":"Disconnected";
+   $("connection").classList.toggle("offline",!connected);
+ }
+ let financialControls = null;
+ let ownerSigningKey = null;
+ let ownerPublicJwk = null;
+ let ownerKeyFingerprint = null;
+ let ownerKeyGenerated = false;
+ let ownerKeyBackedUp = false;
+ let enrollmentChallenge = null;
+ let generatedKeyBackupUrl = null;
+ const stableObject = value => Array.isArray(value) ? value.map(stableObject) :
+   value && typeof value === "object" ? Object.keys(value).sort().reduce((out,key)=>{out[key]=stableObject(value[key]);return out;},{}) : value;
+ const canonical = value => JSON.stringify(stableObject(value));
+ const encodeBase64Url = bytes => {
+   let binary="";for(const byte of bytes)binary+=String.fromCharCode(byte);
+   return btoa(binary).split("=").join("").split("+").join("-").split("/").join("_");
+ };
+ function canSignWithOwnerKey() { return !!ownerSigningKey && (!ownerKeyGenerated || ownerKeyBackedUp); }
+ async function setOwnerSigningKey(key, source) {
+   const jwk=await crypto.subtle.exportKey("jwk",key);
+   if(jwk.kty!=="OKP"||jwk.crv!=="Ed25519"||!jwk.x||!jwk.d)throw new Error("Imported key is not an Ed25519 private key.");
+   ownerSigningKey=key;
+   ownerKeyGenerated=source==="newly generated key";
+   ownerKeyBackedUp=!ownerKeyGenerated;
+   ownerPublicJwk={kty:"OKP",crv:"Ed25519",x:jwk.x};
+   const fingerprintBytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify({crv:"Ed25519",kty:"OKP",x:jwk.x})));
+   ownerKeyFingerprint=[...new Uint8Array(fingerprintBytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+   $("ownerKeyStatus").textContent="Ed25519 signing key loaded ("+source+"). Private key remains in this tab's memory.";
+   $("completeEnrollment").disabled=!enrollmentChallenge||!canSignWithOwnerKey();
+ }
+ async function signCanonical(payload) {
+   if(!canSignWithOwnerKey()||!ownerPublicJwk||!ownerKeyFingerprint)
+     throw new Error(ownerKeyGenerated&&!ownerKeyBackedUp?"Download the generated private-key backup before signing.":"Load or generate your owner Ed25519 key first.");
+   const bytes=new TextEncoder().encode(canonical(payload));
+   return encodeBase64Url(new Uint8Array(await crypto.subtle.sign({name:"Ed25519"},ownerSigningKey,bytes)));
+ }
+ async function importOwnerPem(file) {
+   const pem=await file.text();
+   const match=pem.match(/-----BEGIN PRIVATE KEY-----([\s\S]+?)-----END PRIVATE KEY-----/);
+   if(!match||pem.includes("ENCRYPTED PRIVATE KEY"))throw new Error("Use an unencrypted PKCS#8 Ed25519 PRIVATE KEY PEM file.");
+   const binary=atob(match[1].replace(/\s/g,""));
+   const der=Uint8Array.from(binary,char=>char.charCodeAt(0));
+   const key=await crypto.subtle.importKey("pkcs8",der,{name:"Ed25519"},true,["sign"]);
+   await setOwnerSigningKey(key,file.name);
+ }
+ function downloadGeneratedKey(pem) {
+   if(generatedKeyBackupUrl)URL.revokeObjectURL(generatedKeyBackupUrl);
+   generatedKeyBackupUrl=URL.createObjectURL(new Blob([pem],{type:"application/x-pem-file"}));
+   const link=document.createElement("a");link.href=generatedKeyBackupUrl;link.download="aae-owner-ed25519.pem";
+   link.textContent="Download private-key backup";link.className="secondary";link.style.display="inline-block";
+   const prior=$("ownerKeyBackup");if(prior)prior.remove();
+   link.id="ownerKeyBackup";
+   link.addEventListener("click",()=>{ownerKeyBackedUp=true;$("ownerKeyStatus").textContent="Private-key backup download initiated. The key remains in this tab's memory.";$("ownerKeyStatus").appendChild(document.createElement("br"));$("ownerKeyStatus").appendChild(link);$("completeEnrollment").disabled=!enrollmentChallenge||!canSignWithOwnerKey();});
+   $("ownerKeyStatus").appendChild(document.createElement("br"));$("ownerKeyStatus").appendChild(link);
+ }
+ async function postJson(path,body) {
+   const response=await fetch(path,{method:"POST",headers:{...headers(),"content-type":"application/json"},body:JSON.stringify(body),cache:"no-store"});
+   const data=await response.json().catch(()=>({}));
+   if(!response.ok) throw new Error(data.error||"Request failed ("+response.status+")");
+   return data;
+ }
+ function renderPolicies(rows) {
+   const body=$("policyRows");body.replaceChildren();
+   if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.textContent="No cloud policies registered.";tr.appendChild(td);body.appendChild(tr);return;}
+   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.policy_id,item.version,item.agent_id,item.currency+" "+number(item.per_transaction_limit_minor)+" minor",item.currency+" "+number(item.daily_spend_limit_minor)+" minor",item.status]){const td=document.createElement("td");td.textContent=String(value);tr.appendChild(td);}body.appendChild(tr);}
+ }
+ function renderBudgets(rows) {
+   const body=$("budgetRows");body.replaceChildren();
+   if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=5;td.textContent="No cloud agent budgets configured.";tr.appendChild(td);body.appendChild(tr);return;}
+   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.agent_id,item.currency,number(item.allocated_minor),number(item.reserved_minor),number(item.available_minor)]){const td=document.createElement("td");td.textContent=value;tr.appendChild(td);}body.appendChild(tr);}
+ }
+ function renderReservations(rows) {
+   const body=$("reservationRows");body.replaceChildren();
+   if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=6;td.textContent="No budget reservations recorded.";tr.appendChild(td);body.appendChild(tr);return;}
+   for(const item of rows){const tr=document.createElement("tr");for(const value of [item.reservation_id,item.agent_id,item.destination,item.currency+" "+number(item.amount_minor)+" minor units",item.status,time(item.expires_at)]){const td=document.createElement("td");td.textContent=String(value);tr.appendChild(td);}body.appendChild(tr);}
+ }
+ function renderSchedules(rows) {
+   const body=$("scheduleRows");body.replaceChildren();
+   if(!rows.length){const tr=document.createElement("tr");const td=document.createElement("td");td.colSpan=7;td.textContent="No recurring schedules configured.";tr.appendChild(td);body.appendChild(tr);return;}
+   for(const item of rows){
+     const tr=document.createElement("tr");
+     const values=[item.agent_id,item.destination,item.currency+" "+number(item.amount_minor)+" minor units",number(item.interval_seconds)+" sec",time(item.next_due_at),item.status];
+     for(const value of values){const td=document.createElement("td");td.textContent=String(value);tr.appendChild(td);}
+     const td=document.createElement("td");
+     if(item.status!=="cancelled"){
+       const btn=document.createElement("button");btn.className="secondary";btn.textContent=item.status==="paused"?"Resume":"Pause";
+       btn.addEventListener("click",async()=>{const next=item.status==="paused"?"active":"paused";if(next==="active"&&!window.confirm("Resume this recurring simulated expense schedule? It may post future expenses to the cloud ledger."))return;btn.disabled=true;try{await postJson("/v1/owner/financial-controls/schedules/"+encodeURIComponent(item.schedule_id)+"/status",{status:next});await loadFinancialControls();}catch(e){$("financialMessage").textContent=e.message;}finally{btn.disabled=false;}});
+       td.appendChild(btn);
+       const cancel=document.createElement("button");cancel.className="secondary";cancel.style.marginLeft="6px";cancel.textContent="Cancel";
+       cancel.addEventListener("click",async()=>{if(!window.confirm("Cancel this recurring expense schedule?"))return;cancel.disabled=true;try{await postJson("/v1/owner/financial-controls/schedules/"+encodeURIComponent(item.schedule_id)+"/status",{status:"cancelled"});await loadFinancialControls();}catch(e){$("financialMessage").textContent=e.message;}finally{cancel.disabled=false;}});
+       td.appendChild(cancel);
+     } else td.textContent="—";
+     tr.appendChild(td);body.appendChild(tr);
+   }
+ }
+ async function loadFinancialControls() {
+   try {
+     financialControls=await get("/v1/owner/financial-controls");
+     const paused=financialControls.emergency_paused;
+     $("financialState").textContent=paused?"Emergency pause active":"Cloud spending enabled";
+     $("financialState").classList.toggle("offline",paused);
+     $("emergencyPause").textContent=paused?"Resume simulated spending":"Emergency pause";
+     $("emergencyPause").disabled=false;
+     $("financialNotice").textContent="Cloud D1 is the source of truth. Reservations and recurring expenses are simulated journal entries only; provider transfers and live payments are disabled.";
+     $("scheduleForm").classList.remove("hidden");
+     $("policyForm").classList.remove("hidden");
+     renderPolicies(financialControls.policies||[]);
+     renderBudgets(financialControls.budgets||[]);
+     renderReservations(financialControls.reservations||[]);
+     renderSchedules(financialControls.schedules||[]);
+   } catch(error) {
+     financialControls=null;
+     $("financialState").textContent="Cloud controls unavailable";
+     $("financialState").classList.add("offline");
+     $("emergencyPause").disabled=true;
+     $("scheduleForm").classList.add("hidden");
+     $("financialNotice").textContent=error.message+" Cloud controls stay fail-closed; local SQLite balances are not mirrored here.";
+     $("policyForm").classList.add("hidden");
+     renderPolicies([]);
+     renderBudgets([]);renderReservations([]);
+     renderSchedules([]);
+   }
+ }
+ $("ownerKeyFile").addEventListener("change",async event=>{
+   const file=event.target.files&&event.target.files[0];if(!file)return;
+   try{await importOwnerPem(file);}catch(error){ownerSigningKey=null;ownerPublicJwk=null;ownerKeyFingerprint=null;$("ownerKeyStatus").textContent=error.message;}
+ });
+ $("generateOwnerKey").addEventListener("click",async()=>{
+   if(!window.crypto?.subtle){$("financialMessage").textContent="Secure browser cryptography is unavailable.";return;}
+   if(ownerSigningKey&&!window.confirm("Replace the signing key currently loaded in this tab?"))return;
+   try{
+     const pair=await crypto.subtle.generateKey({name:"Ed25519"},true,["sign","verify"]);
+     await setOwnerSigningKey(pair.privateKey,"newly generated key");
+     const der=new Uint8Array(await crypto.subtle.exportKey("pkcs8",pair.privateKey));
+     let binary="";for(const byte of der)binary+=String.fromCharCode(byte);
+     const encoded=btoa(binary).match(/.{1,64}/g).join("\n");
+     downloadGeneratedKey("-----BEGIN PRIVATE KEY-----\n"+encoded+"\n-----END PRIVATE KEY-----\n");
+     $("financialMessage").textContent="New key generated. Download and securely back up the PEM file before leaving this page.";
+   }catch(error){$("financialMessage").textContent="Ed25519 key generation failed: "+error.message;}
+ });
+ $("requestEnrollmentChallenge").addEventListener("click",async()=>{
+   try{
+     enrollmentChallenge=await get("/v1/owner/financial-controls/enrollment/challenge");
+     $("enrollmentChallengeSummary").textContent="Challenge ID: "+enrollmentChallenge.challenge_id+"\nExpires: "+time(enrollmentChallenge.expires_at)+"\nOwner: "+enrollmentChallenge.owner_id+"\nOperator: "+enrollmentChallenge.operator_id;
+     $("completeEnrollment").disabled=!canSignWithOwnerKey();
+     $("enrollmentState").textContent="Challenge ready";
+   }catch(error){$("financialMessage").textContent=error.message;}
+ });
+ $("completeEnrollment").addEventListener("click",async()=>{
+   if(!enrollmentChallenge||!canSignWithOwnerKey()){ $("financialMessage").textContent="Load a key and download its backup before completing enrollment.";return;}
+   const agentIds=$("enrollmentAgents").value.split(",").map(x=>x.trim()).filter(Boolean).sort();
+   const currencies=$("enrollmentCurrencies").value.split(",").map(x=>x.trim().toUpperCase()).filter(Boolean).sort();
+   if(!agentIds.length||new Set(agentIds).size!==agentIds.length){$("financialMessage").textContent="Enter unique local agent IDs separated by commas.";return;}
+   if(!currencies.length||new Set(currencies).size!==currencies.length){$("financialMessage").textContent="Enter unique three-letter currency codes.";return;}
+   if(!window.confirm("Enroll this public key and these agent IDs? Empty accounts will be created and emergency pause will remain active."))return;
+   $("completeEnrollment").disabled=true;
+   try{
+     const signedPayload={version:1,owner_id:enrollmentChallenge.owner_id,operator_id:enrollmentChallenge.operator_id,
+       challenge_id:enrollmentChallenge.challenge_id,challenge:enrollmentChallenge.challenge,
+       public_key_fingerprint:ownerKeyFingerprint,agent_ids:agentIds,currencies};
+     const signature=await signCanonical(signedPayload);
+     const result=await postJson("/v1/owner/financial-controls/enrollment/complete",{
+       challenge_id:enrollmentChallenge.challenge_id,public_key_jwk:ownerPublicJwk,
+       signature_base64url:signature,agent_ids:agentIds,currencies
+     });
+     $("enrollmentState").textContent="Enrolled · emergency pause active";
+     $("financialMessage").textContent=result.idempotent?"Cloud owner enrollment already completed.":"Cloud owner/operator enrollment completed. Accounts are empty and spending remains paused.";
+     enrollmentChallenge=null;
+     await loadFinancialControls();
+   }catch(error){$("financialMessage").textContent=error.message;}
+   finally{$("completeEnrollment").disabled=!canSignWithOwnerKey()||!enrollmentChallenge;}
+ });
+ $("emergencyPause").addEventListener("click",async()=>{
+   if(!financialControls)return;
+   const paused=!financialControls.emergency_paused;
+   if(!paused&&!window.confirm("Resume simulated cloud spending? Due recurring expenses may be journaled automatically under active signed policies."))return;
+   $("emergencyPause").disabled=true;
+   try{await postJson("/v1/owner/financial-controls/emergency-pause",{paused,reason:paused?"Owner emergency pause":"Owner resumed simulated spending"});await loadFinancialControls();$("financialMessage").textContent=paused?"Emergency pause is active.":"Simulated cloud spending resumed.";}
+   catch(error){$("financialMessage").textContent=error.message;}
+   finally{$("emergencyPause").disabled=false;}
+ });
+ $("policyForm").addEventListener("submit",async event=>{
+   event.preventDefault();
+   let policy;
+   try{policy=JSON.parse($("policyPayload").value);}catch(error){$("financialMessage").textContent="Cloud policy must be valid JSON.";return;}
+   if(!window.confirm("Sign and register this exact policy? It will supersede the previous active version for this policy."))return;
+   try{
+     const canonicalPayload=canonical(policy);
+     const signature=await signCanonical(policy);
+     const envelope={policy,canonical_payload:canonicalPayload,signature_base64url:signature,signer_key_fingerprint:ownerKeyFingerprint};
+     await postJson("/v1/owner/financial-controls/policies",envelope);
+     $("policyPayload").value="";
+     $("financialMessage").textContent="Owner signature verified and policy registered.";
+     await loadFinancialControls();
+   }catch(error){$("financialMessage").textContent=error.message;}
+ });
+ $("scheduleForm").addEventListener("submit",async event=>{
+   event.preventDefault();
+   const due=$("scheduleDue").value;
+   const payload={agent_id:$("scheduleAgent").value.trim(),destination:$("scheduleDestination").value.trim(),currency:$("scheduleCurrency").value.trim().toUpperCase(),amount_minor:Number($("scheduleAmount").value),interval_seconds:Number($("scheduleInterval").value),next_due_at:new Date(due).toISOString()};
+   if(!window.confirm("Create this recurring simulated expense schedule? Amount is in currency minor units and it will run automatically only while the owner has spending unpaused."))return;
+   try{await postJson("/v1/owner/financial-controls/schedules",payload);$("financialMessage").textContent="Schedule created under the active signed policy.";event.target.reset();$("scheduleCurrency").value="USD";$("scheduleInterval").value="86400";await loadFinancialControls();}
+   catch(error){$("financialMessage").textContent=error.message;}
+ });
+ async function refresh() {
+   $("refresh").disabled=true;
+   try {
+     const [overview,tasks]=await Promise.all([get("/v1/owner/overview"),get("/v1/owner/tasks")]);
+     await loadFinancialControls();
+     const counts=Object.fromEntries((overview.tasks||[]).map(row=>[row.status,row.total]));
+     $("queued").textContent=number(counts.queued);
+     $("running").textContent=number(counts.running);
+     $("neurons").textContent=number(overview.estimated_neurons_reserved);
+     $("budget").textContent=number(overview.daily_safety_budget_neurons);
+     $("workerStatus").textContent=overview.model+" · UTC day "+overview.utc_day;
+     $("workerNote").textContent=overview.note||"";
+     const revenue=$("revenueRows"); revenue.replaceChildren();
+     if (!(overview.agents||[]).length) revenue.innerHTML='<tr><td colspan="5">No provider-settled agent revenue events recorded.</td></tr>';
+     for(const row of overview.agents||[]){
+       const tr=document.createElement("tr");
+       for(const value of [row.agent_id,number(row.sales_count),money(row.gross_settled_minor),money(row.awaiting_reconciliation_minor),money(row.credited_to_agent_minor)]){
+         const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+       } revenue.appendChild(tr);
+     }
+     const taskBody=$("taskRows");taskBody.replaceChildren();
+     if (!(tasks.tasks||[]).length) taskBody.innerHTML='<tr><td colspan="4">No AI tasks recorded yet.</td></tr>';
+     for(const row of tasks.tasks||[]){
+       const tr=document.createElement("tr");
+       for(const value of [row.task_id,row.status,time(row.created_at),time(row.updated_at)]){
+         const td=document.createElement("td");td.textContent=value;tr.appendChild(td);
+       } taskBody.appendChild(tr);
+     }
+     $("updated").textContent="Last refreshed "+new Date().toLocaleTimeString();
+     setMessage("");
+     showDashboard(true);
+   } catch(error) {
+     if (/unauthorized/i.test(error.message)) { token="";sessionStorage.removeItem(tokenKey);showDashboard(false); }
+     setMessage(error.message);
+     $("connection").textContent="Connection error";
+     $("connection").classList.add("offline");
+   } finally { $("refresh").disabled=false; }
+ }
+ $("connect").addEventListener("click",async()=>{
+   token=$("token").value.trim();
+   if(!token){setMessage("Enter your owner token.");return;}
+   sessionStorage.setItem(tokenKey,token);
+   setMessage("Checking access…");
+   await refresh();
+ });
+ $("refresh").addEventListener("click",refresh);
+ $("logout").addEventListener("click",()=>{
+   token="";sessionStorage.removeItem(tokenKey);$("token").value="";
+   showDashboard(false);setMessage("Disconnected. The token was cleared from this tab.");
+ });
+ if(token) refresh();
+})();
+</script>
+</body>
+</html>

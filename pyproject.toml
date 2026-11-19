@@ -16,6 +16,7 @@ identity = ["cryptography>=42"]
 [project.scripts]
 economy = "economy.cli:main"
 economy-supervisor = "economy.supervisor:main"
+economy-finance = "economy.financial_console:main"
 economy-product = "economy.product_bundle:main"
 economy-game-assets = "economy.game_asset_pack:main"
 economy-ai = "economy.ai_cli:main"
