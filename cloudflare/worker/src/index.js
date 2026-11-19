@@ -948,7 +948,7 @@ export default {
       return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
-    const internalJobStatusMatch = url.pathname.match(/^\\/v1\\/owner\\/internal-products\\/jobs\\/([0-9a-f-]{36})$/i);
+    const internalJobStatusMatch = url.pathname.match(/^\/v1\/owner\/internal-products\/jobs\/([0-9a-f-]{36})$/i);
     if (internalJobStatusMatch && request.method === "GET") {
       return internalProductJobStatus(env, internalJobStatusMatch[1]);
     }
