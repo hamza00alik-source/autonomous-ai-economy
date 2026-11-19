@@ -5,7 +5,9 @@ from pathlib import Path
 from economy.chain_monitor import ChainTransferObservation, TransferPage
 from economy.collective_treasury import CollectiveTreasuryStore, TreasuryWallet
 from economy.collective_treasury_monitor import CollectiveTreasuryReceiptMonitor
-from economy.collective_accounting_runtime import CollectiveTreasuryReorgGuard
+from economy.collective_accounting_runtime import (
+    CollectiveTreasuryAccountingRuntime, CollectiveTreasuryReorgGuard,
+)
 
 
 WALLET = "0x" + "a" * 40
@@ -84,6 +86,71 @@ class CollectiveTreasuryReorgGuardTests(unittest.TestCase):
         result = guard.reconcile_once(network="base-sepolia", asset="USDC")
         self.assertEqual(result["reorg_alerts"], 0)
         self.assertEqual(result["open_alerts"], 0)
+
+
+class FakeReceiptMonitor:
+    def __init__(self, events):
+        self.events = events
+
+    def poll_once(self, **kwargs):
+        self.events.append("receipts")
+        return {"allocated": 0}
+
+
+class FakeReorgGuard:
+    def __init__(self, events, open_alerts=0):
+        self.events, self.open_alerts = events, open_alerts
+
+    def reconcile_once(self, **kwargs):
+        self.events.append("reorgs")
+        return {"open_alerts": self.open_alerts}
+
+
+class FakeWorker:
+    def __init__(self, events):
+        self.events = events
+
+    async def run_once(self, *, limit):
+        self.events.append("spend")
+        return {"settled": 1}
+
+
+class CollectiveAccountingRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_runtime_reconciles_before_spending(self):
+        events = []
+        runtime = CollectiveTreasuryAccountingRuntime(
+            store=None, receipt_monitor=FakeReceiptMonitor(events),
+            reorg_guard=FakeReorgGuard(events),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(events, ["receipts", "reorgs", "balances", "spend"])
+
+    async def test_runtime_blocks_spending_when_balance_check_fails(self):
+        events = []
+        runtime = CollectiveTreasuryAccountingRuntime(
+            store=None, receipt_monitor=FakeReceiptMonitor(events),
+            reorg_guard=FakeReorgGuard(events),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": False}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "payouts_blocked")
+        self.assertEqual(events, ["receipts", "reorgs", "balances"])
+
+    async def test_runtime_blocks_spending_when_reorg_alert_open(self):
+        events = []
+        runtime = CollectiveTreasuryAccountingRuntime(
+            store=None, receipt_monitor=FakeReceiptMonitor(events),
+            reorg_guard=FakeReorgGuard(events, open_alerts=1),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "payouts_blocked")
+        self.assertEqual(events, ["receipts", "reorgs", "balances"])
 
 
 if __name__ == "__main__":
