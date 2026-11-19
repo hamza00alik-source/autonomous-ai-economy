@@ -1,4 +1,5 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
+import { registerAgentReceivingWallet, createAgentReceivingInvoice } from "./receiving_wallets.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 import { getCloudFinancialControls, setCloudEmergencyPause, createCloudExpenseSchedule, setCloudExpenseScheduleStatus, runDueCloudExpenseSchedules, registerCloudSignedFinancialPolicy, createCloudOwnerEnrollmentChallenge, completeCloudOwnerEnrollment } from "./financial_controls.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
@@ -706,6 +707,57 @@ export default {
       return new Response(page.body, { status: page.status, statusText: page.statusText, headers });
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    const receivingWalletMatch = url.pathname.match(/^\/v1\/owner\/agents\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\/receiving-wallet$/);
+    if (receivingWalletMatch && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 4000) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== 2 || !Object.keys(body).every(key => ["address","signature_base64url"].includes(key))) {
+        return json({ error: "receiving wallet envelope requires address and signature_base64url" }, 400);
+      }
+      const result = await registerAgentReceivingWallet(env.DB, {
+        ownerId: env.AAE_OWNER_ID, agentId: receivingWalletMatch[1],
+        address: body.address, signatureBase64Url: body.signature_base64url
+      });
+      return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
+    }
+    if (receivingWalletMatch && request.method === "GET") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      const wallet = await env.DB.prepare("SELECT wallet_id,agent_id,network,chain_id,asset_code,token_contract,token_decimals,receiving_address,status,created_at FROM financial_agent_receiving_wallets WHERE owner_id=? AND agent_id=? AND status='active'")
+        .bind(env.AAE_OWNER_ID, receivingWalletMatch[1]).first();
+      return wallet ? json(wallet) : json({ error: "receiving wallet not configured" }, 404);
+    }
+    const receivingInvoiceMatch = url.pathname.match(/^\/v1\/agents\/([A-Za-z0-9][A-Za-z0-9._:-]{2,79})\/receiving-invoices$/);
+    if (receivingInvoiceMatch && request.method === "POST") {
+      if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 2000) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).some(key => !["order_id","amount","description","expires_in_minutes"].includes(key)) ||
+          typeof body.order_id !== "string" || typeof body.amount !== "string" ||
+          typeof body.description !== "string") {
+        return json({ error: "invalid receiving invoice fields" }, 400);
+      }
+      const result = await createAgentReceivingInvoice(env.DB, {
+        ownerId: env.AAE_OWNER_ID, agentId: receivingInvoiceMatch[1],
+        orderId: body.order_id, amount: body.amount, description: body.description,
+        expiresInMinutes: body.expires_in_minutes === undefined ? 60 : body.expires_in_minutes
+      });
+      return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
+    }
     if (url.pathname === "/v1/swarmmemo/identity/status" && request.method === "GET") {
       const identity = await env.DB.prepare(
         "SELECT state,fingerprint,handle,created_at,updated_at FROM swarmmemo_identity_state WHERE id=1"
