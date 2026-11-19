@@ -65,3 +65,22 @@ References:
 - Repeated requests return the already-registered wallet; switching providers or silently replacing an address is rejected.
 
 The included fake-provider tests exercise creation, idempotent repeat, retry after a simulated provider outage, provider mismatch and network mismatch. No real custody provider is selected or connected. Before production, the adapter must be implemented against a provider with documented idempotent wallet creation, isolated per-agent accounts, withdrawal policy controls, recovery procedures and auditable API credentials. Caller authentication and owner authorization must be enforced by the application boundary before invoking provisioning.
+
+## Stage 5: finality-aware incoming chain monitor
+
+`src/economy/chain_monitor.py` introduces a read-only chain-source interface and an incoming token-transfer monitor:
+
+- Monitors only a configured network, asset and exact token contract, and only registered agent receiving addresses.
+- Requires a valid transfer identity, source/destination, positive integer amount, block number/hash, canonicality, finality and confirmation count.
+- Does not credit pending transfers. It credits only canonical transfers marked finalized by the adapter and meeting the configured minimum confirmations.
+- Stores the provider cursor and each transfer identity, so replayed pages/notifications do not create duplicate revenue.
+- Writes the finance event and monitor status in one SQLite transaction. A crash cannot leave a credited transfer with no monitor state (or vice versa).
+- Rejects a transfer that would be assigned to an already-closed accounting period. Historical backfills need an explicit adjustment-period reconciliation.
+- Detects a previously credited transfer disappearing or changing block identity and creates a persistent reorganization alert.
+- An unresolved reorg alert blocks profit-period closure and blocks automatic master payouts, including when the alert is discovered after period close.
+
+The chain source is an interface only. No RPC provider, websocket, webhook endpoint or explorer API is connected. A production adapter must independently query chain state rather than trusting webhook claims, validate chain ID and token contract, derive transfer log indexes, verify canonical block ancestry and finality, and implement bounded pagination/retry/backfill. Provider cursor semantics must guarantee no gaps when new addresses are added.
+
+**Important limitation:** the monitor deliberately does not reverse a credited receipt automatically after a deep reorganization. The alert remains active, and an operator note does not clear the hold. A separately audited compensating ledger adjustment and reconciliation workflow is still required before the alert can safely be cleared. The current polling API accepts a caller-supplied accounting `period_id`; production must map each transfer's block timestamp to the correct accounting period rather than assigning an entire historical page to the current period.
+
+No real chain is connected and no live money is moved by this stage.
