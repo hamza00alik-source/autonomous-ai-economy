@@ -141,6 +141,14 @@ class CollectiveTreasuryTests(unittest.TestCase):
                 idempotency_key="paused", period_id="2026-11",
             )
 
+    def test_spend_submission_claim_is_atomic_and_single_use(self):
+        reservation = self.store.reserve_spend(
+            "agent-a", "base-sepolia", "USDC", "0x" + "b" * 40, 1000,
+            idempotency_key="single-claim", period_id="2026-11",
+        )
+        self.assertTrue(self.store.claim_spend_submission(reservation))
+        self.assertFalse(self.store.claim_spend_submission(reservation))
+
     def test_uncertain_broadcast_is_held_and_not_cancellable(self):
         self.store.create_payment_intent(
             "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:abc"
