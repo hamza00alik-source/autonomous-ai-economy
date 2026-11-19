@@ -164,7 +164,10 @@ class CDPAdapterTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self):
                 self.calls = []
             async def get_or_create_account(self, **kwargs):
-                self.calls.append(kwargs)
+                self.calls.append(("get", kwargs))
+                return Account()
+            async def update_account(self, **kwargs):
+                self.calls.append(("update", kwargs))
                 return Account()
 
         class Client:
@@ -183,9 +186,11 @@ class CDPAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(wallet.provider, "coinbase-cdp")
         self.assertEqual(wallet.provider_wallet_id, "cdp-id")
         self.assertEqual(wallet.address, Account.address)
-        self.assertEqual(client.evm.calls, [{
-            "name": "AAE_MASTER_TREASURY", "account_policy": "policy-123"
-        }])
+        self.assertEqual(client.evm.calls, [
+            ("get", {"name": "AAE_MASTER_TREASURY"}),
+            ("update", {"address": Account.address,
+                        "update": {"account_policy": "policy-123"}}),
+        ])
 
 
 if __name__ == "__main__":
