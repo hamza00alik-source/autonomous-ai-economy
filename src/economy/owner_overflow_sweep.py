@@ -121,4 +121,97 @@ class OwnerOverflowSweepWorker:
                 "accounting_reason": "owner_overflow_sweep"}
 
 
-__all__ = ["OwnerOverflowSweepWorker", "OwnerSweepSigner", "OwnerSweepVerifier"]
+class OwnerProfitPayoutWorker:
+    """Pay a period's already-allocated owner share from the shared wallet.
+
+    This is distinct from an overflow sweep: it consumes the master:owner
+    virtual balance created by period close and cannot pay more than that
+    period's recorded owner_share_minor.
+    """
+
+    def __init__(self, store: CollectiveTreasuryStore, signer: OwnerSweepSigner,
+                 verifier: OwnerSweepVerifier) -> None:
+        self.store = store
+        self.signer = signer
+        self.verifier = verifier
+
+    async def run_once(self, *, agent_id: str, network: str, asset: str,
+                       period_id: str, idempotency_key: str) -> dict:
+        payout = self.store.reserve_owner_profit_payout(
+            agent_id, network, asset, period_id, idempotency_key=idempotency_key
+        )
+        if payout is None:
+            return {"status": "no_owner_share_due"}
+        if payout["status"] != "reserved":
+            return {"payout_id": payout["payout_id"], "status": payout["status"],
+                    "reason": "existing payout must be reconciled; it will not be resubmitted"}
+        if not self.store.claim_owner_profit_payout(payout["payout_id"]):
+            current = self.store.get_owner_profit_payout(payout["payout_id"])
+            return {"payout_id": payout["payout_id"],
+                    "status": current["status"] if current else "unknown",
+                    "reason": "payout was already claimed"}
+        wallet = self.store.treasury_wallet(network, asset)
+        if not wallet:
+            return {"payout_id": payout["payout_id"], "status": "uncertain",
+                    "reason": "collective treasury wallet is not registered"}
+        try:
+            tx_hash = await self.signer.transfer_usdc(
+                destination=payout["destination_address"],
+                amount_minor=payout["amount_minor"], network=network,
+            )
+        except Exception as exc:
+            return {"payout_id": payout["payout_id"], "status": "uncertain",
+                    "reason": "provider outcome must be discovered before retry",
+                    "detail": str(exc)}
+        try:
+            self.store.record_owner_profit_payout_tx(payout["payout_id"], str(tx_hash))
+            verified = await self.verifier.verify_transfer(
+                network=network, asset=asset, tx_hash=str(tx_hash),
+                source_address=wallet.address,
+                destination_address=payout["destination_address"],
+                amount_minor=payout["amount_minor"],
+            )
+            self.store.settle_owner_profit_payout(payout["payout_id"], verified)
+        except Exception as exc:
+            return {"payout_id": payout["payout_id"], "status": "uncertain",
+                    "tx_hash": str(tx_hash),
+                    "reason": "payout is not settled until exact finalized transfer verification",
+                    "detail": str(exc)}
+        return {"payout_id": payout["payout_id"], "status": "settled",
+                "tx_hash": str(tx_hash), "amount_minor": payout["amount_minor"],
+                "accounting_reason": "owner_net_profit_share"}
+
+    async def reconcile(self, payout_id: str, *, tx_hash: str | None = None) -> dict:
+        """Verify an uncertain owner payment without submitting a new transfer."""
+        payout = self.store.get_owner_profit_payout(payout_id)
+        if not payout:
+            raise ValueError("owner profit payout not found")
+        if payout["status"] not in {"uncertain", "reserved"}:
+            return {"payout_id": payout_id, "status": payout["status"]}
+        known_hash = payout["tx_hash"]
+        if tx_hash and known_hash and tx_hash.lower() != known_hash.lower():
+            raise ValueError("reconciliation hash conflicts with recorded owner payout hash")
+        selected_hash = known_hash or tx_hash
+        if not selected_hash:
+            raise ValueError("transaction hash is unknown; discover it from provider or chain history before reconciliation")
+        if not known_hash:
+            if payout["status"] == "reserved":
+                if not self.store.claim_owner_profit_payout(payout_id):
+                    raise ValueError("owner payout could not be claimed for reconciliation")
+            self.store.record_owner_profit_payout_tx(payout_id, selected_hash)
+        wallet = self.store.treasury_wallet(payout["network"], payout["asset"])
+        if not wallet:
+            raise ValueError("collective treasury wallet is not registered")
+        verified = await self.verifier.verify_transfer(
+            network=payout["network"], asset=payout["asset"], tx_hash=selected_hash,
+            source_address=wallet.address,
+            destination_address=payout["destination_address"],
+            amount_minor=payout["amount_minor"],
+        )
+        self.store.settle_owner_profit_payout(payout_id, verified)
+        return {"payout_id": payout_id, "status": "settled",
+                "tx_hash": selected_hash, "amount_minor": payout["amount_minor"],
+                "accounting_reason": "owner_net_profit_share"}
+
+
+__all__ = ["OwnerOverflowSweepWorker", "OwnerProfitPayoutWorker", "OwnerSweepSigner", "OwnerSweepVerifier"]
