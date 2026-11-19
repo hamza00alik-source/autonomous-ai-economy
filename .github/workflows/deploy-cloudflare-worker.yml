@@ -72,7 +72,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
-          AAE_EXECUTION_BRIDGE_SECRET: ${{ secrets.AAE_EXECUTION_BRIDGE_SECRET }}
         run: |
           printf '%s' "$AAE_QUEUE_TOKEN" | npx wrangler secret put AAE_QUEUE_TOKEN
       - name: Force public commerce gates off
