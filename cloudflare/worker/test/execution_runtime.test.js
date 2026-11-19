@@ -184,6 +184,12 @@ test("owner-approved product execution stores a verified private artifact and is
   assert.deepEqual(new Uint8Array(await download.arrayBuffer()), bytes);
 });
 
+test("private artifact download requires the owner bearer token", async () => {
+  const { env } = makeEnv();
+  const response = await worker.fetch(downloadRequest("123e4567-e89b-42d3-a456-426614174000", "wrong-token"), env);
+  assert.equal(response.status, 401);
+});
+
 test("execution fails closed when private runtime bindings are missing", async () => {
   const { env } = makeEnv();
   delete env.EXECUTION_RUNTIME;
