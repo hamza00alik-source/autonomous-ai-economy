@@ -152,6 +152,62 @@ class EVMJSONRPCSource:
         result = self._rpc_call("eth_getBalance", [address, "finalized"])
         return self._quantity(result, "native balance")
 
+    def transaction_fee_wei(self, tx_hash: str) -> dict:
+        """Return finalized transaction network fee in wei, including Base L1/blob fees.
+
+        The caller must independently value this native-asset cost before using it
+        in USDC profit accounting. A missing or non-final receipt fails closed.
+        """
+        if not isinstance(tx_hash, str) or not _HASH_RE.fullmatch(tx_hash):
+            raise ValueError("tx_hash must be a 32-byte EVM transaction hash")
+        actual_chain_id = self._quantity(self._rpc_call("eth_chainId", []), "chain ID")
+        if actual_chain_id != self.config.chain_id:
+            raise EVMRPCError(
+                f"RPC chain ID mismatch: expected {self.config.chain_id}, got {actual_chain_id}"
+            )
+        receipt = self._rpc_call("eth_getTransactionReceipt", [tx_hash])
+        if receipt is None:
+            raise EVMRPCError("transaction receipt is not available")
+        if not isinstance(receipt, dict):
+            raise EVMRPCError("RPC returned malformed transaction receipt")
+        receipt_tx = receipt.get("transactionHash")
+        if not isinstance(receipt_tx, str) or receipt_tx.lower() != tx_hash.lower():
+            raise EVMRPCError("receipt transaction hash mismatch")
+        block_number = self._quantity(receipt.get("blockNumber"), "receipt block number")
+        block_hash = receipt.get("blockHash")
+        if not isinstance(block_hash, str) or not _HASH_RE.fullmatch(block_hash):
+            raise EVMRPCError("receipt block hash is malformed")
+        finalized = self._rpc_block("finalized")
+        finalized_number = self._quantity(finalized.get("number"), "finalized block number")
+        if block_number > finalized_number:
+            raise EVMRPCError("transaction is not finalized")
+        canonical = self._rpc_block(hex(block_number))
+        canonical_hash = canonical.get("hash")
+        if not isinstance(canonical_hash, str) or canonical_hash.lower() != block_hash.lower():
+            raise EVMRPCError("transaction receipt is not in the canonical chain")
+        gas_used = self._quantity(receipt.get("gasUsed"), "receipt gas used")
+        effective_gas_price = self._quantity(
+            receipt.get("effectiveGasPrice"), "receipt effective gas price"
+        )
+        # OP Stack chains such as Base charge an additional L1 data fee.
+        l1_fee = self._quantity(receipt.get("l1Fee", "0x0"), "receipt L1 fee")
+        blob_gas_used = self._quantity(receipt.get("blobGasUsed", "0x0"), "receipt blob gas used")
+        blob_gas_price = self._quantity(receipt.get("blobGasPrice", "0x0"), "receipt blob gas price")
+        execution_fee = gas_used * effective_gas_price
+        blob_fee = blob_gas_used * blob_gas_price
+        return {
+            "tx_hash": tx_hash.lower(),
+            "block_number": block_number,
+            "block_hash": block_hash.lower(),
+            "receipt_status": self._quantity(receipt.get("status", "0x1"), "receipt status"),
+            "gas_used": gas_used,
+            "effective_gas_price_wei": effective_gas_price,
+            "execution_fee_wei": execution_fee,
+            "l1_fee_wei": l1_fee,
+            "blob_fee_wei": blob_fee,
+            "total_fee_wei": execution_fee + l1_fee + blob_fee,
+        }
+
     def is_transfer_canonical(
         self, *, network: str, token_contract: str, tx_hash: str,
         transfer_ref: str, expected_block_number: int, expected_block_hash: str,
