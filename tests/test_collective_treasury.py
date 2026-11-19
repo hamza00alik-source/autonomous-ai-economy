@@ -47,6 +47,9 @@ class CollectiveTreasuryTests(unittest.TestCase):
             ))
 
     def test_unattributed_receipt_is_held_in_suspense_then_allocated(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:abc"
+        )
         result = self.store.record_receipt(
             self.transfer(), period_id="2026-11", attribution_ref="invoice:abc"
         )
@@ -70,6 +73,9 @@ class CollectiveTreasuryTests(unittest.TestCase):
             )
 
     def test_direct_attributed_receipt_and_duplicate_protection(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:abc"
+        )
         self.store.record_receipt(
             self.transfer(), period_id="2026-11", agent_id="agent-a",
             attribution_ref="invoice:abc",
@@ -82,6 +88,9 @@ class CollectiveTreasuryTests(unittest.TestCase):
             )
 
     def test_agent_can_spend_from_shared_treasury_with_virtual_balance(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:abc"
+        )
         self.store.record_receipt(
             self.transfer(), period_id="2026-11", agent_id="agent-a",
             attribution_ref="invoice:abc",
@@ -122,6 +131,9 @@ class CollectiveTreasuryTests(unittest.TestCase):
             )
 
     def test_uncertain_broadcast_is_held_and_not_cancellable(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:abc"
+        )
         self.store.record_receipt(
             self.transfer(), period_id="2026-11", agent_id="agent-a"
         )
@@ -134,7 +146,44 @@ class CollectiveTreasuryTests(unittest.TestCase):
             self.store.cancel_reservation(reservation)
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 7000)
 
+    def test_payment_intent_must_match_agent_asset_network_and_exact_amount(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:exact"
+        )
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            self.store.record_receipt(
+                self.transfer(amount=7999, tx="0x" + "3" * 64),
+                period_id="2026-11", agent_id="agent-a",
+                attribution_ref="invoice:exact",
+            )
+        with self.assertRaisesRegex(ValueError, "different agent"):
+            self.store.record_receipt(
+                self.transfer(tx="0x" + "4" * 64), period_id="2026-11",
+                agent_id="agent-b", attribution_ref="invoice:exact",
+            )
+
+    def test_period_close_refuses_unresolved_spend(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:pending-close"
+        )
+        self.store.record_receipt(
+            self.transfer(), period_id="2026-11", agent_id="agent-a",
+            attribution_ref="invoice:pending-close",
+        )
+        self.store.reserve_spend(
+            "agent-a", "base-sepolia", "USDC", "0x" + "b" * 40, 1000,
+            idempotency_key="close-blocked", period_id="2026-11",
+        )
+        with self.assertRaisesRegex(ValueError, "unresolved"):
+            self.store.close_period(
+                "agent-a", "base-sepolia", "USDC", "2026-11",
+                reserve_bps=1000, owner_share_bps=5000,
+            )
+
     def test_profit_close_allocates_master_share_and_reserve_once(self):
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 8000, attribution_ref="invoice:abc"
+        )
         self.store.record_receipt(
             self.transfer(), period_id="2026-11", agent_id="agent-a"
         )
