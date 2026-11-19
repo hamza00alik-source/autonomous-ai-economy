@@ -127,6 +127,50 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
    $("connection").classList.toggle("offline",!connected);
  }
  let financialControls = null;
+ let ownerSigningKey = null;
+ let ownerPublicJwk = null;
+ let ownerKeyFingerprint = null;
+ let enrollmentChallenge = null;
+ let generatedKeyBackupUrl = null;
+ const stableObject = value => Array.isArray(value) ? value.map(stableObject) :
+   value && typeof value === "object" ? Object.keys(value).sort().reduce((out,key)=>{out[key]=stableObject(value[key]);return out;},{}) : value;
+ const canonical = value => JSON.stringify(stableObject(value));
+ const encodeBase64Url = bytes => {
+   let binary="";for(const byte of bytes)binary+=String.fromCharCode(byte);
+   return btoa(binary).split("=").join("").split("+").join("-").split("/").join("_");
+ };
+ async function setOwnerSigningKey(key, source) {
+   const jwk=await crypto.subtle.exportKey("jwk",key);
+   if(jwk.kty!=="OKP"||jwk.crv!=="Ed25519"||!jwk.x||!jwk.d)throw new Error("Imported key is not an Ed25519 private key.");
+   ownerSigningKey=key;
+   ownerPublicJwk={kty:"OKP",crv:"Ed25519",x:jwk.x};
+   const fingerprintBytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify({crv:"Ed25519",kty:"OKP",x:jwk.x})));
+   ownerKeyFingerprint=[...new Uint8Array(fingerprintBytes)].map(byte=>byte.toString(16).padStart(2,"0")).join("");
+   $("ownerKeyStatus").textContent="Ed25519 signing key loaded ("+source+"). Private key remains in this tab's memory.";
+   $("completeEnrollment").disabled=!enrollmentChallenge;
+ }
+ async function signCanonical(payload) {
+   if(!ownerSigningKey||!ownerPublicJwk||!ownerKeyFingerprint)throw new Error("Load or generate your owner Ed25519 key first.");
+   const bytes=new TextEncoder().encode(canonical(payload));
+   return encodeBase64Url(new Uint8Array(await crypto.subtle.sign({name:"Ed25519"},ownerSigningKey,bytes)));
+ }
+ async function importOwnerPem(file) {
+   const pem=await file.text();
+   const match=pem.match(/-----BEGIN PRIVATE KEY-----([\s\S]+?)-----END PRIVATE KEY-----/);
+   if(!match||pem.includes("ENCRYPTED PRIVATE KEY"))throw new Error("Use an unencrypted PKCS#8 Ed25519 PRIVATE KEY PEM file.");
+   const binary=atob(match[1].replace(/\s/g,""));
+   const der=Uint8Array.from(binary,char=>char.charCodeAt(0));
+   const key=await crypto.subtle.importKey("pkcs8",der,{name:"Ed25519"},true,["sign"]);
+   await setOwnerSigningKey(key,file.name);
+ }
+ function downloadGeneratedKey(pem) {
+   if(generatedKeyBackupUrl)URL.revokeObjectURL(generatedKeyBackupUrl);
+   generatedKeyBackupUrl=URL.createObjectURL(new Blob([pem],{type:"application/x-pem-file"}));
+   const link=document.createElement("a");link.href=generatedKeyBackupUrl;link.download="aae-owner-ed25519.pem";
+   link.textContent="Download private-key backup";link.className="secondary";link.style.display="inline-block";
+   const prior=$("ownerKeyBackup");if(prior)prior.remove();
+   link.id="ownerKeyBackup";$("ownerKeyStatus").appendChild(document.createElement("br"));$("ownerKeyStatus").appendChild(link);
+ }
  async function postJson(path,body) {
    const response=await fetch(path,{method:"POST",headers:{...headers(),"content-type":"application/json"},body:JSON.stringify(body),cache:"no-store"});
    const data=await response.json().catch(()=>({}));
@@ -195,6 +239,55 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
      renderSchedules([]);
    }
  }
+ $("ownerKeyFile").addEventListener("change",async event=>{
+   const file=event.target.files&&event.target.files[0];if(!file)return;
+   try{await importOwnerPem(file);}catch(error){ownerSigningKey=null;ownerPublicJwk=null;ownerKeyFingerprint=null;$("ownerKeyStatus").textContent=error.message;}
+ });
+ $("generateOwnerKey").addEventListener("click",async()=>{
+   if(!window.crypto?.subtle){$("financialMessage").textContent="Secure browser cryptography is unavailable.";return;}
+   if(ownerSigningKey&&!window.confirm("Replace the signing key currently loaded in this tab?"))return;
+   try{
+     const pair=await crypto.subtle.generateKey({name:"Ed25519"},true,["sign","verify"]);
+     await setOwnerSigningKey(pair.privateKey,"newly generated key");
+     const der=new Uint8Array(await crypto.subtle.exportKey("pkcs8",pair.privateKey));
+     let binary="";for(const byte of der)binary+=String.fromCharCode(byte);
+     const encoded=btoa(binary).match(/.{1,64}/g).join("\n");
+     downloadGeneratedKey("-----BEGIN PRIVATE KEY-----\n"+encoded+"\n-----END PRIVATE KEY-----\n");
+     $("financialMessage").textContent="New key generated. Download and securely back up the PEM file before leaving this page.";
+   }catch(error){$("financialMessage").textContent="Ed25519 key generation failed: "+error.message;}
+ });
+ $("requestEnrollmentChallenge").addEventListener("click",async()=>{
+   try{
+     enrollmentChallenge=await get("/v1/owner/financial-controls/enrollment/challenge");
+     $("enrollmentChallengeSummary").textContent="Challenge ID: "+enrollmentChallenge.challenge_id+"\nExpires: "+time(enrollmentChallenge.expires_at)+"\nOwner: "+enrollmentChallenge.owner_id+"\nOperator: "+enrollmentChallenge.operator_id;
+     $("completeEnrollment").disabled=!ownerSigningKey;
+     $("enrollmentState").textContent="Challenge ready";
+   }catch(error){$("financialMessage").textContent=error.message;}
+ });
+ $("completeEnrollment").addEventListener("click",async()=>{
+   if(!enrollmentChallenge||!ownerSigningKey)return;
+   const agentIds=$("enrollmentAgents").value.split(",").map(x=>x.trim()).filter(Boolean).sort();
+   const currencies=$("enrollmentCurrencies").value.split(",").map(x=>x.trim().toUpperCase()).filter(Boolean).sort();
+   if(!agentIds.length||new Set(agentIds).size!==agentIds.length){$("financialMessage").textContent="Enter unique local agent IDs separated by commas.";return;}
+   if(!currencies.length||new Set(currencies).size!==currencies.length){$("financialMessage").textContent="Enter unique three-letter currency codes.";return;}
+   if(!window.confirm("Enroll this public key and these agent IDs? Empty accounts will be created and emergency pause will remain active."))return;
+   $("completeEnrollment").disabled=true;
+   try{
+     const signedPayload={version:1,owner_id:enrollmentChallenge.owner_id,operator_id:enrollmentChallenge.operator_id,
+       challenge_id:enrollmentChallenge.challenge_id,challenge:enrollmentChallenge.challenge,
+       public_key_fingerprint:ownerKeyFingerprint,agent_ids:agentIds,currencies};
+     const signature=await signCanonical(signedPayload);
+     const result=await postJson("/v1/owner/financial-controls/enrollment/complete",{
+       challenge_id:enrollmentChallenge.challenge_id,public_key_jwk:ownerPublicJwk,
+       signature_base64url:signature,agent_ids:agentIds,currencies
+     });
+     $("enrollmentState").textContent="Enrolled · emergency pause active";
+     $("financialMessage").textContent=result.idempotent?"Cloud owner enrollment already completed.":"Cloud owner/operator enrollment completed. Accounts are empty and spending remains paused.";
+     enrollmentChallenge=null;
+     await loadFinancialControls();
+   }catch(error){$("financialMessage").textContent=error.message;}
+   finally{$("completeEnrollment").disabled=!ownerSigningKey||!enrollmentChallenge;}
+ });
  $("emergencyPause").addEventListener("click",async()=>{
    if(!financialControls)return;
    const paused=!financialControls.emergency_paused;
@@ -206,11 +299,18 @@ footer{color:#7f8ea5;font-size:.78rem;line-height:1.6;padding:8px 2px}
  });
  $("policyForm").addEventListener("submit",async event=>{
    event.preventDefault();
-   let envelope;
-   try{envelope=JSON.parse($("policyEnvelope").value);}catch(error){$("financialMessage").textContent="Signed policy envelope must be valid JSON.";return;}
-   if(!window.confirm("Register this locally signed financial policy? It will supersede the prior active version for that policy."))return;
-   try{await postJson("/v1/owner/financial-controls/policies",envelope);$("policyEnvelope").value="";$("financialMessage").textContent="Owner signature verified and policy registered.";await loadFinancialControls();}
-   catch(error){$("financialMessage").textContent=error.message;}
+   let policy;
+   try{policy=JSON.parse($("policyPayload").value);}catch(error){$("financialMessage").textContent="Cloud policy must be valid JSON.";return;}
+   if(!window.confirm("Sign and register this exact policy? It will supersede the previous active version for this policy."))return;
+   try{
+     const canonicalPayload=canonical(policy);
+     const signature=await signCanonical(policy);
+     const envelope={policy,canonical_payload:canonicalPayload,signature_base64url:signature,signer_key_fingerprint:ownerKeyFingerprint};
+     await postJson("/v1/owner/financial-controls/policies",envelope);
+     $("policyPayload").value="";
+     $("financialMessage").textContent="Owner signature verified and policy registered.";
+     await loadFinancialControls();
+   }catch(error){$("financialMessage").textContent=error.message;}
  });
  $("scheduleForm").addEventListener("submit",async event=>{
    event.preventDefault();
