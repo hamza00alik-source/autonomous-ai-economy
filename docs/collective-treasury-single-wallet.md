@@ -155,3 +155,37 @@ The sweep worker is a callable component, not yet automatically wired into `Coll
 `OwnerProfitPayoutWorker` is the separate on-chain payout path for the recorded owner share. It can reserve only the exact `owner_share_minor` for an already-closed agent/period, transfers it to the configured owner public address from the shared treasury, and debits `master:owner` only after the independent verifier confirms the exact finalized source, destination, amount and transaction. Its `treasury_owner_profit_payouts` records are distinct from `treasury_owner_overflow_sweeps`; an overflow sweep is not counted as net profit or as a second profit share. Both workers use a durable pre-broadcast claim and leave ambiguous outcomes `uncertain` for hash-based reconciliation rather than blind retry.
 
 The owner profit payout worker is callable but not yet wired into the supervised runtime's default cycle. The host must invoke it after the same receipt, reorg and balance gates, with the owner payout address configured. Do not enable mainnet payouts until testnet acceptance includes the owner's profit transfer and the native gas cost of that payout transaction is also independently valued and incorporated into operating-cost reporting.
+
+## Owner overflow and cap growth
+
+The initial shared USDC holding cap is $500 across the whole wallet, not per agent.
+There is no automatic growth formula yet: only the authenticated owner control
+plane can increase it through `increase_shared_wallet_cap()`. Each increase records
+the old cap, new cap, owner principal and reason in the policy audit table. Agents
+and model prompts cannot raise the cap. A future earnings-based growth formula
+must be explicitly selected and implemented as an owner policy; the current
+default does not guess one.
+
+When a verified incoming transfer would push pooled holdings above the cap, the
+receipt is credited to `treasury:unallocated` rather than an agent. The owner
+overflow reservation can move only the unallocated excess; it is not a substitute
+for the separate 50% net-profit allocation. The owner destination is configured
+by the authenticated owner control plane and is stored as a public address only.
+If it is missing, the sweep cannot be reserved and the accounting runtime must
+fail closed rather than spend.
+
+`src/economy/owner_overflow_worker.py` implements a bounded, idempotent sweep
+worker. It claims a reservation before provider I/O, submits the exact amount to
+the captured owner destination, persists the returned transaction hash, and
+settles only after independent finalized transfer verification confirms source,
+destination, asset and amount. Ambiguous outcomes remain uncertain and are
+reconciled without rebroadcast. The worker's `run_cycle()` can be supplied as
+the runtime's `owner_overflow_sweep_cycle` callback. The runtime performs a
+fresh on-chain balance reconciliation after owner transfers and before ordinary
+agent spending. Do not wire a worker into a production runtime until its signer,
+independent verifier, owner destination and chain policy have been validated on
+Base Sepolia.
+
+A public EVM address cannot reject unsolicited deposits. The cap is therefore a
+target holding limit: a deposit can cause a temporary overshoot until the owner
+sweep is finalized. Native ETH gas reserves are separate from the USDC cap.
