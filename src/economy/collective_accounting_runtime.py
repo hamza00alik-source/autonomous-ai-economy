@@ -189,6 +189,7 @@ class CollectiveTreasuryAccountingRuntime:
                 "spending": None,
             }
         owner_overflow = None
+        owner_transfer_ran = False
         capacity = self.receipt_monitor.store.shared_wallet_capacity(
             self.network, self.asset,
         )
@@ -201,6 +202,7 @@ class CollectiveTreasuryAccountingRuntime:
                     "owner_overflow": None, "owner_profit": None, "spending": None,
                 }
             owner_overflow = await self.owner_overflow_sweep_cycle()
+            owner_transfer_ran = True
             capacity = self.receipt_monitor.store.shared_wallet_capacity(
                 self.network, self.asset,
             )
@@ -215,6 +217,7 @@ class CollectiveTreasuryAccountingRuntime:
         owner_profit = None
         if self.owner_profit_payout_cycle is not None:
             owner_profit = await self.owner_profit_payout_cycle()
+            owner_transfer_ran = True
             if owner_profit.get("status") in {"uncertain", "pending", "blocked"}:
                 return {
                     "status": "payouts_blocked",
@@ -225,16 +228,17 @@ class CollectiveTreasuryAccountingRuntime:
                 }
 
         # Owner transfers change the physical pool. Re-read on-chain balances
-        # before any agent spend is allowed to proceed in this same cycle.
-        balances = self.balance_check()
-        if not isinstance(balances, dict) or balances.get("fully_reconciled") is not True:
-            return {
-                "status": "payouts_blocked",
-                "reason": "treasury balance reconciliation after owner payouts is not fully healthy",
-                "receipts": receipts, "reorgs": reorgs, "balances": balances,
-                "owner_overflow": owner_overflow, "owner_profit": owner_profit,
-                "spending": None,
-            }
+        # before any agent spend is allowed to proceed in the same cycle.
+        if owner_transfer_ran:
+            balances = self.balance_check()
+            if not isinstance(balances, dict) or balances.get("fully_reconciled") is not True:
+                return {
+                    "status": "payouts_blocked",
+                    "reason": "treasury balance reconciliation after owner payouts is not fully healthy",
+                    "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                    "owner_overflow": owner_overflow, "owner_profit": owner_profit,
+                    "spending": None,
+                }
         capacity = self.receipt_monitor.store.shared_wallet_capacity(
             self.network, self.asset,
         )
