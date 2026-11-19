@@ -327,6 +327,7 @@ async function processOneApprovedInternalProduct(env) {
 }
 
 async function internalProductJobStatus(env, jobId) {
+  if (!env.AAE_OWNER_ID) return json({error:"cloud owner identity is not configured"},503);
   const row=await env.DB.prepare(
     "SELECT job_id,status,artifact_sha256,artifact_size_bytes,error_code,created_at,updated_at FROM internal_execution_jobs WHERE job_id=? AND owner_id=?"
   ).bind(jobId,env.AAE_OWNER_ID).first();
