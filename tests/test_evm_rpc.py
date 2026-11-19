@@ -56,6 +56,8 @@ class FakeRPC:
             return self.logs
         if method == "eth_call":
             return "0x" + format(123456, "064x")
+        if method == "eth_getBalance":
+            return "0x" + format(987654321, "x")
         raise AssertionError(method)
 
 
@@ -95,6 +97,8 @@ class EVMRPCSourceTests(unittest.TestCase):
         call = next(params[0] for method, params in rpc.calls if method == "eth_call")
         self.assertEqual(call["to"], TOKEN)
         self.assertEqual(call["data"], "0x70a08231" + ("0" * 24) + AGENT[2:].lower())
+        self.assertEqual(next(params[1] for method, params in rpc.calls if method == "eth_call"), "finalized")
+        self.assertEqual(source.native_balance(AGENT), 987654321)
 
     def test_token_balance_rejects_malformed_rpc_result(self):
         class BadBalanceRPC(FakeRPC):
