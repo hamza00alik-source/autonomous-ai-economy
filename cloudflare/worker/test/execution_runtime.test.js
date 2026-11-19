@@ -367,6 +367,7 @@ test("owner execution operations returns bounded read-only queue, lease and audi
     DB: {
       prepare(sql) {
         return {
+          async all() { return this.bind().all(); },
           bind(...values) {
             queries.push({ sql, values });
             return {
