@@ -129,6 +129,31 @@ class EVMRPCSourceTests(unittest.TestCase):
         )
         self.assertFalse(page.transfers[0].canonical)
 
+
+    def test_preserves_registered_checksum_address(self):
+        checksummed = "0xAa" + "a" * 38
+        rpc = FakeRPC([rpc_log(topics=[TRANSFER_TOPIC, topic(CUSTOMER), topic(checksummed)])])
+        source = EVMJSONRPCSource(self.config, rpc_call=rpc)
+        page = source.fetch_transfers(
+            network="evm-testnet", token_contract=TOKEN,
+            addresses=(checksummed,), cursor=None,
+        )
+        self.assertEqual(page.transfers[0].destination, checksummed)
+
+    def test_finalized_tag_unavailable_fails_closed(self):
+        class NoFinalizedRPC(FakeRPC):
+            def __call__(self, method, params):
+                if method == "eth_getBlockByNumber" and params[0] == "finalized":
+                    raise EVMRPCError("finalized tag unsupported")
+                return super().__call__(method, params)
+
+        source = EVMJSONRPCSource(self.config, rpc_call=NoFinalizedRPC())
+        with self.assertRaisesRegex(EVMRPCError, "finalized tag unsupported"):
+            source.fetch_transfers(
+                network="evm-testnet", token_contract=TOKEN,
+                addresses=(AGENT,), cursor=None,
+            )
+
     def test_rejects_requested_network_or_token_mismatch(self):
         source = EVMJSONRPCSource(self.config, rpc_call=FakeRPC())
         with self.assertRaisesRegex(ValueError, "network"):
