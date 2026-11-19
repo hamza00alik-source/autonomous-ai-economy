@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { webcrypto } from "node:crypto";
+import { webcrypto, createHmac } from "node:crypto";
 import worker from "../src/index.js";
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
@@ -79,7 +79,14 @@ function makeEnv() {
     DB,
     EXECUTION_RUNTIME: {
       async fetch(request) {
-        const payload = await request.json();
+        const raw = await request.text();
+        const timestamp = request.headers.get("x-aae-execution-timestamp");
+        const signature = request.headers.get("x-aae-execution-signature");
+        assert.ok(Math.abs(Date.now() / 1000 - Number(timestamp)) <= 300);
+        const expected = createHmac("sha256", env.AAE_EXECUTION_BRIDGE_SECRET)
+          .update(timestamp + "\\n" + raw).digest("hex");
+        assert.equal(signature, expected);
+        const payload = JSON.parse(raw);
         return new Response(bytes, {
           status: 200,
           headers: {
