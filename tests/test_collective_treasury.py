@@ -215,6 +215,46 @@ class CollectiveTreasuryTests(unittest.TestCase):
 
 
 class CDPAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_transfer_usdc_uses_policy_bound_account_and_atomic_amount(self):
+        class Account:
+            address = "0x" + "a" * 40
+            id = "cdp-id"
+            def __init__(self):
+                self.transfer_args = None
+            async def transfer(self, **kwargs):
+                self.transfer_args = kwargs
+                return "0x" + "2" * 64
+
+        class EVM:
+            def __init__(self):
+                self.account = Account()
+            async def get_or_create_account(self, **kwargs):
+                return self.account
+            async def update_account(self, **kwargs):
+                return self.account
+
+        class Client:
+            def __init__(self):
+                self.evm = EVM()
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                return None
+
+        client = Client()
+        adapter = CDPServerTreasuryWallet(
+            account_policy_id="policy-123", client_factory=lambda: client
+        )
+        tx_hash = await adapter.transfer_usdc(
+            destination="0x" + "b" * 40, amount_minor=1_250_000,
+            network="base-sepolia",
+        )
+        self.assertEqual(tx_hash, "0x" + "2" * 64)
+        self.assertEqual(client.evm.account.transfer_args, {
+            "to": "0x" + "b" * 40, "amount": 1_250_000,
+            "token": "usdc", "network": "base-sepolia",
+        })
+
     async def test_ensure_wallet_uses_one_named_policy_bound_server_account(self):
         class Account:
             address = "0x" + "a" * 40
