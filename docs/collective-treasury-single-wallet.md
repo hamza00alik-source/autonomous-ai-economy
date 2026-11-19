@@ -28,12 +28,12 @@ The current provider adapter is Coinbase Developer Platform (CDP) Server Wallets
 
 An ERC-20 USDC transfer to one common address does not contain a free-form agent identifier. The destination alone cannot tell AAE whether Agent A, Agent B or another agent earned the money.
 
-AAE therefore records incoming transfers in one of two ways:
+AAE requires a payment intent before it can credit an agent. `create_payment_intent()` records the intended agent, network, asset, exact amount and unique attribution reference. A receipt can be credited directly only when it matches a still-pending intent exactly. A reference cannot be reused, assigned to another agent, or used for a different amount.
 
-1. The trusted payment integration supplies a verified payment-intent attribution and the chain monitor verifies the exact settled transfer; AAE credits that agent's virtual account.
-2. If no trusted match exists, AAE credits `treasury:unallocated`. The Accounting Agent may assign it only after matching the stored attribution reference to a verified payment intent. An unknown deposit is never guessed or silently credited.
+1. A trusted payment integration creates the intent, correlates it to the payer/request, and supplies the verified attribution reference alongside independently verified chain evidence. AAE checks the intent and credits the named agent.
+2. If a verified transfer arrives without an intent reference, AAE credits `treasury:unallocated`. It can only be allocated later if its stored reference matches a pending intent for that exact agent, network, asset and amount. An unknown deposit is never guessed or silently credited.
 
-For machine-to-machine service payments, integrate a payment-intent layer (for example x402) that binds the request, payer, intended agent, amount, asset and destination before settlement. The protocol/payment adapter must independently verify the settled transfer before it supplies attribution to this ledger.
+Important trust boundary: the on-chain ERC-20 Transfer event itself does not contain AAE's internal invoice reference. The payment-intent adapter must securely correlate the intent to the exact transaction (for example through a verified x402/payment-facilitator result or a payer-and-amount match). A caller-supplied string without that trusted correlation is not proof of ownership.
 
 ## Provisioning prerequisites
 
@@ -65,11 +65,12 @@ The account is EVM-address based and may be used on Base Sepolia or Base. The lo
 - All customer/agent receipts go to the same treasury address.
 - The Accounting Agent owns attribution and virtual ledger updates; it does not own signing keys.
 - An agent may request a spend without asking the owner for every routine transaction. AAE checks its virtual balance, budget, destination allowlist and pause status. The external CDP account policy must independently constrain the signing account.
-- A spend is not an expense until the chain verifier confirms the exact transaction and finality. Broadcast timeouts are ambiguous and must be reconciled before any retry.
+- A spend is not an expense until the chain verifier confirms the exact transaction and finality. The executor durably holds the reservation before submission, persists a returned transaction hash, and exposes a `reconcile()` path that verifies an existing transaction without broadcasting again. If a provider times out before returning a hash, the operator must discover the transaction from CDP/chain history before reconciliation; never blindly retry.
+- Period close is blocked while the agent has unresolved reserved, broadcast or uncertain spends.
 - The treasury's on-chain balance is the actual pooled asset balance. Virtual agent balances are internal accounting claims against that pool, not separate segregated assets or legal ownership rights.
 - Never allow the sum of virtual liabilities, reserves and pending obligations to exceed reconciled treasury assets. Add a periodic full-balance reconciliation and alerting before production operation.
 - A common wallet creates commingling and concentration risk. Use strict policies, independent transaction monitoring, a master emergency pause, protected database backups, dual control for policy/address changes, and a documented recovery process.
-- The first implementation provides the core ledger, CDP wallet provisioning/transfer adapter, and callable `CollectiveTreasuryPaymentExecutor`. The executor reserves/holds an agent spend before contacting CDP, then settles only after an injected verifier confirms the exact on-chain transfer. An ambiguous provider response remains held for reconciliation and is never blindly retried. It does **not** yet wire the live chain monitor's incoming transfer attribution to payment intents, create customer invoices, run a continuous accounting agent, schedule the executor as an always-on worker, or perform an always-on balance reconciliation daemon.
+- The implementation provides the core ledger, exact payment-intent matching, CDP wallet provisioning/transfer adapter, and callable `CollectiveTreasuryPaymentExecutor`. The executor reserves/holds an agent spend before contacting CDP, persists known transaction hashes, and settles only after an injected verifier confirms the exact on-chain transfer. Its reconciliation path verifies an existing transaction without resubmitting. An ambiguous provider response remains held and is never blindly retried. It does **not** yet connect the live chain monitor/payment-intent adapter end to end, create customer invoices, run a continuous accounting agent, schedule the executor as an always-on worker, or perform an always-on treasury balance reconciliation daemon.
 
 ## Important provider limitation
 
