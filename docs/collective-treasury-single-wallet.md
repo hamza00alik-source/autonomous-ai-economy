@@ -20,6 +20,7 @@ The current provider adapter is Coinbase Developer Platform (CDP) Server Wallets
   - Spend reservation before signing; exact source, destination, asset and amount must match independently verified settlement.
   - Ambiguous broadcast outcomes are held as `uncertain`; they cannot be cancelled or blindly retried.
   - Period close calculates net realized profit, reserves and owner share, then moves virtual ledger balances. It refuses to close while any settled agent spend lacks a finalized gas receipt and a timestamped USDC valuation.
+- `src/economy/agent_wallet.py` exposes an identity-bound `AgentTreasuryWallet` capability for each agent: `wallet()` returns the actual shared public address and capped balance; `prepare_receive()` creates an exact amount + payer-bound receive instruction; `request_spend()` reserves a policy-compliant transfer for the treasury worker. The facade never exposes signer/key material or lets the agent choose another agent's ID.
 - `CDPServerTreasuryWallet`
   - Reuses one stable named CDP EVM account, binds the required restrictive CDP account policy, and returns its public address.
   - Sends USDC from the shared account using CDP's server-managed signer.
