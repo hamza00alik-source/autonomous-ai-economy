@@ -136,5 +136,54 @@ class OwnerOverflowSweepTests(unittest.TestCase):
         self.assertEqual(replay["status"], "settled")
 
 
+    def test_owner_profit_share_is_a_separate_verified_real_payout(self):
+        from economy.owner_overflow_sweep import OwnerProfitPayoutWorker
+
+        self.store.configure_owner_payout_address(
+            "base-sepolia", "USDC", OWNER,
+            owner_principal_id="authenticated-owner-1",
+            reason="owner-controlled profit destination",
+        )
+        self.store.create_payment_intent(
+            "agent-a", "base-sepolia", "USDC", 100_000_000,
+            attribution_ref="invoice:profit",
+        )
+        self.store.record_receipt(
+            self.receipt("7", 7, 100_000_000), period_id="2026-11",
+            agent_id="agent-a", attribution_ref="invoice:profit",
+        )
+        close = self.store.close_period(
+            "agent-a", "base-sepolia", "USDC", "2026-11",
+            reserve_bps=0,
+        )
+        self.assertEqual(close["owner_share_minor"], 50_000_000)
+
+        class Signer:
+            async def transfer_usdc(self, **kwargs):
+                return "0x" + "8" * 64
+
+        class Verifier:
+            async def verify_transfer(self, **kwargs):
+                return VerifiedTransfer(
+                    kwargs["network"], kwargs["asset"], kwargs["tx_hash"], "log:8",
+                    kwargs["destination_address"], kwargs["amount_minor"], 12, True,
+                    source=kwargs["source_address"],
+                )
+
+        worker = OwnerProfitPayoutWorker(self.store, Signer(), Verifier())
+        result = asyncio.run(worker.run_once(
+            agent_id="agent-a", network="base-sepolia", asset="USDC",
+            period_id="2026-11", idempotency_key="owner-profit:agent-a:2026-11",
+        ))
+        self.assertEqual(result["status"], "settled")
+        self.assertEqual(result["amount_minor"], 50_000_000)
+        self.assertEqual(result["accounting_reason"], "owner_net_profit_share")
+        self.assertEqual(self.store.balance("master:owner", "base-sepolia", "USDC"), 0)
+        self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 50_000_000)
+        self.assertTrue(self.store.reconciliation_snapshot(
+            "base-sepolia", "USDC"
+        )["balanced"])
+
+
 if __name__ == "__main__":
     unittest.main()
