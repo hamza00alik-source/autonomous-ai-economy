@@ -1,0 +1,9 @@
+[project]
+name = "aae-cloud-execution-runtime"
+version = "0.1.0"
+description = "Private, allowlisted Cloudflare Python Worker for AAE product artifacts"
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = ["workers-py", "workers-runtime-sdk"]
