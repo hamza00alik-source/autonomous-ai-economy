@@ -36,9 +36,13 @@ class QuorumTreasuryReceiptSource:
         self.sources = tuple(sources)
         if len(self.sources) < 2:
             raise ValueError("at least two independent receipt sources are required")
-        self.quorum = quorum if quorum is not None else (len(self.sources) // 2 + 1)
-        if isinstance(self.quorum, bool) or not isinstance(self.quorum, int) or not 1 <= self.quorum <= len(self.sources):
-            raise ValueError("quorum must be between one and source count")
+        if len({id(source) for source in self.sources}) != len(self.sources):
+            raise ValueError("the same receipt source cannot count as multiple providers")
+        minimum_majority = len(self.sources) // 2 + 1
+        self.quorum = quorum if quorum is not None else minimum_majority
+        if (isinstance(self.quorum, bool) or not isinstance(self.quorum, int)
+                or not minimum_majority <= self.quorum <= len(self.sources)):
+            raise ValueError("quorum must be a strict majority of independent sources")
 
     @staticmethod
     def _fingerprint(page: TransferPage) -> tuple:
