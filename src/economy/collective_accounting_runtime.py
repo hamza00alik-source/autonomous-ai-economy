@@ -11,7 +11,7 @@ import asyncio
 import logging
 from contextlib import closing
 from datetime import datetime, timezone
-from typing import Callable, Protocol
+from typing import Awaitable, Callable, Protocol
 
 from .collective_treasury_monitor import CollectiveTreasuryReceiptMonitor
 from .treasury_worker import CollectiveTreasuryWorker
@@ -150,10 +150,16 @@ class CollectiveTreasuryAccountingRuntime:
                  reorg_guard: CollectiveTreasuryReorgGuard,
                  balance_check: Callable[[], dict],
                  worker: CollectiveTreasuryWorker, *,
-                 network: str, asset: str) -> None:
+                 network: str, asset: str,
+                 owner_overflow_sweep_cycle: Callable[[], Awaitable[dict]] | None = None,
+                 owner_profit_payout_cycle: Callable[[], Awaitable[dict]] | None = None) -> None:
         self.receipt_monitor = receipt_monitor
         self.reorg_guard, self.balance_check, self.worker = reorg_guard, balance_check, worker
         self.network, self.asset = network, asset.upper()
+        # These callbacks must close over the authenticated owner-configured
+        # payout address and the exact current period/idempotency keys.
+        self.owner_overflow_sweep_cycle = owner_overflow_sweep_cycle
+        self.owner_profit_payout_cycle = owner_profit_payout_cycle
 
     async def run_once(self, *, period_id: str, spend_limit: int = 25) -> dict:
         receipts = self.receipt_monitor.poll_once(
@@ -182,10 +188,69 @@ class CollectiveTreasuryAccountingRuntime:
                 "receipts": receipts, "reorgs": reorgs, "balances": balances,
                 "spending": None,
             }
+        owner_overflow = None
+        capacity = self.receipt_monitor.store.shared_wallet_capacity(
+            self.network, self.asset,
+        )
+        if capacity["over_cap"]:
+            if self.owner_overflow_sweep_cycle is None:
+                return {
+                    "status": "payouts_blocked",
+                    "reason": "shared treasury is above its configured holding cap and no owner overflow worker is wired",
+                    "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                    "owner_overflow": None, "owner_profit": None, "spending": None,
+                }
+            owner_overflow = await self.owner_overflow_sweep_cycle()
+            capacity = self.receipt_monitor.store.shared_wallet_capacity(
+                self.network, self.asset,
+            )
+            if capacity["over_cap"]:
+                return {
+                    "status": "payouts_blocked",
+                    "reason": "owner overflow sweep did not bring the shared treasury within its configured cap",
+                    "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                    "owner_overflow": owner_overflow, "owner_profit": None, "spending": None,
+                }
+
+        owner_profit = None
+        if self.owner_profit_payout_cycle is not None:
+            owner_profit = await self.owner_profit_payout_cycle()
+            if owner_profit.get("status") in {"uncertain", "pending", "blocked"}:
+                return {
+                    "status": "payouts_blocked",
+                    "reason": "owner profit payout requires reconciliation before further spending",
+                    "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                    "owner_overflow": owner_overflow, "owner_profit": owner_profit,
+                    "spending": None,
+                }
+
+        # Owner transfers change the physical pool. Re-read on-chain balances
+        # before any agent spend is allowed to proceed in this same cycle.
+        balances = self.balance_check()
+        if not isinstance(balances, dict) or balances.get("fully_reconciled") is not True:
+            return {
+                "status": "payouts_blocked",
+                "reason": "treasury balance reconciliation after owner payouts is not fully healthy",
+                "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                "owner_overflow": owner_overflow, "owner_profit": owner_profit,
+                "spending": None,
+            }
+        capacity = self.receipt_monitor.store.shared_wallet_capacity(
+            self.network, self.asset,
+        )
+        if capacity["over_cap"]:
+            return {
+                "status": "payouts_blocked",
+                "reason": "shared treasury remains above its configured holding cap",
+                "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                "owner_overflow": owner_overflow, "owner_profit": owner_profit,
+                "spending": None,
+            }
         spending = await self.worker.run_once(limit=spend_limit)
         return {
             "status": "completed", "receipts": receipts, "reorgs": reorgs,
-            "balances": balances, "spending": spending,
+            "balances": balances, "owner_overflow": owner_overflow,
+            "owner_profit": owner_profit, "spending": spending,
         }
 
     async def run_forever(self, *, interval_seconds: float = 30.0,
