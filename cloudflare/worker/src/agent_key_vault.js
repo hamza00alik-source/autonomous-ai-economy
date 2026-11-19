@@ -39,13 +39,21 @@ export class AgentKeyVault {
   async ensureIdentity(agentId) {
     if (!ID.test(agentId || "")) throw new Error("valid agent ID is required");
 
+    const existing = await this.ctx.storage.get("agent-api-identity");
+    if (existing) {
+      if (existing.agentId !== agentId) {
+        throw new Error("vault is already bound to another agent");
+      }
+      return publicIdentity(existing);
+    }
+
     return this.ctx.blockConcurrencyWhile(async () => {
-      const existing = await this.ctx.storage.get("agent-api-identity");
-      if (existing) {
-        if (existing.agentId !== agentId) {
+      const lockedExisting = await this.ctx.storage.get("agent-api-identity");
+      if (lockedExisting) {
+        if (lockedExisting.agentId !== agentId) {
           throw new Error("vault is already bound to another agent");
         }
-        return publicIdentity(existing);
+        return publicIdentity(lockedExisting);
       }
 
       const pair = await crypto.subtle.generateKey(
