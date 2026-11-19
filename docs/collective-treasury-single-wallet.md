@@ -106,6 +106,21 @@ The CDP transfer SDK call does not expose an AAE idempotency key in this adapter
 - CDP SDK source: https://github.com/coinbase/cdp-sdk
 
 
+## Continuous Accounting Agent runtime and treasury reorg guard
+
+`src/economy/collective_accounting_runtime.py` adds the guarded accounting cycle. It performs, in order:
+
+1. Poll the incoming treasury receipt monitor.
+2. Recheck credited receipts against canonical chain history using the independent-provider `QuorumEVMVerifier`.
+3. Run the injected on-chain balance reconciliation callback.
+4. Execute a bounded batch of reserved agent payments only if balance reconciliation reports `fully_reconciled: true` and there are no open reorganization alerts.
+
+The runtime exposes `run_once()` for a scheduler and `run_forever()` for a supervised service process. The default interval is 30 seconds. It logs failed cycles and waits until the next interval; it does not bypass a failed safety gate. Use a process supervisor (restart policy, health monitoring, log collection and restricted secret injection) and configure separate RPC operators for the receipt quorum and canonicality quorum. Distinct URLs alone do not prove independent infrastructure.
+
+A reorganization mismatch creates a durable `treasury_reorg_alerts` incident and disables every agent spend policy for the affected network/asset. The ledger is **not** automatically reversed: that would risk corrupting closed accounting periods or double-debiting funds. An operator must investigate the canonical chain and ledger, record a resolution note using `resolve_reorg_alert()`, then explicitly resume agents one at a time using `resume_agent_after_review()`. Resolving an alert does not itself resume spending. Old monitor records that predate stored block heights are treated as unverifiable and trigger a freeze requiring review.
+
+The runtime is a reusable orchestration component, not yet a turnkey hosted daemon: the deployment host must construct the RPC quorum sources, CDP signer, transfer verifier, gas-fee valuation service and multi-RPC balance-check callback, then start `run_forever()`. No live credentials or provider configuration are committed to this repository. Testnet end-to-end wiring and CI verification remain required before enabling real funds.
+
 ## Incoming collective treasury receipt monitor
 
 `CollectiveTreasuryReceiptMonitor` in `src/economy/collective_treasury_monitor.py` scans verified ERC-20 transfer observations addressed to the one registered treasury wallet and records them in the collective pool ledger. The monitor is injected with a `TreasuryReceiptSource`; use a source that independently validates chain ID, token contract, canonical block identity and finality. `QuorumTreasuryReceiptSource` requires a matching page and cursor from a majority of at least two independently operated sources and fails closed on disagreement. Wrap separate `EVMJSONRPCSource` instances with it before enabling automatic attribution. This strict page quorum can stall if provider finalized heights differ; align their scan configuration and investigate disagreement rather than lowering quorum to bypass it.
