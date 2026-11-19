@@ -80,8 +80,9 @@ export async function completeCloudOwnerEnrollment(db,{
   ).bind(challengeId).first();
   if(!challengeRow||challengeRow.owner_id!==ownerId||challengeRow.operator_id!==operatorId)
     return {ok:false,reason:"enrollment_challenge_not_found"};
-  if(challengeRow.consumed_at||Date.parse(challengeRow.expires_at)<=Date.parse(now))
-    return {ok:false,reason:"enrollment_challenge_expired_or_consumed"};
+  const challengeConsumed=Boolean(challengeRow.consumed_at);
+  const challengeExpired=Date.parse(challengeRow.expires_at)<=Date.parse(now);
+  if(challengeExpired&&!challengeConsumed) return {ok:false,reason:"enrollment_challenge_expired_or_consumed"};
   const signedPayload={
     version:1,owner_id:ownerId,operator_id:operatorId,challenge_id:challengeId,
     challenge:challengeRow.challenge,public_key_fingerprint:fingerprint,
@@ -103,6 +104,7 @@ export async function completeCloudOwnerEnrollment(db,{
   if(prior) return prior.challenge_id===challengeId&&prior.key_fingerprint===fingerprint&&prior.payload_hash===payloadHash
     ? {ok:true,idempotent:true,owner_id:ownerId,operator_id:operatorId,agent_ids:agentIds}
     : {ok:false,reason:"owner_or_operator_already_enrolled"};
+  if(challengeConsumed) return {ok:false,reason:"enrollment_challenge_expired_or_consumed"};
   const occupied=await db.prepare("SELECT participant_id,participant_type FROM financial_participants WHERE participant_id IN ("+
     [ownerId,operatorId,...agentIds].map(()=>"?").join(",")+")")
     .bind(ownerId,operatorId,...agentIds).all();
