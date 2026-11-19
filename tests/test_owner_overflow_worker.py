@@ -121,5 +121,28 @@ class OwnerOverflowWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(signer.calls, 1)
 
 
+    async def test_runtime_callback_supplies_fresh_period_id_each_cycle(self):
+        tx_hash = "0x" + "6" * 64
+        transfer = VerifiedTransfer(
+            "base-sepolia", "USDC", tx_hash, "log:callback",
+            self.owner_address, 100_000_000, 17, True,
+            source=self.wallet_address,
+        )
+        signer = FakeSigner(tx_hash)
+        worker = OwnerOverflowSweepWorker(
+            self.store, signer, FakeVerifier(transfer=transfer),
+        )
+        periods = iter(["2026-11", "2026-12"])
+        callback = worker.runtime_callback(
+            network="base-sepolia", period_id_provider=lambda: next(periods),
+        )
+        first = await callback()
+        self.assertEqual(first["status"], "settled")
+        self.assertEqual(signer.calls, 1)
+        self.assertEqual(self.store.get_owner_overflow_sweep(
+            "missing-sweep"
+        ), None)
+
+
 if __name__ == "__main__":
     unittest.main()
