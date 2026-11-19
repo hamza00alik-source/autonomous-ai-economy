@@ -1,6 +1,6 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
-import { getCloudFinancialControls, setCloudEmergencyPause, createCloudExpenseSchedule, setCloudExpenseScheduleStatus, runDueCloudExpenseSchedules, registerCloudSignedFinancialPolicy } from "./financial_controls.js";
+import { getCloudFinancialControls, setCloudEmergencyPause, createCloudExpenseSchedule, setCloudExpenseScheduleStatus, runDueCloudExpenseSchedules, registerCloudSignedFinancialPolicy, createCloudOwnerEnrollmentChallenge, completeCloudOwnerEnrollment } from "./financial_controls.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -800,6 +800,36 @@ export default {
       if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned; financial controls remain unavailable" }, 503);
       const result = await getCloudFinancialControls(env.DB, env.AAE_OWNER_ID);
       return result.ok ? json(result) : json({ error: result.reason }, 400);
+    }
+    if (url.pathname === "/v1/owner/financial-controls/enrollment/challenge" && request.method === "GET") {
+      if (!env.AAE_OWNER_ID || !env.AAE_OPERATOR_ID) return json({ error: "AAE_OWNER_ID and AAE_OPERATOR_ID must be provisioned out of band" }, 503);
+      const result = await createCloudOwnerEnrollmentChallenge(env.DB, {
+        ownerId: env.AAE_OWNER_ID, operatorId: env.AAE_OPERATOR_ID
+      });
+      return result.ok ? json(result) : json({ error: result.reason }, 409);
+    }
+    if (url.pathname === "/v1/owner/financial-controls/enrollment/complete" && request.method === "POST") {
+      if (!env.AAE_OWNER_ID || !env.AAE_OPERATOR_ID) return json({ error: "AAE_OWNER_ID and AAE_OPERATOR_ID must be provisioned out of band" }, 503);
+      if (request.headers.get("origin") !== new URL(request.url).origin ||
+          !(request.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) {
+        return json({ error: "same-origin application/json request required" }, 403);
+      }
+      const raw = await request.text();
+      if (new TextEncoder().encode(raw).length > 12000) return json({ error: "request body too large" }, 413);
+      let body;
+      try { body = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
+      const allowed = ["challenge_id","public_key_jwk","signature_base64url","agent_ids","currencies"];
+      if (!body || typeof body !== "object" || Array.isArray(body) ||
+          Object.keys(body).length !== allowed.length || Object.keys(body).some(key => !allowed.includes(key))) {
+        return json({ error: "owner enrollment envelope schema mismatch" }, 400);
+      }
+      const result = await completeCloudOwnerEnrollment(env.DB, {
+        ownerId: env.AAE_OWNER_ID, operatorId: env.AAE_OPERATOR_ID,
+        challengeId: body.challenge_id, publicKeyJwk: body.public_key_jwk,
+        signatureBase64Url: body.signature_base64url, agentIds: body.agent_ids,
+        currencies: body.currencies
+      });
+      return result.ok ? json(result, result.idempotent ? 200 : 201) : json({ error: result.reason }, 409);
     }
     if (url.pathname === "/v1/owner/financial-controls/policies" && request.method === "POST") {
       if (!env.AAE_OWNER_ID) return json({ error: "cloud owner identity is not provisioned" }, 503);
