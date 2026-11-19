@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -212,12 +213,18 @@ def _unpause(db):
     )
 
 
-def _reservation(db, reservation_id="reservation-01", amount=1000, destination="provider:exact", created_at="2026-11-19T00:00:00.000Z"):
+def _reservation(db, reservation_id="reservation-01", amount=1000, destination="provider:exact", created_at=None):
+    if created_at is None:
+        created = datetime.now(timezone.utc)
+    else:
+        created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    created_at = created.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    expires_at = (created + timedelta(hours=1)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     db.execute(
         "INSERT INTO financial_budget_reservations "
         "(reservation_id,owner_id,agent_id,policy_id,policy_version,idempotency_key,destination,currency,amount_minor,status,expires_at,created_at,updated_at) "
-        "VALUES (?, 'owner-01','agent-01','policy-01',1,?,?, 'USD',?,'reserved','2026-11-19T01:00:00.000Z',?,?)",
-        (reservation_id, "idem-" + reservation_id, destination, amount, created_at, created_at),
+        "VALUES (?, 'owner-01','agent-01','policy-01',1,?,?, 'USD',?,'reserved',?,?,?)",
+        (reservation_id, "idem-" + reservation_id, destination, amount, expires_at, created_at, created_at),
     )
 
 
