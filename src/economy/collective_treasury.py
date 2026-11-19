@@ -41,6 +41,8 @@ class CollectiveTreasuryStore:
                     provider TEXT NOT NULL,
                     provider_wallet_id TEXT NOT NULL,
                     address TEXT NOT NULL,
+                    max_balance_minor INTEGER NOT NULL DEFAULT 500000000
+                        CHECK(max_balance_minor > 0),
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY(network, asset),
                     UNIQUE(network, asset, address)
@@ -158,15 +160,17 @@ class CollectiveTreasuryStore:
                     UNIQUE(agent_id, network, asset, period_id)
                 );
             """)
-            # Upgrade databases created before the per-agent USDC wallet cap.
-            agent_columns = {
-                row["name"] for row in db.execute("PRAGMA table_info(treasury_agents)")
+            # Upgrade existing treasury registrations to a single shared-wallet cap.
+            wallet_columns = {
+                row["name"] for row in db.execute("PRAGMA table_info(treasury_wallets)")
             }
-            if "max_balance_minor" not in agent_columns:
+            if "max_balance_minor" not in wallet_columns:
                 db.execute(
-                    "ALTER TABLE treasury_agents ADD COLUMN max_balance_minor "
+                    "ALTER TABLE treasury_wallets ADD COLUMN max_balance_minor "
                     "INTEGER NOT NULL DEFAULT 500000000 CHECK(max_balance_minor > 0)"
                 )
+            # Legacy per-agent cap column is retained for SQLite compatibility only.
+            # New logic never reads it; earning capacity is not limited per agent.
             # Upgrade databases created during the first gas-accounting iteration.
             gas_columns = {
                 row["name"] for row in db.execute("PRAGMA table_info(treasury_gas_costs)")
@@ -207,7 +211,9 @@ class CollectiveTreasuryStore:
                     raise ValueError("a different collective treasury wallet is already registered")
                 return
             db.execute(
-                "INSERT INTO treasury_wallets(network,asset,provider,provider_wallet_id,address) VALUES(?,?,?,?,?)",
+                """INSERT INTO treasury_wallets
+                   (network,asset,provider,provider_wallet_id,address,max_balance_minor)
+                   VALUES(?,?,?,?,?,500000000)""",
                 (network, asset, provider, wallet_id, address),
             )
 
@@ -238,13 +244,11 @@ class CollectiveTreasuryStore:
                                             for v in allowed_destinations):
             raise ValueError("explicit destination allowlist is required")
         with closing(self._connect()) as db:
-            if asset != "USDC":
-                raise ValueError("the USD 500 agent wallet cap currently requires USDC (6 decimals)")
             db.execute(
                 """INSERT INTO treasury_agents
                    (agent_id,network,asset,daily_limit_minor,per_tx_limit_minor,
-                    allowed_destinations_json,enabled,max_balance_minor)
-                   VALUES(?,?,?,?,?,?,1,500000000)
+                    allowed_destinations_json,enabled)
+                   VALUES(?,?,?,?,?,?,1)
                    ON CONFLICT(agent_id,network,asset) DO UPDATE SET
                    daily_limit_minor=excluded.daily_limit_minor,
                    per_tx_limit_minor=excluded.per_tx_limit_minor,
@@ -318,28 +322,28 @@ class CollectiveTreasuryStore:
                     raise ValueError("payment intent reference already belongs to different terms")
                 db.commit()
                 return
-            # Reserve incoming capacity when an invoice is created, so multiple
-            # concurrent payment intents cannot overfill this agent's $500 wallet.
-            account = db.execute(
+            # Reserve capacity against the ONE shared wallet, across every agent.
+            wallet_policy = db.execute(
+                "SELECT max_balance_minor FROM treasury_wallets WHERE network=? AND asset=?",
+                (network, asset),
+            ).fetchone()
+            pool = db.execute(
                 """SELECT COALESCE(SUM(CASE WHEN direction='credit' THEN amount_minor
                            ELSE -amount_minor END),0) AS balance
-                   FROM treasury_entries WHERE account_id=? AND network=? AND asset=?""",
-                (f"agent:{agent_id}", network, asset),
-            ).fetchone()
-            policy = db.execute(
-                "SELECT max_balance_minor FROM treasury_agents WHERE agent_id=? AND network=? AND asset=?",
-                (agent_id, network, asset),
+                   FROM treasury_entries WHERE network=? AND asset=?
+                     AND account_id != 'treasury:unallocated'""",
+                (network, asset),
             ).fetchone()
             pending_intents = db.execute(
                 """SELECT COALESCE(SUM(expected_amount_minor),0) AS amount
                    FROM treasury_payment_intents
-                   WHERE agent_id=? AND network=? AND asset=? AND status='pending'
-                     AND attribution_ref != ?""",
-                (agent_id, network, asset, attribution_ref),
+                   WHERE network=? AND asset=? AND status='pending'""",
+                (network, asset),
             ).fetchone()
-            if int(account["balance"]) + int(pending_intents["amount"]) + expected_amount_minor > int(policy["max_balance_minor"]):
+            if (int(pool["balance"]) + int(pending_intents["amount"])
+                    + expected_amount_minor > int(wallet_policy["max_balance_minor"])):
                 db.rollback()
-                raise ValueError("agent wallet $500 balance cap would be exceeded")
+                raise ValueError("shared treasury $500 total holding cap would be exceeded")
             db.execute(
                 """INSERT INTO treasury_payment_intents
                    (attribution_ref,agent_id,network,asset,expected_amount_minor,status)
