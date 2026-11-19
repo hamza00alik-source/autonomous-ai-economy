@@ -60,6 +60,7 @@ jobs:
         run: node --test cloudflare/worker/test/*.test.js
       - name: Test Durable Object CryptoKey persistence in workerd
         run: |
+          npm install --global npm@10.9.4
           npm --prefix cloudflare/worker install --no-audit --no-fund
           npm --prefix cloudflare/worker run test:workers
       - name: Build first digital product bundle
