@@ -140,7 +140,7 @@ function request(body = { idempotency_key: "internal-pack-v1" }, token = "owner-
 
 test("internal product execution requires owner authentication before touching D1", async () => {
   let touched = false;
-  const response = await worker.fetch(request(), {
+  const response = await worker.fetch(request(undefined, "wrong-token"), {
     AAE_QUEUE_TOKEN: "owner-token",
     DB: { prepare() { touched = true; throw new Error("must not query"); } }
   });
@@ -180,7 +180,7 @@ test("owner-approved product execution stores a verified private artifact and is
   const download = await worker.fetch(downloadRequest(result.job_id), env);
   assert.equal(download.status, 200);
   assert.equal(download.headers.get("content-type"), "application/zip");
-  assert.match(download.headers.get("content-disposition"), /moba-objective-props\\.zip/);
+  assert.match(download.headers.get("content-disposition"), /moba-objective-props\.zip/);
   assert.deepEqual(new Uint8Array(await download.arrayBuffer()), bytes);
 });
 
