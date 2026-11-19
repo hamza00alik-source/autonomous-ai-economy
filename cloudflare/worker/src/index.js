@@ -392,11 +392,13 @@ async function inventoryPrivateArtifactObjects(env, url) {
     key => typeof key === "string" && key.startsWith("internal-products/")
   ))];
   const matches = new Map();
-  if (keys.length) {
-    const placeholders = keys.map(() => "?").join(",");
+  // Keep each D1 statement below conservative bind-variable limits.
+  for (let offset = 0; offset < keys.length; offset += 100) {
+    const batch = keys.slice(offset, offset + 100);
+    const placeholders = batch.map(() => "?").join(",");
     const result = await env.DB.prepare(
       "SELECT artifact_key,job_id,owner_id,status,artifact_sha256,artifact_size_bytes FROM internal_execution_jobs WHERE artifact_key IN (" + placeholders + ")"
-    ).bind(...keys).all();
+    ).bind(...batch).all();
     for (const row of (result?.results || [])) matches.set(row.artifact_key, row);
   }
 
