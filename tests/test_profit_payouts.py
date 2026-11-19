@@ -4,6 +4,7 @@ from pathlib import Path
 
 from economy.agent_finance import AgentFinanceStore, VerifiedTransfer, Wallet
 from economy.profit_payouts import ProfitPayoutWorker
+from economy.chain_monitor import ChainMonitor, ChainTransferObservation, MonitoredAsset, TransferPage
 
 
 class FakeSigner:
@@ -59,6 +60,42 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
         result = worker.process_pending()
         self.assertEqual(result[0]["status"], "pending")
         self.assertEqual(self.store.list_pending_distributions()[0]["status"], "pending_payout")
+
+
+    def test_reorg_alert_blocks_payout_even_after_period_was_closed(self):
+        class Chain:
+            def __init__(self):
+                self.item = ChainTransferObservation(
+                    "base", "USDC", "0xToken", "0xchain-income", "log:1",
+                    "0xCustomer", "0xAgent", 1000, 10, "0xBlock", 12, True, True,
+                )
+            def fetch_transfers(self, **kwargs):
+                return TransferPage((self.item,), "c1")
+
+        # Create a monitor before close so the credited event is tracked.
+        chain = Chain()
+        monitor = ChainMonitor(
+            self.store, chain, MonitoredAsset("base", "USDC", "0xToken", 10)
+        )
+        # This event is additional income in a separate open period.
+        monitor.poll_once(period_id="p2")
+        self.store.close_profit_period(
+            "agent", "master", network="base", asset="USDC", period_id="p2",
+            reserve_bps=0, owner_share_bps=5000,
+        )
+        chain.item = ChainTransferObservation(
+            "base", "USDC", "0xToken", "0xchain-income", "log:1",
+            "0xCustomer", "0xAgent", 1000, 10, "0xOrphanedBlock", 0, False, False,
+        )
+        monitor.poll_once(period_id="p2")
+        worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier(amount=500))
+        results = worker.process_pending()
+        p2 = [item for item in results if item["period_key"].endswith(":p2")]
+        self.assertEqual(p2[0]["status"], "blocked")
+        self.assertEqual(
+            self.store.get_profit_period("agent", "base", "USDC", "p2")["status"],
+            "pending_payout",
+        )
 
     def test_wrong_amount_keeps_distribution_pending(self):
         worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier(amount=499))
