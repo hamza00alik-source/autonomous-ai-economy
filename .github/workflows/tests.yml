@@ -50,6 +50,8 @@ jobs:
         run: economy-gumroad-draft --help
       - name: Verify private worker client CLI is registered
         run: economy-cloudflare-copy --help
+      - name: Verify collective treasury provisioning CLI is registered
+        run: economy-treasury --help
       - name: Verify AI runtime status is offline and secret-safe
         run: economy-ai --data-dir /tmp/aae-ai-runtime-ci status
       - name: Verify AI product-copy task can be queued without credentials
