@@ -155,6 +155,11 @@ class EVMJSONRPCSource:
             return False
         if not isinstance(receipt, dict):
             raise EVMRPCError("RPC returned malformed transaction receipt")
+        receipt_tx = receipt.get("transactionHash")
+        if not isinstance(receipt_tx, str) or receipt_tx.lower() != tx_hash.lower():
+            return False
+        if receipt.get("status") not in (None, "0x1", "0x01"):
+            return False
         receipt_block = self._quantity(receipt.get("blockNumber"), "receipt block number")
         receipt_hash = receipt.get("blockHash")
         if receipt_block != expected_block_number or not isinstance(receipt_hash, str) or not _HASH_RE.fullmatch(receipt_hash):
@@ -174,12 +179,14 @@ class EVMJSONRPCSource:
             if self._quantity(log.get("logIndex"), "receipt log index") != expected_log_index:
                 continue
             topics = log.get("topics")
-            if (log.get("address", "").lower() != self.config.token_contract.lower()
+            if (not isinstance(log.get("address"), str)
+                    or log["address"].lower() != self.config.token_contract.lower()
                     or not isinstance(topics, list) or len(topics) != 3
-                    or not isinstance(topics[0], str) or topics[0].lower() != TRANSFER_TOPIC):
+                    or any(not isinstance(topic, str) or not re.fullmatch(r"0x[0-9a-fA-F]{64}", topic) for topic in topics)
+                    or topics[0].lower() != TRANSFER_TOPIC):
                 return False
-            src = "0x" + topics[1][-40:].lower() if isinstance(topics[1], str) else ""
-            dst = "0x" + topics[2][-40:].lower() if isinstance(topics[2], str) else ""
+            src = "0x" + topics[1][-40:].lower()
+            dst = "0x" + topics[2][-40:].lower()
             data = log.get("data")
             if not isinstance(data, str) or not re.fullmatch(r"0x[0-9a-fA-F]{64}", data):
                 return False
