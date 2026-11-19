@@ -17,8 +17,12 @@ Sources:
 - https://plisio.net/documentation/endpoints/transactions
 - https://plisio.net/docs/plisio-terms-of-use.pdf
 - https://plisio.net/docs/aml.pdf
+- https://plisio.net/woocommerce-accept-crypto
+- https://plisio.net/accept-usdt
 
-This is enough to design an adapter, not enough to approve the provider. The public terms do not explicitly confirm Pakistan merchant eligibility. They require use consistent with local law, permit identity checks, and reserve account suspension rights. Obtain written Plisio confirmation of:
+Plisio's marketing pages for several hosted-store plugins advertise worldwide availability, direct-to-merchant-wallet payments and no KYC at plugin setup (for example https://plisio.net/woocommerce-accept-crypto and https://plisio.net/accept-usdt). Treat those as product-specific marketing claims, not a binding eligibility determination for this AAE API integration. Plisio's AML policy states that risk-based KYC may be required for flagged transactions/accounts, and its Terms require compliance with local law and reserve suspension rights.
+
+This is enough to design an adapter, not enough to approve the provider. The public terms do not explicitly confirm that a Pakistan-resident merchant can use the exact API/merchant setup proposed for AAE. Obtain written Plisio confirmation of:
 1. Pakistan-resident individual / Pakistan business onboarding eligibility and exact KYC documents.
 2. Whether a non-custodial merchant accepting payment for its own digital downloads is supported under their merchant terms.
 3. Supported payout currencies and chains for the merchant account, and whether funds are forwarded to a merchant-controlled wallet or held in a Plisio wallet.
