@@ -177,6 +177,37 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
                 idempotency_key="reorg-blocked-2", period_id="2026-11",
             )
 
+    def test_operator_resolution_and_resume_are_separate_explicit_actions(self):
+        self.intent()
+        self.monitor.bind_payer("invoice:1", PAYER)
+        self.monitor.poll_once(network="base-sepolia", asset="USDC", period_id="2026-11")
+        self.source.transfers = (observation(canonical=False),)
+        self.monitor.poll_once(network="base-sepolia", asset="USDC", period_id="2026-11")
+        with self.assertRaisesRegex(ValueError, "cannot resume"):
+            self.monitor.resume_agent_after_review(
+                agent_id="agent-a", network="base-sepolia", asset="USDC"
+            )
+        with self.assertRaisesRegex(ValueError, "at least 12"):
+            self.monitor.resolve_reorg_alert(
+                network="base-sepolia", asset="USDC", tx_hash=TX,
+                transfer_ref="log:0", operator_note="fixed",
+            )
+        self.monitor.resolve_reorg_alert(
+            network="base-sepolia", asset="USDC", tx_hash=TX,
+            transfer_ref="log:0",
+            operator_note="Reviewed canonical chain and confirmed original receipt.",
+        )
+        self.assertEqual(self.monitor.open_reorg_alerts(
+            network="base-sepolia", asset="USDC"
+        ), 0)
+        self.monitor.resume_agent_after_review(
+            agent_id="agent-a", network="base-sepolia", asset="USDC"
+        )
+        self.store.reserve_spend(
+            "agent-a", "base-sepolia", "USDC", "0x" + "e" * 40, 100,
+            idempotency_key="manually-resumed", period_id="2026-11",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
