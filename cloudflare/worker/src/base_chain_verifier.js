@@ -1,3 +1,5 @@
+import { postConfirmedReceivingPayment } from "./asset_receiving_ledger.js";
+
 const USDC_BASE = "0x833589fcD6eDb6E08f4c7C32D4f71b54bdA02913".toLowerCase();
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const TX_HASH = /^0x[a-fA-F0-9]{64}$/;
@@ -61,9 +63,12 @@ export async function verifyBaseUsdcInvoicePayment(db,{ownerId,agentId,invoiceId
   if(!invoice) return {ok:false,reason:"invoice_not_found"};
   const prior=await db.prepare("SELECT invoice_id,tx_hash,status,amount_minor,block_number,block_hash FROM financial_receiving_payment_observations WHERE network=? AND tx_hash=?")
     .bind("base-mainnet",txHash.toLowerCase()).first();
-  if(prior) return prior.invoice_id===invoiceId
-    ? {ok:true,idempotent:true,status:prior.status,observation:prior}
-    : {ok:false,reason:"transaction_already_bound_to_another_invoice"};
+  if(prior) {
+    if(prior.invoice_id!==invoiceId) return {ok:false,reason:"transaction_already_bound_to_another_invoice"};
+    const ledger=prior.status==="confirmed" ? await postConfirmedReceivingPayment(db,{ownerId,agentId,invoiceId,now}) : null;
+    if(ledger&&!ledger.ok) throw new Error("confirmed receipt ledger posting failed: "+ledger.reason);
+    return {ok:true,idempotent:true,status:prior.status,observation:prior,ledger};
+  }
   if(invoice.status!=="awaiting_payment") return {ok:false,reason:"invoice_not_awaiting_payment"};
   if(invoice.network!=="base-mainnet"||invoice.chain_id!==8453||String(invoice.token_contract).toLowerCase()!==USDC_BASE) return {ok:false,reason:"unsupported_invoice_asset"};
   const [chainId,receipt]=await Promise.all([rpc(endpoint.toString(),"eth_chainId",[]),rpc(endpoint.toString(),"eth_getTransactionReceipt",[txHash.toLowerCase()])]);
@@ -98,6 +103,8 @@ export async function verifyBaseUsdcInvoicePayment(db,{ownerId,agentId,invoiceId
     if(raced) return {ok:false,reason:"transaction_already_bound_to_another_invoice"};
     throw error;
   }
-  return {ok:true,idempotent:false,invoice_id:invoiceId,tx_hash:txHash.toLowerCase(),...inspected,
-    notice:"This confirms the exact Base USDC transfer at the RPC provider's finalized block. It does not credit the financial ledger or agent budget."};
+  const ledger=inspected.status==="confirmed" ? await postConfirmedReceivingPayment(db,{ownerId,agentId,invoiceId,now}) : null;
+  if(ledger&&!ledger.ok) throw new Error("confirmed receipt ledger posting failed: "+ledger.reason);
+  return {ok:true,idempotent:false,invoice_id:invoiceId,tx_hash:txHash.toLowerCase(),...inspected,ledger,
+    notice:"Confirmed receipts are journaled as pending custody. They are not spendable until receiving-wallet control and an authorized signer are verified."};
 }
