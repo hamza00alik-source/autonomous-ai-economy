@@ -80,6 +80,24 @@ class OwnerOverflowWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(verifier.calls, 1)
         self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 500_000_000)
 
+    async def test_run_cycle_creates_and_processes_overflow_reservation(self):
+        tx_hash = "0x" + "7" * 64
+        transfer = VerifiedTransfer(
+            "base-sepolia", "USDC", tx_hash, "log:cycle",
+            self.owner_address, 100_000_000, 16, True,
+            source=self.wallet_address,
+        )
+        signer = FakeSigner(tx_hash)
+        worker = OwnerOverflowSweepWorker(
+            self.store, signer, FakeVerifier(transfer=transfer),
+        )
+        result = await worker.run_cycle(
+            network="base-sepolia", asset="USDC", period_id="2026-11",
+        )
+        self.assertEqual(result["status"], "settled")
+        self.assertEqual(result["remaining_excess_minor"], 0)
+        self.assertEqual(signer.calls, 1)
+
     async def test_unverified_transfer_stays_uncertain_and_is_never_rebroadcast(self):
         sweep = self.reserve()
         tx_hash = "0x" + "8" * 64
