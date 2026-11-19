@@ -7,7 +7,10 @@ receipt intake, reorg checks, or on-chain balance reconciliation fail.
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import closing
+from datetime import datetime, timezone
 from typing import Callable, Protocol
 
 from .collective_treasury_monitor import CollectiveTreasuryReceiptMonitor
@@ -175,6 +178,31 @@ class CollectiveTreasuryAccountingRuntime:
             "status": "completed", "receipts": receipts, "reorgs": reorgs,
             "balances": balances, "spending": spending,
         }
+
+    async def run_forever(self, *, interval_seconds: float = 30.0,
+                          spend_limit: int = 25,
+                          stop_event: asyncio.Event | None = None) -> None:
+        """Run guarded cycles until the host asks the service to stop.
+
+        Deploy under a process supervisor. A failed cycle is logged and retried
+        only on the next interval; it never skips the safety gates to execute spends.
+        """
+        if isinstance(interval_seconds, bool) or not isinstance(interval_seconds, (int, float)) or interval_seconds < 1:
+            raise ValueError("interval_seconds must be at least one second")
+        if stop_event is None:
+            stop_event = asyncio.Event()
+        logger = logging.getLogger("aae.collective_accounting")
+        while not stop_event.is_set():
+            period_id = datetime.now(timezone.utc).strftime("%Y-%m")
+            try:
+                result = await self.run_once(period_id=period_id, spend_limit=spend_limit)
+                logger.info("collective accounting cycle: %s", result)
+            except Exception:
+                logger.exception("collective accounting cycle failed; payouts were not advanced past failed safety gate")
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=float(interval_seconds))
+            except asyncio.TimeoutError:
+                pass
 
 
 __all__ = [
