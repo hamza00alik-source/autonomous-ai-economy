@@ -127,8 +127,6 @@ class ApprovedExecutionWorker:
         job = self.fulfillment.get(job_id)
         if job is None:
             raise ExecutionError("unknown fulfillment job")
-        if job.state != "in_progress":
-            raise ExecutionError("job must be owner-approved and in_progress")
         if job.agent_id != "game-asset-builder":
             raise ExecutionError("no execution handler is registered for this agent")
         if not self.identity_verifier(job.agent_id, job.agent_key_fingerprint):
@@ -151,6 +149,9 @@ class ApprovedExecutionWorker:
             if row and row[1] == "running":
                 db.execute("ROLLBACK")
                 raise ExecutionError("execution is already running")
+            if job.state != "in_progress":
+                db.execute("ROLLBACK")
+                raise ExecutionError("job must be owner-approved and in_progress")
             attempts = (row[5] if row else 0) + 1
             if attempts > 2:
                 db.execute("ROLLBACK")
