@@ -23,6 +23,7 @@ economy-ai = "economy.ai_cli:main"
 economy-gumroad-draft = "economy.gumroad_draft:main"
 economy-cloudflare-copy = "economy.cloudflare_worker_client:main"
 economy-treasury = "economy.treasury_cli:main"
+economy-treasury-reconcile = "economy.treasury_balance_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
