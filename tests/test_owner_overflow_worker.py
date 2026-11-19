@@ -132,16 +132,21 @@ class OwnerOverflowWorkerTests(unittest.IsolatedAsyncioTestCase):
         worker = OwnerOverflowSweepWorker(
             self.store, signer, FakeVerifier(transfer=transfer),
         )
-        periods = iter(["2026-11", "2026-12"])
+        periods = []
+        def next_period():
+            value = "2026-11" if not periods else "2026-12"
+            periods.append(value)
+            return value
+
         callback = worker.runtime_callback(
-            network="base-sepolia", period_id_provider=lambda: next(periods),
+            network="base-sepolia", period_id_provider=next_period,
         )
         first = await callback()
+        second = await callback()
         self.assertEqual(first["status"], "settled")
+        self.assertEqual(second["status"], "not_needed")
+        self.assertEqual(periods, ["2026-11", "2026-12"])
         self.assertEqual(signer.calls, 1)
-        self.assertEqual(self.store.get_owner_overflow_sweep(
-            "missing-sweep"
-        ), None)
 
 
 if __name__ == "__main__":
