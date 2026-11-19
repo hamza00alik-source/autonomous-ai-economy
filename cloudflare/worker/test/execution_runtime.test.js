@@ -21,6 +21,10 @@ function fakeDb() {
         bind(...args) { values = args; return this; },
         async first() {
           if (sql.includes("FROM financial_participants")) return { participant_id: "owner-001" };
+          if (sql.startsWith("SELECT artifact_key,artifact_sha256")) {
+            if (state.job && state.job.job_id === values[0] && state.job.owner_id === values[1]) return state.job;
+            return null;
+          }
           if (sql.startsWith("SELECT job_id,status,artifact_key")) {
             if (state.job && state.job.owner_id === values[0] && state.job.idempotency_key === values[1]) return state.job;
             return null;
@@ -100,10 +104,26 @@ function makeEnv() {
       }
     },
     EXECUTION_ARTIFACTS: {
-      async put(key, value, options) { stored.set(key, { value, options }); }
+      async put(key, value, options) { stored.set(key, { value, options }); },
+      async get(key) {
+        const item = stored.get(key);
+        if (!item) return null;
+        return {
+          customMetadata: item.options.customMetadata,
+          arrayBuffer: async () => item.value,
+          body: new Response(item.value).body
+        };
+      }
     }
   };
   return { env, DB, stored };
+}
+
+function downloadRequest(jobId, token = "owner-token") {
+  return new Request("https://aae.example/v1/owner/internal-products/jobs/" + jobId + "/artifact", {
+    method: "GET",
+    headers: { authorization: "Bearer " + token }
+  });
 }
 
 function request(body = { idempotency_key: "internal-pack-v1" }, token = "owner-token") {
@@ -156,6 +176,12 @@ test("owner-approved product execution stores a verified private artifact and is
   assert.equal(repeated.job_id, result.job_id);
   assert.equal(repeated.idempotent, true);
   assert.equal(stored.size, 1);
+
+  const download = await worker.fetch(downloadRequest(result.job_id), env);
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get("content-type"), "application/zip");
+  assert.match(download.headers.get("content-disposition"), /moba-objective-props\\.zip/);
+  assert.deepEqual(new Uint8Array(await download.arrayBuffer()), bytes);
 });
 
 test("execution fails closed when private runtime bindings are missing", async () => {
