@@ -29,3 +29,9 @@ The master share is a configured economic agreement, not a default percentage. S
 A public address can receive funds while the agent is offline. Spending requires a signer and must never expose a seed phrase/private key to an LLM. A wallet address does not make an AI a legal person or establish legal ownership; the accountable operator, tax treatment and beneficiary arrangement must be documented. Do not enable live transfers until the chosen network/provider, local legal position, wallet security and recovery process have been reviewed.
 
 NOWPayments may remain as an optional customer checkout bridge, but it is not the agent's wallet and is not the core agent-to-agent payment architecture. No live chain adapter, wallet signer, real transfer or revenue is shipped by this change.
+
+## Stage 2: routine autonomous spending controls
+
+`src/economy/wallet_spending.py` adds an owner-configured per-agent spend policy. The owner sets supported network/asset, daily cap, per-transaction cap and explicit destination allowlist once. The agent can reserve routine spending within that policy without a per-transaction human approval. The store counts reserved, broadcast and settled transfers against the daily budget, supports emergency pause, and requires exact independently verified settlement before marking a spend settled.
+
+This is still not a signer or live wallet. The production signer must enforce the same policy at the custody boundary; application-level checks alone are not sufficient. The current module intentionally does not generate keys, sign, broadcast, monitor chains, or invoke x402. A future adapter will connect the policy reservation to a reviewed smart-account/MPC/HSM signer and chain monitor.
