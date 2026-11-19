@@ -19,6 +19,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -44,6 +46,8 @@ jobs:
           fi
       - name: Install package and test dependencies
         run: python -m pip install -e ".[dev,identity]"
+      - name: Prepare canonical package for the private Python Worker
+        run: python tools/prepare_cloudflare_python_runtime.py
       - name: Run Python test suite
         run: python -m pytest -q
       - name: Verify Gumroad draft CLI is registered
@@ -58,6 +62,13 @@ jobs:
         run: python tools/check_product_js.py
       - name: Test private Cloudflare worker logic
         run: node --test cloudflare/worker/test/*.test.js
+      - name: Dry-run isolated Cloudflare Python execution Worker
+        run: |
+          set -euo pipefail
+          cd cloudflare/python-runtime
+          uv sync --group dev
+          uv run pywrangler deploy --dry-run --outdir /tmp/aae-python-runtime-dry-run
+          test -s /tmp/aae-python-runtime-dry-run/index.js
       - name: Test Durable Object CryptoKey persistence in workerd
         run: |
           npm install --global npm@10.9.4
