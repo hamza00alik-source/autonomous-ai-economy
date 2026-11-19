@@ -14,7 +14,8 @@ def store_at(path):
         path,
         identity_verifier=lambda agent, fingerprint: agent == "builder-1" and fingerprint == FINGERPRINT,
         owner_approval_verifier=lambda token, job_id, action: token == f"approved:{job_id}:{action}",
-        acceptance_verifier=lambda source, external_id, evidence: evidence.get("verified") is True,\n        settlement_verifier=lambda source, external_id: {
+        acceptance_verifier=lambda source, external_id, evidence: evidence.get("verified") is True,
+        settlement_verifier=lambda source, external_id: {
             "verified": True, "net_amount": "1.80", "currency": "USDC",
             "settlement_reference": "0x" + "b" * 64,
         },
@@ -52,7 +53,7 @@ def test_full_lifecycle_requires_owner_gates_and_verified_settlement():
                          idempotency_key="submit-1",
                          owner_approval=f"approved:{job.job_id}:submission_approved")
         store.transition(job.job_id, "accepted", actor="platform",
-                         idempotency_key="accepted-1")
+                         idempotency_key="accepted-1", evidence={"verified": True, "acceptance_reference": "accepted-1"})
         store.transition(job.job_id, "payment_pending", actor="accounting",
                          idempotency_key="pending-1")
         settled = store.reconcile(job.job_id, idempotency_key="settled-1")
@@ -73,12 +74,22 @@ def test_rejects_illegal_state_skips_and_unverified_settlement():
         store = FulfillmentStore(
             Path(directory) / "fulfillment.sqlite3",
             identity_verifier=lambda *_: True,
-            acceptance_verifier=lambda *_: True,\n            settlement_verifier=lambda *_: {"verified": False},
+            acceptance_verifier=lambda *_: True,
+            settlement_verifier=lambda *_: {"verified": False},
         )
         job = make_job(store)
         with pytest.raises(FulfillmentError, match="not allowed"):
             store.transition(job.job_id, "accepted", actor="agent",
                              idempotency_key="skip-to-accepted")
+        store.transition(job.job_id, "owner_approved", actor="owner", idempotency_key="approve",
+                         owner_approval=f"approved:{job.job_id}:owner_approved")
+        store.transition(job.job_id, "in_progress", actor="agent", idempotency_key="start")
+        store.transition(job.job_id, "qa", actor="agent", idempotency_key="qa")
+        store.transition(job.job_id, "delivery_ready", actor="qa", idempotency_key="ready")
+        store.transition(job.job_id, "submission_approved", actor="owner", idempotency_key="submit",
+                         owner_approval=f"approved:{job.job_id}:submission_approved")
+        store.transition(job.job_id, "accepted", actor="platform", idempotency_key="accept", evidence={"verified": True})
+        store.transition(job.job_id, "payment_pending", actor="accounting", idempotency_key="pending")
         with pytest.raises(FulfillmentError, match="independently verified"):
             store.reconcile(job.job_id, idempotency_key="premature-settlement")
 
