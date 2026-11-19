@@ -149,4 +149,25 @@ class OwnerOverflowSweepWorker:
         return result
 
 
+    def runtime_callback(self, *, network: str, asset: str = "USDC",
+                         period_id_provider, limit: int = 10):
+        """Build the zero-argument callback expected by the Accounting runtime.
+
+        The provider is evaluated for every cycle, so month boundaries are not
+        captured as stale values when the supervised runtime keeps running.
+        """
+        if not callable(period_id_provider):
+            raise TypeError("period_id_provider must be callable")
+
+        async def callback() -> dict:
+            period_id = period_id_provider()
+            if not isinstance(period_id, str) or not period_id.strip():
+                raise ValueError("period_id_provider must return a non-empty string")
+            return await self.run_cycle(
+                network=network, asset=asset, period_id=period_id, limit=limit,
+            )
+
+        return callback
+
+
 __all__ = ["OwnerOverflowSweepWorker", "OwnerSweepVerifier"]
