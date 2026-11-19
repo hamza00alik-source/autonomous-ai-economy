@@ -81,6 +81,17 @@ class CollectiveTreasuryReorgGuardTests(unittest.TestCase):
                 idempotency_key="blocked-by-guard", period_id="2026-11",
             )
 
+    def test_reorg_guard_persists_batch_cursor_until_scan_finishes(self):
+        guard = CollectiveTreasuryReorgGuard(
+            self.monitor, Verifier(canonical=True), batch_size=1
+        )
+        first = guard.reconcile_once(network="base-sepolia", asset="USDC")
+        self.assertEqual(first["checked"], 1)
+        self.assertTrue(first["has_more"])
+        second = guard.reconcile_once(network="base-sepolia", asset="USDC")
+        self.assertEqual(second["checked"], 0)
+        self.assertFalse(second["has_more"])
+
     def test_canonical_receipt_remains_healthy(self):
         guard = CollectiveTreasuryReorgGuard(self.monitor, Verifier(canonical=True))
         result = guard.reconcile_once(network="base-sepolia", asset="USDC")
