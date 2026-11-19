@@ -683,6 +683,11 @@ class CollectiveTreasuryStore:
             int(destination[2:], 16)
         except ValueError as exc:
             raise ValueError("destination_address must be hexadecimal") from exc
+        wallet = self.treasury_wallet(network, asset)
+        if not wallet:
+            raise ValueError("collective treasury wallet must be registered before owner payout setup")
+        if destination.lower() == wallet.address.lower():
+            raise ValueError("owner payout destination must differ from the collective treasury address")
         with closing(self._connect()) as db:
             db.execute(
                 """INSERT INTO treasury_owner_payout_config
@@ -1342,7 +1347,7 @@ class CollectiveTreasuryStore:
         return snapshot
 
     def close_period(self, agent_id: str, network: str, asset: str, period_id: str, *,
-                     reserve_bps: int, owner_share_bps: int = 5000,
+                     reserve_bps: int = 0, owner_share_bps: int = 5000,
                      master_account: str = "master:owner") -> dict:
         for name, value in (("reserve_bps", reserve_bps), ("owner_share_bps", owner_share_bps)):
             if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 10_000:
