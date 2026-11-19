@@ -333,7 +333,7 @@ class CollectiveTreasuryReceiptMonitor:
             if not item.canonical:
                 with closing(self.store._connect()) as db:
                     prior = db.execute(
-                        """SELECT block_hash,status FROM treasury_receipt_monitor_events
+                        """SELECT block_hash,block_number,status FROM treasury_receipt_monitor_events
                            WHERE network=? AND tx_hash=? AND transfer_ref=?""",
                         (network, item.tx_hash, item.transfer_ref),
                     ).fetchone()
@@ -359,7 +359,8 @@ class CollectiveTreasuryReceiptMonitor:
                     (network, item.tx_hash, item.transfer_ref),
                 ).fetchone()
             if prior_event:
-                if prior_event["block_hash"].lower() != item.block_hash.lower():
+                if (prior_event["block_hash"].lower() != item.block_hash.lower()
+                        or prior_event["block_number"] != item.block_number):
                     self._raise_reorg_alert(
                         network=network, asset=asset, tx_hash=item.tx_hash,
                         transfer_ref=item.transfer_ref,
