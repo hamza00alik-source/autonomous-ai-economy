@@ -310,7 +310,11 @@ class CollectiveTreasuryReceiptMonitor:
                     or isinstance(item.amount_minor, bool) or not isinstance(item.amount_minor, int)
                     or item.amount_minor <= 0
                     or isinstance(item.confirmations, bool) or not isinstance(item.confirmations, int)
-                    or item.confirmations < 0):
+                    or item.confirmations < 0
+                    or isinstance(item.block_number, bool) or not isinstance(item.block_number, int)
+                    or item.block_number < 0
+                    or not isinstance(item.canonical, bool)
+                    or not isinstance(item.finalized, bool)):
                 raise ValueError("observation has malformed transfer fields")
             if not item.canonical:
                 with closing(self.store._connect()) as db:
