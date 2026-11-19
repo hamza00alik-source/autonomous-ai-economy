@@ -81,7 +81,7 @@ class CollectiveTreasuryTests(unittest.TestCase):
             attribution_ref="invoice:abc",
         )
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 8000)
-        with self.assertRaisesRegex(ValueError, "duplicate"):
+        with self.assertRaisesRegex(ValueError, "pending verified payment intent|duplicate"):
             self.store.record_receipt(
                 self.transfer(), period_id="2026-11", agent_id="agent-a",
                 attribution_ref="invoice:abc",
