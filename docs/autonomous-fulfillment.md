@@ -21,7 +21,7 @@ The job is not revenue when discovered, approved, started, delivered, accepted, 
 
 ## Persistence and safety
 
-- SQLite uses unique source/external IDs, transactional state transitions, unique idempotency keys and an append-only event table.
+- Verified `ready_for_owner_review` candidates from the Revenue Engine can be converted into local `discovered` jobs; review-only candidates are rejected. This never changes `claim_allowed` or contacts a marketplace.\n- SQLite uses unique source/external IDs, transactional state transitions, unique idempotency keys and an append-only event table.
 - External side effects are deliberately absent.
 - Production identity/approval/settlement adapters, runtime scheduling, isolated artifact production and actual QA integration remain future work.
 - The feature is local orchestration infrastructure only; no always-on cloud execution is claimed.
