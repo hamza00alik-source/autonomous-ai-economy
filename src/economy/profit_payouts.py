@@ -76,7 +76,7 @@ class ProfitPayoutWorker:
                     ).fetchone()
                     if alert:
                         results.append({"period_key": period["period_key"], "status": "blocked",
-                                        "reason": "unresolved chain reorganization alert"})
+                                        "reason": "reorg alert or closed-period payout reconciliation hold"})
                         continue
             amount = int(period["master_due_minor"])
             # Stable idempotency key lets the signer safely resume after worker restarts.
