@@ -69,7 +69,7 @@ The account is EVM-address based and may be used on Base Sepolia or Base. The lo
 - The treasury's on-chain balance is the actual pooled asset balance. Virtual agent balances are internal accounting claims against that pool, not separate segregated assets or legal ownership rights.
 - Never allow the sum of virtual liabilities, reserves and pending obligations to exceed reconciled treasury assets. Add a periodic full-balance reconciliation and alerting before production operation.
 - A common wallet creates commingling and concentration risk. Use strict policies, independent transaction monitoring, a master emergency pause, protected database backups, dual control for policy/address changes, and a documented recovery process.
-- The first implementation provides the core ledger and CDP wallet provisioning/transfer adapter. It does **not** yet wire the live chain monitor's incoming transfer attribution to payment intents, create customer invoices, run a continuous accounting agent, automatically execute queued spends, or perform an always-on balance reconciliation daemon.
+- The first implementation provides the core ledger, CDP wallet provisioning/transfer adapter, and callable `CollectiveTreasuryPaymentExecutor`. The executor reserves/holds an agent spend before contacting CDP, then settles only after an injected verifier confirms the exact on-chain transfer. An ambiguous provider response remains held for reconciliation and is never blindly retried. It does **not** yet wire the live chain monitor's incoming transfer attribution to payment intents, create customer invoices, run a continuous accounting agent, schedule the executor as an always-on worker, or perform an always-on balance reconciliation daemon.
 
 ## Important provider limitation
 
