@@ -130,11 +130,10 @@ class CollectiveOwnerProfitPayoutWorker:
                         "reason": "unknown owner payout state",
                     }
             except Exception as exc:
-                blocked += 1
                 result = {"period_id": close["period_id"], "status": "blocked",
                           "reason": str(exc)[:240]}
             if result["status"] == "blocked":
-                blocked += 0 if result.get("reason") else 1
+                blocked += 1
             results.append(result)
 
         outstanding = self.store.list_unsettled_owner_profit_closes(
