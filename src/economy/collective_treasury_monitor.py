@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Protocol, Sequence
 
@@ -97,7 +97,7 @@ class CollectiveTreasuryReceiptMonitor:
         self.store = store
         self.source = source
         self.token_contract = token_contract
-        self.period_resolver = period_resolver
+        self.period_resolver = period_resolver or self._period_from_block_timestamp
         with closing(store._connect()) as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS treasury_payer_bindings (
@@ -145,6 +145,18 @@ class CollectiveTreasuryReceiptMonitor:
                     "ALTER TABLE treasury_receipt_monitor_events "
                     "ADD COLUMN block_number INTEGER NOT NULL DEFAULT 0"
                 )
+
+    @staticmethod
+    def _period_from_block_timestamp(value: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("receipt block timestamp is required for accounting period attribution")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("receipt block timestamp must be ISO-8601") from exc
+        if parsed.tzinfo is None:
+            raise ValueError("receipt block timestamp must include a timezone")
+        return parsed.astimezone(timezone.utc).strftime("%Y-%m")
 
     def _raise_reorg_alert(self, *, network: str, asset: str, tx_hash: str,
                            transfer_ref: str, expected_block_hash: str,
@@ -385,7 +397,7 @@ class CollectiveTreasuryReceiptMonitor:
                        ON CONFLICT(network,tx_hash,transfer_ref) DO NOTHING""",
                     (network, item.tx_hash, item.transfer_ref, item.block_hash, item.block_number),
                 )
-            event_period = self.period_resolver(item.block_timestamp) if self.period_resolver else period_id
+            event_period = self.period_resolver(item.block_timestamp)
             if not isinstance(event_period, str) or not event_period.strip():
                 raise ValueError("period resolver returned an invalid period")
             transfer = self._verified_transfer(item)
