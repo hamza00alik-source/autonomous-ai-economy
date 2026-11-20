@@ -29,6 +29,15 @@ test("computes net reward from the task's platform fee", () => {
   assert.equal(task.eligible, 1);
 });
 
+test("rejects social-post promotion tasks", () => {
+  const task = normalizeTaskmarketTask({
+    ...eligible,
+    description: "Create some threads and comments under KOL posts on X about the agent economy."
+  });
+  assert.equal(task.eligible, 0);
+  assert.ok(task.qualification_reasons.includes("public_promotion_required"));
+});
+
 test("rejects percentage-split prize pools as less than a single-worker dollar", () => {
   const task = normalizeTaskmarketTask({
     ...eligible,
@@ -74,7 +83,7 @@ test("decodes the four-word TaskCreated event and verifies the escrow reward", a
       topics: [
         "0xe0dc4072f8420c56e984e9c6eec7bad2e5616825f0d1ca581bd96ff3e8eec948",
         id, "0x" + "0".repeat(24) + requester.slice(2),
-        "0x" + "0".repeat(56) + "626f756e"
+        "0xa81913a5" + "0".repeat(56)
       ],
       data
     }, {
