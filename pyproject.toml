@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "eth-account>=0.13,<1"]
 identity = ["cryptography>=42"]
 wallet = ["eth-account>=0.13,<1", "cryptography>=42"]
 
