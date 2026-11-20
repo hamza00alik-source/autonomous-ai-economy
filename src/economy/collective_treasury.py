@@ -789,6 +789,26 @@ class CollectiveTreasuryStore:
                     "destination_address": payout["destination_address"],
                     "amount_minor": amount, "status": "reserved", "period_id": period_id}
 
+    def list_unsettled_owner_profit_closes(self, network: str, asset: str,
+                                           limit: int = 100) -> list[dict]:
+        """List closed periods whose owner share has not been paid from the pool."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                """SELECT c.agent_id,c.network,c.asset,c.period_id,c.owner_share_minor,
+                          p.payout_id,p.status AS payout_status,p.tx_hash
+                   FROM treasury_period_closes c
+                   LEFT JOIN treasury_owner_profit_payouts p
+                     ON p.agent_id=c.agent_id AND p.network=c.network
+                    AND p.asset=c.asset AND p.period_id=c.period_id
+                   WHERE c.network=? AND c.asset=? AND c.owner_share_minor>0
+                     AND (p.payout_id IS NULL OR p.status<>'settled')
+                   ORDER BY c.created_at,c.agent_id,c.period_id LIMIT ?""",
+                (network, asset.upper(), limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def reserve_owner_profit_payout(self, agent_id: str, network: str, asset: str,
                                     period_id: str, *, idempotency_key: str) -> dict | None:
         """Reserve the already-allocated owner share for an exact accounting close."""
