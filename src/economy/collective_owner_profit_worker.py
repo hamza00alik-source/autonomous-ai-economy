@@ -151,7 +151,7 @@ class CollectiveOwnerProfitPayoutWorker:
             "status": status, "settled": settled,
             "pending": max(uncertain, len(outstanding)),
             "blocked": blocked, "failed": blocked, "uncertain": uncertain,
-            "backlog": len(outstanding) > limit, "results": results,
+            "backlog": bool(outstanding), "results": results,
         }
 
     def runtime_callback(self, *, network: str, asset: str = "USDC",
