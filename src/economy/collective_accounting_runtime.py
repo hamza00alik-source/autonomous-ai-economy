@@ -203,6 +203,16 @@ class CollectiveTreasuryAccountingRuntime:
                 }
             owner_overflow = await self.owner_overflow_sweep_cycle()
             owner_transfer_ran = True
+            if (not isinstance(owner_overflow, dict)
+                    or owner_overflow.get("status") not in {"settled", "not_needed"}
+                    or owner_overflow.get("uncertain", 0) != 0
+                    or owner_overflow.get("skipped", 0) != 0):
+                return {
+                    "status": "payouts_blocked",
+                    "reason": "owner overflow worker did not confirm a clean settled/no-op result",
+                    "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                    "owner_overflow": owner_overflow, "owner_profit": None, "spending": None,
+                }
             capacity = self.receipt_monitor.store.shared_wallet_capacity(
                 self.network, self.asset,
             )
@@ -218,10 +228,19 @@ class CollectiveTreasuryAccountingRuntime:
         if self.owner_profit_payout_cycle is not None:
             owner_profit = await self.owner_profit_payout_cycle()
             owner_transfer_ran = True
-            if owner_profit.get("status") in {"uncertain", "pending", "blocked"}:
+            # Fail closed on every status except an explicit clean completion.
+            # A new/unknown status must never silently authorize agent spending.
+            if (not isinstance(owner_profit, dict)
+                    or owner_profit.get("status") not in {
+                        "completed", "paid", "no_distribution", "not_needed"
+                    }
+                    or owner_profit.get("uncertain", 0) != 0
+                    or owner_profit.get("pending", 0) != 0
+                    or owner_profit.get("blocked", 0) != 0
+                    or owner_profit.get("failed", 0) != 0):
                 return {
                     "status": "payouts_blocked",
-                    "reason": "owner profit payout requires reconciliation before further spending",
+                    "reason": "owner profit payout did not confirm a clean completed/no-op result",
                     "receipts": receipts, "reorgs": reorgs, "balances": balances,
                     "owner_overflow": owner_overflow, "owner_profit": owner_profit,
                     "spending": None,
