@@ -27,7 +27,7 @@ class CollectiveProfitPeriodCloser:
         return f"{year:04d}-{month:02d}"
 
     async def run_once(self, *, network: str, asset: str, period_id: str) -> dict:
-        if not isinstance(period_id, str) or not re.fullmatch(r"\\d{4}-(0[1-9]|1[0-2])", period_id):
+        if not isinstance(period_id, str) or not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", period_id):
             raise ValueError("period_id must use YYYY-MM format")
         current_period = datetime.now(timezone.utc).strftime("%Y-%m")
         if period_id >= current_period:
