@@ -1,0 +1,51 @@
+name: Scheduled Marketplace Discovery
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-marketplace-discovery
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AAE_WORKER_URL: ${{ secrets.AAE_WORKER_URL }}
+      AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install AAE
+        run: python -m pip install -e .
+      - name: Scan public marketplace sources
+        run: |
+          mkdir -p data
+          economy-revenue scan --limit 50 --verify-limit 25 | tee discovery-report.json
+      - name: Upload discovery report and shortlist database
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-discovery-${{ github.run_id }}
+          path: |
+            discovery-report.json
+            data/revenue-opportunities.sqlite3
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Sync shortlist to private owner dashboard
+        if: success() && env.AAE_WORKER_URL != '' && env.AAE_QUEUE_TOKEN != ''
+        run: economy-revenue sync --limit 25
+      - name: Explain dashboard sync skipped
+        if: success() && (env.AAE_WORKER_URL == '' || env.AAE_QUEUE_TOKEN == '')
+        run: |
+          echo "Shortlist discovery completed, but dashboard sync was skipped because AAE_WORKER_URL and/or AAE_QUEUE_TOKEN are not configured."
+          echo "No secrets are required for the read-only public-source scan."
