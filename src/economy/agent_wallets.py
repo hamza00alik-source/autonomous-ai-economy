@@ -52,6 +52,11 @@ class LocalAgentWalletVault:
         self._master_secret = bytes(master_secret)
         Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
+        # Restrict the database file because it contains encrypted key material.
+        try:
+            os.chmod(self.database_path, 0o600)
+        except OSError as exc:
+            raise WalletError("wallet database permissions could not be restricted") from exc
 
     def _connect(self):
         connection = sqlite3.connect(self.database_path, timeout=10)
