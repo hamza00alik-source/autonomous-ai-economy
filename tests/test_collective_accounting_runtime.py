@@ -151,6 +151,91 @@ class FakeWorker:
 
 
 class CollectiveAccountingRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_runtime_blocks_owner_actions_while_receipt_scan_is_incomplete(self):
+        events = []
+        monitor = FakeReceiptMonitor(events)
+        monitor.poll_once = lambda **kwargs: (
+            events.append("receipts") or {
+                "allocated": 0, "pending": 1, "orphaned": 0,
+                "cursor_held": True, "has_more": True,
+            }
+        )
+        async def close_period():
+            events.append("profit-close")
+            return {"status": "completed"}
+        async def owner_profit():
+            events.append("owner-profit")
+            return {"status": "completed"}
+        runtime = CollectiveTreasuryAccountingRuntime(
+            receipt_monitor=monitor, reorg_guard=FakeReorgGuard(events),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+            profit_period_close_cycle=close_period,
+            owner_profit_payout_cycle=owner_profit,
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "payouts_blocked")
+        self.assertIn("receipt intake", result["reason"])
+        self.assertEqual(events, ["receipts", "reorgs", "balances"])
+
+    async def test_runtime_closes_profit_period_before_owner_payout_and_spending(self):
+        events = []
+        async def close_period():
+            events.append("profit-close")
+            return {"status": "completed", "closed": 2, "blocked": 0,
+                    "pending": 0, "uncertain": 0, "failed": 0}
+        async def owner_profit():
+            events.append("owner-profit")
+            return {"status": "completed", "settled": 1, "pending": 0,
+                    "blocked": 0, "failed": 0, "uncertain": 0}
+        runtime = CollectiveTreasuryAccountingRuntime(
+            receipt_monitor=FakeReceiptMonitor(events),
+            reorg_guard=FakeReorgGuard(events),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+            profit_period_close_cycle=close_period,
+            owner_profit_payout_cycle=owner_profit,
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(events, [
+            "receipts", "reorgs", "balances", "profit-close",
+            "owner-profit", "balances", "spend",
+        ])
+
+    async def test_runtime_blocks_when_any_agent_period_cannot_be_closed(self):
+        events = []
+        async def close_period():
+            events.append("profit-close")
+            return {"status": "blocked", "closed": 1, "blocked": 1,
+                    "pending": 0, "uncertain": 0, "failed": 1}
+        async def owner_profit():
+            events.append("owner-profit")
+            return {"status": "completed"}
+        runtime = CollectiveTreasuryAccountingRuntime(
+            receipt_monitor=FakeReceiptMonitor(events),
+            reorg_guard=FakeReorgGuard(events),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+            profit_period_close_cycle=close_period,
+            owner_profit_payout_cycle=owner_profit,
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "payouts_blocked")
+        self.assertIsNone(result["spending"])
+        self.assertEqual(events, ["receipts", "reorgs", "balances", "profit-close"])
+
+    def test_runtime_requires_owner_payout_worker_when_auto_closing_periods(self):
+        events = []
+        with self.assertRaisesRegex(ValueError, "requires the owner-profit payout worker"):
+            CollectiveTreasuryAccountingRuntime(
+                receipt_monitor=FakeReceiptMonitor(events),
+                reorg_guard=FakeReorgGuard(events),
+                balance_check=lambda: {"fully_reconciled": True},
+                worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+                profit_period_close_cycle=lambda: None,
+            )
+
     async def test_runtime_reconciles_before_spending(self):
         events = []
         runtime = CollectiveTreasuryAccountingRuntime(
