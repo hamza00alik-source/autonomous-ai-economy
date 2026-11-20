@@ -15,11 +15,13 @@ TOKEN = "0x" + "1" * 40
 TX = "0x" + "c" * 64
 
 
-def observation(*, tx=TX, amount=5000, source=PAYER, finalized=True, canonical=True, block_hash="0x" + "d" * 64, block_number=100):
+def observation(*, tx=TX, amount=5000, source=PAYER, finalized=True, canonical=True,
+                block_hash="0x" + "d" * 64, block_number=100,
+                block_timestamp="2026-11-19T12:00:00+00:00"):
     return ChainTransferObservation(
         "base-sepolia", "USDC", TOKEN, tx, "log:0", source, WALLET,
         amount, block_number, block_hash, 12 if finalized else 1,
-        canonical, finalized, "2026-11-19T12:00:00+00:00",
+        canonical, finalized, block_timestamp,
     )
 
 
@@ -66,6 +68,24 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         )
         self.assertEqual(result["allocated"], 1)
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 5000)
+
+    def test_late_scanned_receipt_uses_utc_block_month_not_current_poll_month(self):
+        self.intent("invoice:october")
+        self.monitor.bind_payer("invoice:october", PAYER)
+        self.source.transfers = (observation(
+            tx="0x" + "e" * 64,
+            block_timestamp="2026-10-31T23:30:00+02:00",
+        ),)
+        result = self.monitor.poll_once(
+            network="base-sepolia", asset="USDC", period_id="2026-11"
+        )
+        self.assertEqual(result["allocated"], 1)
+        close = self.store.close_period(
+            "agent-a", "base-sepolia", "USDC", "2026-10",
+            reserve_bps=0, owner_share_bps=5000,
+        )
+        self.assertEqual(close["income_minor"], 5000)
+        self.assertEqual(close["owner_share_minor"], 2500)
 
     def test_unmatched_payer_or_amount_goes_to_suspense(self):
         self.intent()
