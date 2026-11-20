@@ -303,5 +303,45 @@ class CollectiveAccountingRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events, ["receipts", "reorgs", "balances", "owner-overflow"])
 
 
+    async def test_runtime_accepts_clean_owner_profit_completion_and_reconciles_again(self):
+        events = []
+
+        async def owner_profit():
+            events.append("owner-profit")
+            return {"status": "completed", "paid": 1, "pending": 0, "blocked": 0}
+
+        runtime = CollectiveTreasuryAccountingRuntime(
+            receipt_monitor=FakeReceiptMonitor(events),
+            reorg_guard=FakeReorgGuard(events),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+            owner_profit_payout_cycle=owner_profit,
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(events, [
+            "receipts", "reorgs", "balances", "owner-profit", "balances", "spend"
+        ])
+
+    async def test_runtime_rejects_success_status_with_pending_owner_profit_count(self):
+        events = []
+
+        async def owner_profit():
+            events.append("owner-profit")
+            return {"status": "completed", "pending": 1}
+
+        runtime = CollectiveTreasuryAccountingRuntime(
+            receipt_monitor=FakeReceiptMonitor(events),
+            reorg_guard=FakeReorgGuard(events),
+            balance_check=lambda: (events.append("balances") or {"fully_reconciled": True}),
+            worker=FakeWorker(events), network="base-sepolia", asset="USDC",
+            owner_profit_payout_cycle=owner_profit,
+        )
+        result = await runtime.run_once(period_id="2026-11")
+        self.assertEqual(result["status"], "payouts_blocked")
+        self.assertIsNone(result["spending"])
+        self.assertEqual(events, ["receipts", "reorgs", "balances", "owner-profit"])
+
+
 if __name__ == "__main__":
     unittest.main()
