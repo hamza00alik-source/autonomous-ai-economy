@@ -64,6 +64,17 @@ Run this on testnet with test amounts and retain the transaction hashes, provide
 9. **Runtime order:** confirm logs show receipt intake → reorg scan → independent balance reconciliation → owner overflow/profit work (if due) → fresh balance reconciliation after owner transfers → agent spending. Any failed gate must block later actions.
 10. **Recovery and audit:** restart the runtime during an uncertain transfer and confirm it reconciles without rebroadcast. Verify cap changes, payout-address changes, reservations, transfers and owner allocations have durable audit records.
 
+## Accounting runtime callback contract
+
+The runtime treats owner payout callbacks as authorization gates, not informational hooks. A callback must return a dictionary with an explicit success status; a missing, malformed, failed, pending, blocked, uncertain, or unknown status stops the cycle before agent spending.
+
+- The overflow callback must return `status=settled` or `status=not_needed`. If present, `uncertain` and `skipped` counts must both be zero. A `pending` result is not success, even if a separate capacity read appears below the cap.
+- The owner-profit callback must return `status=completed`, `paid`, `no_distribution`, or `not_needed`. If present, `uncertain`, `pending`, `blocked`, and `failed` counts must all be zero.
+- `ProfitPayoutWorker.process_pending()` returns per-period result rows, not this runtime envelope. Its integration adapter must summarize the rows and return a successful envelope only when every obligation is paid or there are no obligations. Any pending/blocked row must produce a non-success envelope. Do not pass the raw list directly to the runtime.
+- A successful callback is followed by an independent physical balance reconciliation before agent spending. Callback success alone is never proof that a transfer settled.
+
+Keep these contracts covered by tests whenever callback adapters or payout workers change.
+
 ## Acceptance decision
 
 Do not enable Base mainnet merely because unit tests pass. Require all of the following:
