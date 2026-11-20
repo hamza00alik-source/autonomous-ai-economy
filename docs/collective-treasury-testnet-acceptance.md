@@ -70,7 +70,7 @@ The runtime treats owner payout callbacks as authorization gates, not informatio
 
 - The overflow callback must return `status=settled` or `status=not_needed`. If present, `uncertain` and `skipped` counts must both be zero. A `pending` result is not success, even if a separate capacity read appears below the cap.
 - The owner-profit callback must return `status=completed`, `paid`, `no_distribution`, or `not_needed`. If present, `uncertain`, `pending`, `blocked`, and `failed` counts must all be zero.
-- `ProfitPayoutWorker.process_pending()` returns per-period result rows, not this runtime envelope. Its integration adapter must summarize the rows and return a successful envelope only when every obligation is paid or there are no obligations. Any pending/blocked row must produce a non-success envelope. Do not pass the raw list directly to the runtime.
+- Use `ProfitPayoutWorker.runtime_callback()` as the Accounting runtime callback. It wraps `process_pending()` and returns the required status/count envelope. It reports completion only when every obligation is verified paid or there are no obligations; any pending/blocked row produces a non-success status. Do not pass the raw `process_pending()` list directly to the runtime.
 - A successful callback is followed by an independent physical balance reconciliation before agent spending. Callback success alone is never proof that a transfer settled.
 
 Keep these contracts covered by tests whenever callback adapters or payout workers change.
