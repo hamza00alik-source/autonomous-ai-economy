@@ -108,20 +108,30 @@ class ProfitPayoutWorker:
         return results
 
     async def runtime_callback(self, *, limit: int = 50) -> dict:
-        """Return the fail-closed result envelope expected by Accounting runtime.
+        """Return a fail-closed result envelope expected by Accounting runtime.
 
-        The worker itself is synchronous; this async adapter keeps the runtime
-        callback contract consistent with the overflow worker. It reports
-        completion only when every pending owner obligation was verified paid.
+        A clean batch is not complete if more pending obligations remain beyond
+        the batch limit. Re-read the durable queue after processing so a backlog
+        cannot be mistaken for a successful payout cycle.
         """
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 999:
+            raise ValueError("limit must be an integer between 1 and 999")
         results = self.process_pending(limit=limit)
         paid = sum(item.get("status") == "paid" for item in results)
         blocked = sum(item.get("status") == "blocked" for item in results)
-        pending = sum(item.get("status") == "pending" for item in results)
-        unknown = len(results) - paid - blocked - pending
+        pending_results = sum(item.get("status") == "pending" for item in results)
+        unknown = len(results) - paid - blocked - pending_results
+
+        # The store caps reads at 1,000. Fetch one more than the processing
+        # limit: any remaining row means the obligation queue is not drained.
+        outstanding = self.store.list_pending_distributions(limit=limit + 1)
+        outstanding_count = len(outstanding)
+        pending = max(pending_results, outstanding_count)
+        backlog = outstanding_count > limit
+
         if blocked or unknown:
             status = "blocked"
-        elif pending:
+        elif pending or backlog:
             status = "pending"
         else:
             status = "completed"
@@ -130,5 +140,6 @@ class ProfitPayoutWorker:
             "paid": paid,
             "pending": pending,
             "blocked": blocked + unknown,
+            "backlog": backlog,
             "results": results,
         }
