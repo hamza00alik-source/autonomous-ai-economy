@@ -98,11 +98,21 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
     const url = new URL(FEED_URL);
     if (previous?.since_cursor) url.searchParams.set("since", previous.since_cursor);
     if (previous?.page_cursor) url.searchParams.set("cursor", previous.page_cursor);
-    const response = await fetchImpl(url.toString(), {
+    let response = await fetchImpl(url.toString(), {
       method: "GET",
       headers: { accept: "application/json", "user-agent": "AutonomousAIEconomy/0.1" },
       signal: AbortSignal.timeout(12_000),
     });
+    // SwarmMemo may invalidate old incremental cursors after feed changes.
+    // A single HTTP 400 retry without cursors recovers discovery without writes.
+    if (response.status === 400 && (previous?.since_cursor || previous?.page_cursor)) {
+      const freshUrl = new URL(FEED_URL);
+      response = await fetchImpl(freshUrl.toString(), {
+        method: "GET",
+        headers: { accept: "application/json", "user-agent": "AutonomousAIEconomy/0.1" },
+        signal: AbortSignal.timeout(12_000),
+      });
+    }
     const payload = await readJsonLimited(response);
     const pollCursor = feedCursor(payload) || previous?.since_cursor || null;
     const unchanged = feedUnchanged(payload);
