@@ -1,6 +1,6 @@
 # AAE Agent Wallet Architecture
 
-Status: **implementation plan — no wallet keys generated, no chain connected, no funds moved**
+Status: **W1 implementation under validation; W2 read-only observer implemented behind an injected RPC interface. No wallet keys generated, no chain endpoint configured, no funds moved.**
 
 ## Goal
 
@@ -71,9 +71,12 @@ A wallet key can be generated offline. Sending a transaction cannot happen offli
 - No RPC, chain interaction, funding, signing endpoint, or transfers in this phase.
 
 ### W2 — read-only chain observer
-- Add an independently replaceable RPC/node adapter.
-- Verify chain ID, token contract address, destination, amount, transaction receipt, finality, and transaction uniqueness.
-- Read-only only; no signer access.
+- The new observer verifies configured EVM chain ID, ERC-20 token contract, recipient, exact raw token amount, successful receipt, confirmation threshold, canonical block hash, and unique (chain_id, transaction_hash, log_index).
+- The RPC transport is injected; the observer only invokes eth_chainId, eth_getTransactionReceipt, eth_blockNumber, and eth_getBlockByNumber.
+- Amounts are integer token base units. Token decimals and human-readable formatting must come from separately verified token metadata; floats are not accepted.
+- The observer has no private-key access, signing, transaction submission, broadcasting, or wallet funding capability.
+- This is an adapter core, not a connected node. No chain has been selected and no live RPC endpoint, token contract, or production address is configured.
+- A verified transfer record is not proof of legitimate customer revenue. Source/risk screening, accounting classification, and business/legal acceptance remain separate controls.
 
 ### W3 — bounded testnet signer
 - Separate signer from observer.
