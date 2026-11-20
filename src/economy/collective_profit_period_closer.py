@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 from typing import Callable
 
 from .collective_treasury import CollectiveTreasuryStore
@@ -26,8 +27,11 @@ class CollectiveProfitPeriodCloser:
         return f"{year:04d}-{month:02d}"
 
     async def run_once(self, *, network: str, asset: str, period_id: str) -> dict:
-        if not isinstance(period_id, str) or not period_id.strip():
-            raise ValueError("period_id must be a non-empty completed accounting period")
+        if not isinstance(period_id, str) or not re.fullmatch(r"\\d{4}-(0[1-9]|1[0-2])", period_id):
+            raise ValueError("period_id must use YYYY-MM format")
+        current_period = datetime.now(timezone.utc).strftime("%Y-%m")
+        if period_id >= current_period:
+            raise ValueError("only a completed prior UTC month can be closed")
         results = []
         blocked = 0
         for agent_id in self.store.list_agents(network, asset):
