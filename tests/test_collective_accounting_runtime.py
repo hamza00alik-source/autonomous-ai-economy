@@ -23,7 +23,7 @@ class Source:
         self.item = item
 
     def fetch_transfers(self, **kwargs):
-        return TransferPage((self.item,), "cursor-1")
+        return TransferPage((self.item,), "cursor-1", has_more=False)
 
 
 class Verifier:
