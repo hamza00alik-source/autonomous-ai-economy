@@ -2,7 +2,7 @@ const API = "https://api.taskmarket.dev";
 const RPC = "https://mainnet.base.org";
 const CHAIN_ID = 8453;
 const DIAMOND = "0xddc6cc3e4d11c1f3527b867c7dad4ed9869c33f7";
-const ESCROW_TOPIC = "0x201d660f753914e19eddd41fa59c8765f90e47e94e92d03ea727a9280636ed79";
+const ESCROW_TOPIC = "0xe0dc4072f8420c56e984e9c6eec7bad2e5616825f0d1ca581bd96ff3e8eec948";
 const MAX_BYTES = 3_000_000;
 const MAX_TASKS_PER_POLL = 20;
 const TASK_ID = /^0x[a-f0-9]{64}$/i;
@@ -112,11 +112,21 @@ export async function verifyTaskmarketEscrow(task, fetchImpl = fetch) {
   for (const log of Array.isArray(receipt.logs) ? receipt.logs : []) {
     const topics = Array.isArray(log?.topics) ? log.topics : [];
     if (String(log?.address || "").toLowerCase() !== DIAMOND || String(topics[0] || "").toLowerCase() !== ESCROW_TOPIC || String(topics[1] || "").toLowerCase() !== task.task_id || topics.length < 4) continue;
+    const requester = String(task.requester || "").toLowerCase();
+    const indexedRequester = String(topics[2] || "").toLowerCase();
+    if (/^0x[0-9a-f]{40}$/.test(requester) && indexedRequester !== "0x" + requester.slice(2).padStart(64, "0")) continue;
     // TaskCreated has four non-indexed data words: reward, expiryTime, stakeRequired, stakeBps.
     const data = String(log.data || "");
     if (!/^0x[0-9a-f]{256}$/i.test(data)) continue;
     const amount = BigInt("0x" + data.slice(2, 66));
-    return { verified: amount.toString() === task.reward_base_units, status: amount.toString() === task.reward_base_units ? "verified" : "escrow_amount_mismatch", amount_base_units: amount.toString() };
+    const expiry = BigInt("0x" + data.slice(66, 130));
+    const stakeRequired = BigInt("0x" + data.slice(130, 194));
+    const stakeBps = BigInt("0x" + data.slice(194, 258));
+    const expectedExpiry = task.expiry_time ? BigInt(Math.floor(Date.parse(task.expiry_time) / 1000)) : -1n;
+    const matches = amount.toString() === task.reward_base_units &&
+      expiry === expectedExpiry && stakeRequired === BigInt(task.stake_required || 0) &&
+      stakeBps === BigInt(task.stake_bps || 0);
+    return { verified: matches, status: matches ? "verified" : "task_created_event_mismatch", amount_base_units: amount.toString() };
   }
   return { verified: false, status: "escrow_funded_event_not_found" };
 }
