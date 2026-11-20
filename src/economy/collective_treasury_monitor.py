@@ -56,6 +56,8 @@ class QuorumTreasuryReceiptSource:
     def _fingerprint(page: TransferPage) -> tuple:
         if not isinstance(page, TransferPage):
             raise ValueError("receipt source returned an invalid page")
+        if not isinstance(page.has_more, bool):
+            raise ValueError("receipt source must explicitly report whether more finalized blocks remain")
         ordered = tuple(sorted(
             page.transfers,
             key=lambda item: (item.tx_hash, item.transfer_ref),
