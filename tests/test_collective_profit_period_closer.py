@@ -62,6 +62,18 @@ class CollectiveProfitPeriodCloserTests(unittest.TestCase):
         self.assertEqual(again["status"], "completed")
         self.assertEqual(self.store.balance("master:owner", "base-sepolia", "USDC"), 4000)
 
+    def test_blocks_a_preexisting_period_close_with_non_50_percent_owner_share(self):
+        self.store.close_period(
+            "agent-a", "base-sepolia", "USDC", "2026-10",
+            reserve_bps=0, owner_share_bps=2500,
+        )
+        result = asyncio.run(self.closer.run_once(
+            network="base-sepolia", asset="USDC", period_id="2026-10",
+        ))
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["blocked"], 1)
+        self.assertIn("fixed 50%", result["results"][0]["reason"])
+
     def test_refuses_to_close_the_current_utc_month(self):
         current_period = datetime.now(timezone.utc).strftime("%Y-%m")
         with self.assertRaisesRegex(ValueError, "completed prior UTC month"):
