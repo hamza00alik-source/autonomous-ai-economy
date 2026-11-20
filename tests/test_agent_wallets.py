@@ -67,6 +67,12 @@ class LocalAgentWalletVaultTests(unittest.TestCase):
                 with self.assertRaises(WalletError):
                     self.vault.create_wallet(agent_id)
 
+    def test_database_permissions_are_owner_only(self):
+        import os
+        if os.name == "posix":
+            self.vault.create_wallet("agent-alpha")
+            self.assertEqual(self.db_path.stat().st_mode & 0o777, 0o600)
+
     def test_lookup_missing_wallet_returns_none(self):
         self.assertIsNone(self.vault.get_wallet("agent-alpha"))
 
