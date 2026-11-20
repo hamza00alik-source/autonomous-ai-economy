@@ -1,8 +1,10 @@
 """Independent-provider quorum wrapper for canonical EVM transfer verification."""
 from __future__ import annotations
 
+import asyncio
 from typing import Sequence
 
+from .agent_finance import VerifiedTransfer
 from .evm_rpc import EVMJSONRPCSource, EVMRPCError
 
 
@@ -76,3 +78,52 @@ class QuorumEVMVerifier:
         raise EVMRPCError(
             f"RPC providers disagree or are unavailable; votes={votes}, quorum={self.quorum}"
         ) from (errors[0] if errors else None)
+
+    def _verify_transfer_quorum(self, *, network: str, asset: str, tx_hash: str,
+                                source_address: str, destination_address: str,
+                                amount_minor: int) -> VerifiedTransfer:
+        votes: dict[tuple, list[VerifiedTransfer]] = {}
+        errors = []
+        for provider in self.providers:
+            try:
+                transfer = provider.verify_transfer(
+                    network=network, asset=asset, tx_hash=tx_hash,
+                    source_address=source_address,
+                    destination_address=destination_address,
+                    amount_minor=amount_minor,
+                )
+                if not isinstance(transfer, VerifiedTransfer) or transfer.verified is not True:
+                    raise EVMRPCError("provider returned invalid or unverified transfer evidence")
+                if (transfer.network != network or transfer.asset.upper() != asset.upper()
+                        or transfer.tx_hash.lower() != tx_hash.lower()
+                        or transfer.source.lower() != source_address.lower()
+                        or transfer.destination.lower() != destination_address.lower()
+                        or transfer.amount_minor != amount_minor):
+                    raise EVMRPCError("provider transfer evidence does not match requested payout")
+                fingerprint = (
+                    transfer.network, transfer.asset.upper(), transfer.tx_hash.lower(),
+                    transfer.transfer_ref, transfer.source.lower(),
+                    transfer.destination.lower(), transfer.amount_minor,
+                )
+                votes.setdefault(fingerprint, []).append(transfer)
+            except Exception as exc:
+                errors.append(exc)
+        winners = [items for items in votes.values() if len(items) >= self.quorum]
+        if len(winners) != 1:
+            raise EVMRPCError(
+                f"RPC providers did not reach transfer-verification quorum; "
+                f"matching votes={[len(items) for items in votes.values()]}, "
+                f"quorum={self.quorum}"
+            ) from (errors[0] if errors else None)
+        return max(winners[0], key=lambda item: item.confirmations)
+
+    async def verify_transfer(self, *, network: str, asset: str, tx_hash: str,
+                              source_address: str, destination_address: str,
+                              amount_minor: int) -> VerifiedTransfer:
+        """Verify an exact payout transfer on a strict majority of independent RPCs."""
+        return await asyncio.to_thread(
+            self._verify_transfer_quorum,
+            network=network, asset=asset, tx_hash=tx_hash,
+            source_address=source_address, destination_address=destination_address,
+            amount_minor=amount_minor,
+        )
