@@ -201,5 +201,30 @@ class OwnerOverflowSweepTests(unittest.TestCase):
         )["balanced"])
 
 
+    def test_owner_payout_address_changes_are_append_only_audited(self):
+        first = "0x" + "1" * 40
+        second = "0x" + "2" * 40
+        self.store.configure_owner_payout_address(
+            "base-sepolia", "USDC", first,
+            owner_principal_id="authenticated-owner-1", reason="initial owner address",
+        )
+        self.store.configure_owner_payout_address(
+            "base-sepolia", "USDC", second,
+            owner_principal_id="authenticated-owner-1", reason="owner rotated address",
+        )
+        with self.store._connect() as db:
+            rows = db.execute(
+                """SELECT previous_destination_address,new_destination_address,
+                          owner_principal_id,reason
+                   FROM treasury_owner_payout_audit ORDER BY audit_id"""
+            ).fetchall()
+        self.assertEqual(len(rows), 2)
+        self.assertIsNone(rows[0]["previous_destination_address"])
+        self.assertEqual(rows[0]["new_destination_address"], first)
+        self.assertEqual(rows[1]["previous_destination_address"], first)
+        self.assertEqual(rows[1]["new_destination_address"], second)
+        self.assertEqual(rows[1]["owner_principal_id"], "authenticated-owner-1")
+        self.assertEqual(rows[1]["reason"], "owner rotated address")
+
 if __name__ == "__main__":
     unittest.main()
