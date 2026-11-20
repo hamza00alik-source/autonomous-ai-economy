@@ -12,6 +12,7 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 identity = ["cryptography>=42"]
+wallet = ["eth-account>=0.13,<1", "cryptography>=42"]
 
 [project.scripts]
 economy = "economy.cli:main"
