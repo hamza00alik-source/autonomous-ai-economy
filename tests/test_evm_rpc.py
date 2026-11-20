@@ -90,6 +90,20 @@ class EVMRPCSourceTests(unittest.TestCase):
         self.assertEqual(log_filter["fromBlock"], "0x5a")
         self.assertEqual(log_filter["toBlock"], "0x69")
 
+    def test_reports_more_finalized_blocks_when_range_is_bounded(self):
+        config = EVMRPCConfig(
+            rpc_url="https://rpc.example.invalid", network="evm-testnet",
+            chain_id=1337, asset="USDC", token_contract=TOKEN,
+            start_block=90, max_block_range=5,
+        )
+        source = EVMJSONRPCSource(config, rpc_call=FakeRPC())
+        page = source.fetch_transfers(
+            network="evm-testnet", token_contract=TOKEN,
+            addresses=(AGENT,), cursor=None,
+        )
+        self.assertEqual(page.next_cursor, "95")
+        self.assertTrue(page.has_more)
+
     def test_reads_erc20_token_balance_with_chain_id_validation(self):
         rpc = FakeRPC()
         source = EVMJSONRPCSource(self.config, rpc_call=rpc)
