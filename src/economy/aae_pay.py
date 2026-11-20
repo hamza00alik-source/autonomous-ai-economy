@@ -181,11 +181,16 @@ class AaePay:
         lines = [
             {"account_id": "treasury:simulated-clearing", "direction": "debit",
              "amount_minor": gross, "reference": invoice_id},
-            {"account_id": "platform-fees:simulated", "direction": "credit",
-             "amount_minor": fee, "reference": invoice_id},
-            {"account_id": f"agent-payable:simulated:{invoice['agent_id']}",
-             "direction": "credit", "amount_minor": net, "reference": invoice_id},
         ]
+        if fee:
+            lines.append({
+                "account_id": "platform-fees:simulated", "direction": "credit",
+                "amount_minor": fee, "reference": invoice_id,
+            })
+        lines.append({
+            "account_id": f"agent-payable:simulated:{invoice['agent_id']}",
+            "direction": "credit", "amount_minor": net, "reference": invoice_id,
+        })
         journal_id = self.ledger.post(
             idempotency_key=f"aae-pay-reconcile:{invoice_id}",
             description=f"SIMULATED AAE Pay invoice reconciliation {invoice_id}",
