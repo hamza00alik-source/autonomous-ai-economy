@@ -105,6 +105,10 @@ class LocalAgentWalletVault:
         if not isinstance(agent_id, str) or not _AGENT_ID.fullmatch(agent_id):
             raise WalletError("valid agent ID is required")
         with self._connect() as db:
+            # Serialize competing creators before checking the unique agent row.
+            # This makes concurrent calls idempotent instead of leaking an
+            # IntegrityError when two workers race to create the same wallet.
+            db.execute("BEGIN IMMEDIATE")
             existing = db.execute(
                 "SELECT * FROM agent_wallets WHERE agent_id = ?", (agent_id,)
             ).fetchone()
