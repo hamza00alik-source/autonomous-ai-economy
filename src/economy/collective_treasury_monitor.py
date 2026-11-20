@@ -313,6 +313,8 @@ class CollectiveTreasuryReceiptMonitor:
         )
         if not isinstance(page, TransferPage):
             raise ValueError("receipt source returned an invalid page")
+        if not isinstance(page.has_more, bool):
+            raise ValueError("receipt source must explicitly report whether more finalized blocks remain")
         counts = {"fetched": len(page.transfers), "allocated": 0,
                   "unallocated": 0, "pending": 0, "orphaned": 0}
         for item in page.transfers:
