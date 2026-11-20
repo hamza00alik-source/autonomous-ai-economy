@@ -152,7 +152,10 @@ class CollectiveTreasuryAccountingRuntime:
                  worker: CollectiveTreasuryWorker, *,
                  network: str, asset: str,
                  owner_overflow_sweep_cycle: Callable[[], Awaitable[dict]] | None = None,
-                 owner_profit_payout_cycle: Callable[[], Awaitable[dict]] | None = None) -> None:
+                 owner_profit_payout_cycle: Callable[[], Awaitable[dict]] | None = None,
+                 profit_period_close_cycle: Callable[[], Awaitable[dict]] | None = None) -> None:
+        if profit_period_close_cycle is not None and owner_profit_payout_cycle is None:
+            raise ValueError("automatic profit-period closing requires the owner-profit payout worker")
         self.receipt_monitor = receipt_monitor
         self.reorg_guard, self.balance_check, self.worker = reorg_guard, balance_check, worker
         self.network, self.asset = network, asset.upper()
@@ -160,6 +163,7 @@ class CollectiveTreasuryAccountingRuntime:
         # payout address and the exact current period/idempotency keys.
         self.owner_overflow_sweep_cycle = owner_overflow_sweep_cycle
         self.owner_profit_payout_cycle = owner_profit_payout_cycle
+        self.profit_period_close_cycle = profit_period_close_cycle
 
     async def run_once(self, *, period_id: str, spend_limit: int = 25) -> dict:
         receipts = self.receipt_monitor.poll_once(
@@ -185,6 +189,22 @@ class CollectiveTreasuryAccountingRuntime:
             return {
                 "status": "payouts_blocked",
                 "reason": "treasury reorganization scan is incomplete; remaining receipts must be checked before spending",
+                "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                "spending": None,
+            }
+        receipt_pending = receipts.get("pending") if isinstance(receipts, dict) else None
+        receipt_orphaned = receipts.get("orphaned") if isinstance(receipts, dict) else None
+        if (not isinstance(receipts, dict)
+                or isinstance(receipt_pending, bool) or not isinstance(receipt_pending, int)
+                or receipt_pending < 0
+                or isinstance(receipt_orphaned, bool) or not isinstance(receipt_orphaned, int)
+                or receipt_orphaned < 0
+                or receipts.get("cursor_held") is not False
+                or receipts.get("has_more") is not False
+                or receipt_pending > 0 or receipt_orphaned > 0):
+            return {
+                "status": "payouts_blocked",
+                "reason": "treasury receipt intake is pending, orphaned, or has not scanned through finalized head",
                 "receipts": receipts, "reorgs": reorgs, "balances": balances,
                 "spending": None,
             }
@@ -224,6 +244,24 @@ class CollectiveTreasuryAccountingRuntime:
                     "owner_overflow": owner_overflow, "owner_profit": None, "spending": None,
                 }
 
+        profit_period_close = None
+        if self.profit_period_close_cycle is not None:
+            profit_period_close = await self.profit_period_close_cycle()
+            if (not isinstance(profit_period_close, dict)
+                    or profit_period_close.get("status") != "completed"
+                    or profit_period_close.get("uncertain", 0) != 0
+                    or profit_period_close.get("pending", 0) != 0
+                    or profit_period_close.get("blocked", 0) != 0
+                    or profit_period_close.get("failed", 0) != 0):
+                return {
+                    "status": "payouts_blocked",
+                    "reason": "profit-period close did not confirm every agent period cleanly closed",
+                    "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                    "profit_period_close": profit_period_close,
+                    "owner_overflow": owner_overflow, "owner_profit": None,
+                    "spending": None,
+                }
+
         owner_profit = None
         if self.owner_profit_payout_cycle is not None:
             owner_profit = await self.owner_profit_payout_cycle()
@@ -242,6 +280,7 @@ class CollectiveTreasuryAccountingRuntime:
                     "status": "payouts_blocked",
                     "reason": "owner profit payout did not confirm a clean completed/no-op result",
                     "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                    "profit_period_close": profit_period_close,
                     "owner_overflow": owner_overflow, "owner_profit": owner_profit,
                     "spending": None,
                 }
@@ -255,6 +294,7 @@ class CollectiveTreasuryAccountingRuntime:
                     "status": "payouts_blocked",
                     "reason": "treasury balance reconciliation after owner payouts is not fully healthy",
                     "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                    "profit_period_close": profit_period_close,
                     "owner_overflow": owner_overflow, "owner_profit": owner_profit,
                     "spending": None,
                 }
@@ -272,8 +312,9 @@ class CollectiveTreasuryAccountingRuntime:
         spending = await self.worker.run_once(limit=spend_limit)
         return {
             "status": "completed", "receipts": receipts, "reorgs": reorgs,
-            "balances": balances, "owner_overflow": owner_overflow,
-            "owner_profit": owner_profit, "spending": spending,
+            "balances": balances, "profit_period_close": profit_period_close,
+            "owner_overflow": owner_overflow, "owner_profit": owner_profit,
+            "spending": spending,
         }
 
     async def run_forever(self, *, interval_seconds: float = 30.0,
