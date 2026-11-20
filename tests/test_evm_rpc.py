@@ -199,6 +199,57 @@ class EVMRPCSourceTests(unittest.TestCase):
             source=CUSTOMER, destination=AGENT, amount_minor=123456,
         ))
 
+    def test_verify_transfer_returns_exact_finalized_receipt_evidence(self):
+        class ReceiptRPC(FakeRPC):
+            def __call__(self, method, params):
+                if method == "eth_getTransactionReceipt":
+                    return {
+                        "transactionHash": TX, "blockNumber": "0x64",
+                        "blockHash": BLOCK, "status": "0x1",
+                        "logs": [rpc_log()],
+                    }
+                return super().__call__(method, params)
+        source = EVMJSONRPCSource(self.config, rpc_call=ReceiptRPC())
+        transfer = source.verify_transfer(
+            network="evm-testnet", asset="USDC", tx_hash=TX,
+            source_address=CUSTOMER, destination_address=AGENT,
+            amount_minor=123456,
+        )
+        self.assertTrue(transfer.verified)
+        self.assertEqual(transfer.transfer_ref, "log:2")
+        self.assertEqual(transfer.source, CUSTOMER)
+        self.assertEqual(transfer.destination, AGENT)
+        self.assertEqual(transfer.amount_minor, 123456)
+        self.assertEqual(transfer.confirmations, 6)
+
+    def test_verify_transfer_rejects_unfinalized_or_wrong_amount(self):
+        class ReceiptRPC(FakeRPC):
+            def __init__(self, *, block_number="0x64"):
+                super().__init__()
+                self.block_number = block_number
+            def __call__(self, method, params):
+                if method == "eth_getTransactionReceipt":
+                    return {
+                        "transactionHash": TX, "blockNumber": self.block_number,
+                        "blockHash": BLOCK, "status": "0x1",
+                        "logs": [rpc_log()],
+                    }
+                return super().__call__(method, params)
+        source = EVMJSONRPCSource(self.config, rpc_call=ReceiptRPC(block_number="0x6a"))
+        with self.assertRaisesRegex(EVMRPCError, "not finalized"):
+            source.verify_transfer(
+                network="evm-testnet", asset="USDC", tx_hash=TX,
+                source_address=CUSTOMER, destination_address=AGENT,
+                amount_minor=123456,
+            )
+        source = EVMJSONRPCSource(self.config, rpc_call=ReceiptRPC())
+        with self.assertRaisesRegex(EVMRPCError, "exactly one matching"):
+            source.verify_transfer(
+                network="evm-testnet", asset="USDC", tx_hash=TX,
+                source_address=CUSTOMER, destination_address=AGENT,
+                amount_minor=123457,
+            )
+
     def test_missing_receipt_is_noncanonical(self):
         class MissingReceiptRPC(FakeRPC):
             def __call__(self, method, params):
