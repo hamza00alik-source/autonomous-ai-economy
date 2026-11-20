@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Callable
 from urllib.parse import urlparse
 
+from .agent_finance import VerifiedTransfer
 from .chain_monitor import ChainTransferObservation, TransferPage
 
 
@@ -207,6 +208,88 @@ class EVMJSONRPCSource:
             "blob_fee_wei": blob_fee,
             "total_fee_wei": execution_fee + l1_fee + blob_fee,
         }
+
+    def verify_transfer(self, *, network: str, asset: str, tx_hash: str,
+                        source_address: str, destination_address: str,
+                        amount_minor: int) -> VerifiedTransfer:
+        """Return exact finalized ERC-20 transfer evidence for a known tx hash."""
+        if network != self.config.network or asset.upper() != self.config.asset.upper():
+            raise ValueError("network or asset does not match EVM RPC configuration")
+        if not _HASH_RE.fullmatch(tx_hash):
+            raise ValueError("tx_hash must be a 32-byte EVM transaction hash")
+        if not _ADDRESS_RE.fullmatch(source_address) or not _ADDRESS_RE.fullmatch(destination_address):
+            raise ValueError("source and destination must be valid EVM addresses")
+        if isinstance(amount_minor, bool) or not isinstance(amount_minor, int) or amount_minor <= 0:
+            raise ValueError("amount_minor must be a positive integer")
+
+        actual_chain_id = self._quantity(self._rpc_call("eth_chainId", []), "chain ID")
+        if actual_chain_id != self.config.chain_id:
+            raise EVMRPCError(
+                f"RPC chain ID mismatch: expected {self.config.chain_id}, got {actual_chain_id}"
+            )
+        receipt = self._rpc_call("eth_getTransactionReceipt", [tx_hash])
+        if not isinstance(receipt, dict):
+            raise EVMRPCError("RPC could not return a transaction receipt")
+        receipt_tx = receipt.get("transactionHash")
+        if not isinstance(receipt_tx, str) or receipt_tx.lower() != tx_hash.lower():
+            raise EVMRPCError("receipt transaction hash does not match requested hash")
+        if receipt.get("status") not in ("0x1", "0x01"):
+            raise EVMRPCError("transaction receipt does not prove successful execution")
+        block_number = self._quantity(receipt.get("blockNumber"), "receipt block number")
+        block_hash = receipt.get("blockHash")
+        if not isinstance(block_hash, str) or not _HASH_RE.fullmatch(block_hash):
+            raise EVMRPCError("receipt has an invalid block hash")
+        canonical_block = self._rpc_block(hex(block_number))
+        canonical_hash = canonical_block.get("hash")
+        if not isinstance(canonical_hash, str) or not _HASH_RE.fullmatch(canonical_hash):
+            raise EVMRPCError("RPC returned invalid canonical block hash")
+        if canonical_hash.lower() != block_hash.lower():
+            raise EVMRPCError("receipt block is no longer canonical")
+        finalized_height = self.finalized_block_number()
+        if block_number > finalized_height:
+            raise EVMRPCError("owner payout transfer is not finalized")
+
+        logs = receipt.get("logs")
+        if not isinstance(logs, list):
+            raise EVMRPCError("receipt omitted its logs")
+        matches = []
+        for log in logs:
+            if not isinstance(log, dict):
+                raise EVMRPCError("receipt contains a malformed log")
+            if not isinstance(log.get("address"), str) or log["address"].lower() != self.config.token_contract.lower():
+                continue
+            topics = log.get("topics")
+            if not isinstance(topics, list) or not topics:
+                raise EVMRPCError("token receipt log omitted event topics")
+            if not isinstance(topics[0], str) or topics[0].lower() != TRANSFER_TOPIC:
+                continue
+            if (len(topics) != 3
+                    or any(not isinstance(topic, str)
+                           or not re.fullmatch(r"0x[0-9a-fA-F]{64}", topic)
+                           for topic in topics)):
+                raise EVMRPCError("ERC-20 Transfer log has malformed indexed topics")
+            source = "0x" + topics[1][-40:].lower()
+            destination = "0x" + topics[2][-40:].lower()
+            data = log.get("data")
+            if not isinstance(data, str) or not re.fullmatch(r"0x[0-9a-fA-F]{64}", data):
+                raise EVMRPCError("ERC-20 Transfer log has malformed amount data")
+            if (source == source_address.lower()
+                    and destination == destination_address.lower()
+                    and int(data, 16) == amount_minor
+                    and log.get("removed") is not True):
+                log_index = self._quantity(log.get("logIndex"), "receipt log index")
+                matches.append(log_index)
+        if len(matches) != 1:
+            raise EVMRPCError(
+                f"expected exactly one matching finalized USDC Transfer log; found {len(matches)}"
+            )
+        return VerifiedTransfer(
+            network=self.config.network, asset=self.config.asset.upper(),
+            tx_hash=tx_hash.lower(), transfer_ref=f"log:{matches[0]}",
+            destination=destination_address, amount_minor=amount_minor,
+            confirmations=max(1, finalized_height - block_number + 1),
+            verified=True, source=source_address,
+        )
 
     def is_transfer_canonical(
         self, *, network: str, token_contract: str, tx_hash: str,
