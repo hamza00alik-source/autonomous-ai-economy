@@ -1,5 +1,6 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
+import { pollTaskmarket, listTaskmarketWork } from "./taskmarket.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -756,6 +757,11 @@ export default {
       }
     }
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
+    if (url.pathname === "/v1/taskmarket/work" && request.method === "GET") {
+      const limit = Number(url.searchParams.get("limit") || 50);
+      const qualifiedOnly = url.searchParams.get("qualified_only") === "true";
+      return json(await listTaskmarketWork(env, limit, qualifiedOnly));
+    }
     if (url.pathname === "/v1/swarmmemo/work" && request.method === "GET") {
       const limit = Number(url.searchParams.get("limit") || 50);
       return json(await listSwarmMemoWork(env, limit));
@@ -779,6 +785,6 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env)]));
+    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env), pollTaskmarket(env)]));
   },
 };
