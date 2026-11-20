@@ -32,7 +32,7 @@ class FakeSource:
 
     def fetch_transfers(self, **kwargs):
         self.calls.append(kwargs)
-        return TransferPage(self.transfers, "120")
+        return TransferPage(self.transfers, "120", has_more=False)
 
 
 class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
