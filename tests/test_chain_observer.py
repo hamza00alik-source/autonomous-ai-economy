@@ -21,6 +21,11 @@ def topic_address(address):
     return "0x" + ("0" * 24) + address[2:].lower()
 
 
+def uint256_word(value):
+    """Encode an unsigned integer as a 32-byte ABI word."""
+    return "0x" + format(value, "064x")
+
+
 class FakeRPC:
     def __init__(self):
         self.chain_id = hex(CHAIN_ID)
@@ -35,7 +40,7 @@ class FakeRPC:
                 topic_address("0x" + "3" * 40),
                 topic_address(RECIPIENT),
             ],
-            "data": hex(AMOUNT),
+            "data": uint256_word(AMOUNT),
             "logIndex": "0x2",
         }]
         self.methods = []
@@ -118,7 +123,7 @@ class ReadOnlyEVMTransferObserverTests(unittest.TestCase):
             self.observer.verify_transfer(TX_HASH, self.expected)
 
     def test_rejects_wrong_amount(self):
-        self.rpc.logs[0]["data"] = hex(AMOUNT + 1)
+        self.rpc.logs[0]["data"] = uint256_word(AMOUNT + 1)
         with self.assertRaises(ChainObserverError):
             self.observer.verify_transfer(TX_HASH, self.expected)
 
