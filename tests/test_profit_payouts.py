@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -125,6 +126,24 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
         result = worker.process_pending()
         self.assertEqual(result[0]["status"], "pending")
         self.assertEqual(self.store.list_pending_distributions()[0]["status"], "pending_payout")
+
+
+    def test_runtime_callback_returns_clean_completed_envelope(self):
+        worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier())
+        result = asyncio.run(worker.runtime_callback())
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["paid"], 1)
+        self.assertEqual(result["pending"], 0)
+        self.assertEqual(result["blocked"], 0)
+
+    def test_runtime_callback_does_not_report_success_when_verification_is_pending(self):
+        worker = ProfitPayoutWorker(
+            self.store, FakeSigner(), FakeVerifier(verified=False)
+        )
+        result = asyncio.run(worker.runtime_callback())
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["paid"], 0)
+        self.assertEqual(result["pending"], 1)
 
 
 if __name__ == "__main__":
