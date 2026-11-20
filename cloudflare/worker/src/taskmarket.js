@@ -59,6 +59,7 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
   if (chainId !== CHAIN_ID) reasons.push("not_base_mainnet");
   if (row.status !== "open") reasons.push("not_open");
   if (row.mode !== "bounty") reasons.push("not_bounty");
+  if (!/^0x[0-9a-f]{40}$/i.test(String(row.requester || ""))) reasons.push("requester_address_missing");
   if (!/^[0-9]+$/.test(reward) || BigInt(reward || "0") < 1000000n) reasons.push("gross_reward_below_1_usdc");
   if (!/^[0-9]+$/.test(netReward) || BigInt(netReward || "0") < 1000000n) reasons.push("net_reward_below_1_usdc");
   if (row.stakeRequired === true || stakeBps > 0) reasons.push("deposit_or_stake_required");
