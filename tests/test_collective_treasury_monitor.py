@@ -69,6 +69,13 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         self.assertEqual(result["allocated"], 1)
         self.assertEqual(self.store.balance("agent:agent-a", "base-sepolia", "USDC"), 5000)
 
+    def test_receipt_source_without_explicit_scan_completeness_fails_closed(self):
+        self.source.fetch_transfers = lambda **kwargs: TransferPage((), "120")
+        with self.assertRaisesRegex(ValueError, "explicitly report"):
+            self.monitor.poll_once(
+                network="base-sepolia", asset="USDC", period_id="2026-11"
+            )
+
     def test_late_scanned_receipt_uses_utc_block_month_not_current_poll_month(self):
         self.intent("invoice:october")
         self.monitor.bind_payer("invoice:october", PAYER)
