@@ -483,4 +483,4 @@ class EVMJSONRPCSource:
             ))
 
         observations.sort(key=lambda item: (item.block_number, item.tx_hash, item.transfer_ref))
-        return TransferPage(tuple(observations), str(to_block + 1))
+        return TransferPage(tuple(observations), str(to_block + 1), has_more=to_block < finalized_number)
