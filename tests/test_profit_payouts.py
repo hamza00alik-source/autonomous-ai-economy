@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -90,7 +91,16 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
             "2026-11-19T12:00:00+00:00",
         )
         monitor.poll_once(period_id="p2")
-        worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier(amount=500))
+        with self.assertRaisesRegex(ValueError, "master payout is held"):
+            self.store.mark_owner_distribution_paid(
+                "agent", "base", "USDC", "p2",
+                transfer=VerifiedTransfer(
+                    "base", "USDC", "0xpayout-direct", "0", "0xMaster",
+                    500, 12, True, source="0xAgent",
+                ),
+            )
+        signer = FakeSigner()
+        worker = ProfitPayoutWorker(self.store, signer, FakeVerifier(amount=500))
         results = worker.process_pending()
         p2 = [item for item in results if item["period_key"].endswith(":p2")]
         self.assertEqual(p2[0]["status"], "blocked")
@@ -98,12 +108,62 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
             self.store.get_profit_period("agent", "base", "USDC", "p2")["status"],
             "pending_payout",
         )
+        # A closed-period reversal is booked in a later period, but that must
+        # not silently release the old, now-invalid master profit obligation.
+        self.store.record_reorg_adjustment(
+            "base", "0xchain-income", "log:1", adjustment_period_id="p3",
+            operator_id="operator-1", reason="Confirmed transfer reorg by independent review",
+            evidence_ref="case://reorg/chain-income", reviewed=True,
+        )
+        calls_before_retry = len(signer.calls)
+        after_adjustment = worker.process_pending()
+        p2_after = [item for item in after_adjustment if item["period_key"].endswith(":p2")]
+        self.assertEqual(p2_after[0]["status"], "blocked")
+        self.assertEqual(len(signer.calls), calls_before_retry)
 
     def test_wrong_amount_keeps_distribution_pending(self):
         worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier(amount=499))
         result = worker.process_pending()
         self.assertEqual(result[0]["status"], "pending")
         self.assertEqual(self.store.list_pending_distributions()[0]["status"], "pending_payout")
+
+
+    def test_runtime_callback_returns_clean_completed_envelope(self):
+        worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier())
+        result = asyncio.run(worker.runtime_callback())
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["paid"], 1)
+        self.assertEqual(result["pending"], 0)
+        self.assertEqual(result["blocked"], 0)
+
+    def test_runtime_callback_does_not_report_success_when_verification_is_pending(self):
+        worker = ProfitPayoutWorker(
+            self.store, FakeSigner(), FakeVerifier(verified=False)
+        )
+        result = asyncio.run(worker.runtime_callback())
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["paid"], 0)
+        self.assertEqual(result["pending"], 1)
+
+    def test_runtime_callback_detects_pending_backlog_after_clean_batch(self):
+        worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier())
+        # Simulate a clean batch of 50 already-verified payouts while a further
+        # durable obligation remains queued in the store.
+        worker.process_pending = lambda **kwargs: [
+            {"period_key": f"paid-{i}", "status": "paid"} for i in range(kwargs["limit"])
+        ]
+        result = asyncio.run(worker.runtime_callback(limit=50))
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["paid"], 50)
+        self.assertEqual(result["pending"], 1)
+        self.assertFalse(result["backlog"])
+
+    def test_runtime_callback_rejects_invalid_batch_limit(self):
+        worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier())
+        for invalid in (0, -1, 1000, True, 1.5):
+            with self.subTest(limit=invalid):
+                with self.assertRaises(ValueError):
+                    asyncio.run(worker.runtime_callback(limit=invalid))
 
 
 if __name__ == "__main__":
