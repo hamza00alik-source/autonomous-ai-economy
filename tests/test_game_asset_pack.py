@@ -46,6 +46,10 @@ def test_game_asset_pack_contains_real_glb_geometry(tmp_path):
         assert "godot/MOBAObjectiveProps.tscn" in names
         assert "project.godot" in names
         assert "listing-copy.md" in names
+        assert "README.md" in names
+        readme = archive.read("README.md").decode("utf-8")
+        assert "Ten original" in readme
+        assert "Arcane Ward Totem" in readme and "Rune Gate" in readme
         project = archive.read("project.godot").decode("utf-8")
         assert 'run/main_scene="res://godot/MOBAObjectiveProps.tscn"' in project
         assert 'renderer/rendering_method="gl_compatibility"' in project
