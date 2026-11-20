@@ -56,6 +56,7 @@ class ChainTransferObservation:
 class TransferPage:
     transfers: tuple[ChainTransferObservation, ...]
     next_cursor: str | None
+    has_more: bool = False
 
 
 class ChainTransferSource(Protocol):
