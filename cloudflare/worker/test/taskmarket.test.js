@@ -57,7 +57,7 @@ test("rejects missing escrow transaction without making a request", async () => 
 test("decodes the four-word TaskCreated event and verifies the escrow reward", async () => {
   const reward = "2000000";
   const word = (value) => BigInt(value).toString(16).padStart(64, "0");
-  const data = "0x" + word(reward) + word(Math.floor(Date.parse(eligible.expiryTime) / 1000)) + word(0) + word(0);
+  const data = "0x" + word(reward) + word(Math.ceil(Date.parse(eligible.expiryTime) / 1000)) + word(0) + word(0);
   const receipt = {
     transactionHash: tx, status: "0x1",
     logs: [{
@@ -68,6 +68,13 @@ test("decodes the four-word TaskCreated event and verifies the escrow reward", a
         "0x" + "0".repeat(56) + "626f756e"
       ],
       data
+    }, {
+      address: "0xddc6cc3e4d11c1f3527b867c7dad4ed9869c33f7",
+      topics: [
+        "0x201d660f753914e19eddd41fa59c8765f90e47e94e92d03ea727a9280636ed79",
+        id, "0x" + "0".repeat(24) + requester.slice(2)
+      ],
+      data: "0x" + word(reward) + word(0)
     }]
   };
   const fetchImpl = async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: receipt }), {
