@@ -110,6 +110,23 @@ class CollectiveOwnerProfitPayoutWorkerTests(unittest.TestCase):
         self.assertEqual(len(self.signer.calls), 1)
         self.assertEqual(len(self.verifier.calls), 2)
 
+    def test_ambiguous_signer_timeout_is_not_rebroadcast_without_hash_reconciliation(self):
+        class AmbiguousSigner:
+            def __init__(self):
+                self.calls = 0
+            async def transfer_usdc(self, **kwargs):
+                self.calls += 1
+                raise TimeoutError("provider timed out after possible broadcast")
+
+        signer = AmbiguousSigner()
+        worker = CollectiveOwnerProfitPayoutWorker(self.store, signer, self.verifier)
+        first = asyncio.run(worker.run_once(network="base-sepolia"))
+        second = asyncio.run(worker.run_once(network="base-sepolia"))
+        self.assertEqual(first["status"], "pending")
+        self.assertEqual(second["status"], "pending")
+        self.assertEqual(signer.calls, 1)
+        self.assertEqual(self.verifier.calls, [])
+
     def test_callback_does_not_report_success_while_more_periods_remain(self):
         self._create_period(
             "2026-12", 2000, "invoice:dec", "0x" + "2" * 64, "log:2",
