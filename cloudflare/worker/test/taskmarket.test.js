@@ -73,6 +73,6 @@ test("decodes the four-word TaskCreated event and verifies the escrow reward", a
   const fetchImpl = async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: receipt }), {
     status: 200, headers: { "content-type": "application/json" }
   });
-  const result = await verifyTaskmarketEscrow({ task_id: id, escrow_tx_hash: tx, reward_base_units: reward }, fetchImpl);
+  const result = await verifyTaskmarketEscrow({ ...normalizeTaskmarketTask(eligible), escrow_tx_hash: tx, reward_base_units: reward }, fetchImpl);
   assert.deepEqual(result, { verified: true, status: "verified", amount_base_units: reward });
 });
