@@ -417,16 +417,22 @@ class CollectiveTreasuryReceiptMonitor:
                     (result, network, item.tx_hash, item.transfer_ref, item.block_hash),
                 )
             counts[result] += 1
-        # Advance only after the whole page is ingested; failed pages replay safely.
-        with closing(self.store._connect()) as db:
-            db.execute(
-                """INSERT INTO treasury_receipt_monitor_cursors
-                   (network,asset,token_contract,cursor) VALUES(?,?,?,?)
-                   ON CONFLICT(network,asset,token_contract) DO UPDATE SET
-                   cursor=excluded.cursor,updated_at=CURRENT_TIMESTAMP""",
-                (network, asset.upper(), self.token_contract, page.next_cursor),
-            )
-        return {**counts, "next_cursor": page.next_cursor}
+        # Do not advance past an unfinalized observation. Some providers return
+        # only events after the supplied cursor; advancing here could permanently
+        # skip a deposit that becomes final on a later poll. Replaying the page is
+        # safe because receipt and monitor writes are idempotent.
+        cursor_held = counts["pending"] > 0
+        if not cursor_held:
+            with closing(self.store._connect()) as db:
+                db.execute(
+                    """INSERT INTO treasury_receipt_monitor_cursors
+                       (network,asset,token_contract,cursor) VALUES(?,?,?,?)
+                       ON CONFLICT(network,asset,token_contract) DO UPDATE SET
+                       cursor=excluded.cursor,updated_at=CURRENT_TIMESTAMP""",
+                    (network, asset.upper(), self.token_contract, page.next_cursor),
+                )
+        return {**counts, "next_cursor": cursor if cursor_held else page.next_cursor,
+                "cursor_held": cursor_held}
 
 
 __all__ = ["CollectiveTreasuryReceiptMonitor", "QuorumTreasuryReceiptSource", "TreasuryReceiptSource"]
