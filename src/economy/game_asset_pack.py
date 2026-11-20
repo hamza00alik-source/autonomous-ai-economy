@@ -418,6 +418,8 @@ These are low-poly static props, not rigged characters. They include no animatio
 All meshes are original procedural geometry created for this pack. The pack is not affiliated with Mobile Legends, Unity, Godot, or any game publisher.
 """
 
+    files.append(("README.md",readme.encode("utf-8")))
+
     license_text="""# License
 
 Original project-created 3D mesh assets. The purchaser may use and modify the assets in personal and commercial games and interactive projects. The assets may not be resold, redistributed, sublicensed, or shared as standalone source files or as a competing asset pack. No trademark or affiliation rights are granted. This is a draft license; confirm marketplace and local legal requirements before sale.
