@@ -306,6 +306,7 @@ class CollectiveTreasuryAccountingRuntime:
                 "status": "payouts_blocked",
                 "reason": "shared treasury remains above its configured holding cap",
                 "receipts": receipts, "reorgs": reorgs, "balances": balances,
+                "profit_period_close": profit_period_close,
                 "owner_overflow": owner_overflow, "owner_profit": owner_profit,
                 "spending": None,
             }
