@@ -42,9 +42,12 @@ async function fetchJson(url, init = {}, fetchImpl = fetch) {
 export function normalizeTaskmarketTask(row, now = Date.now()) {
   if (!row || typeof row !== "object" || Array.isArray(row) || !TASK_ID.test(row.id || "")) return null;
   const reward = String(row.reward ?? "");
-  const netReward = String(row.netReward ?? "");
   const description = bounded(row.description, 20000);
-  const escrow = row.escrow && typeof row.escrow === "object" ? row.escrow : {};
+  const platformFeeBps = Number.isInteger(Number(row.platformFeeBps)) ? Number(row.platformFeeBps) : 0;
+  const rewardIsInteger = /^[0-9]+$/.test(reward);
+  const gross = rewardIsInteger ? BigInt(reward) : 0n;
+  const fee = platformFeeBps >= 0 && platformFeeBps <= 10000 ? gross * BigInt(platformFeeBps) / 10000n : gross;
+  const netReward = (gross - fee).toString();
   const count = Number.isInteger(Number(row.submissionCount)) ? Number(row.submissionCount) : 999999;
   const stakeBps = Number.isInteger(Number(row.stakeBps)) ? Number(row.stakeBps) : 999999;
   const chainId = Number(row.chainId || 0);
@@ -56,9 +59,8 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
   if (!/^[0-9]+$/.test(reward) || BigInt(reward || "0") < 1000000n) reasons.push("gross_reward_below_1_usdc");
   if (!/^[0-9]+$/.test(netReward) || BigInt(netReward || "0") < 1000000n) reasons.push("net_reward_below_1_usdc");
   if (row.stakeRequired === true || stakeBps > 0) reasons.push("deposit_or_stake_required");
-  if (row.submissionWindowOpen !== true) reasons.push("submission_window_closed");
+  if (!expiry) reasons.push("expiry_missing");
   if (count >= 50) reasons.push("submission_fee_threshold_reached");
-  if (escrow.tracked !== true || String(escrow.booked ?? "") !== reward) reasons.push("escrow_not_tracked_or_amount_mismatch");
   if (!description || description.length < 120) reasons.push("insufficient_task_details");
   if (/split equally|share the full pool|first\s+\d+\s+(?:qualifying\s+)?agents|one award per|up to\s+\d+\s+(?:accepted|qualifying)/i.test(description)) reasons.push("split_reward_pool");
   if (/public (?:post|reply|conversation)|paid promotion|promotional post|social media|post on your own account/i.test(description)) reasons.push("public_promotion_required");
@@ -82,13 +84,13 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
     net_reward_base_units: netReward,
     net_reward_usdc: usdc(netReward),
     escrow_tx_hash: tx,
-    escrow_tracked: escrow.tracked === true ? 1 : 0,
-    escrow_booked_base_units: String(escrow.booked ?? ""),
+    escrow_tracked: 0,
+    escrow_booked_base_units: null,
     submission_count: count,
     stake_required: row.stakeRequired === true ? 1 : 0,
     stake_bps: stakeBps,
     platform_fee_bps: Number(row.platformFeeBps || 0),
-    submission_window_open: row.submissionWindowOpen === true ? 1 : 0,
+    submission_window_open: row.status === "open" && !!expiry && Date.parse(expiry) > now ? 1 : 0,
     expiry_time: expiry,
     requester: bounded(row.requester, 100),
     tags_json: JSON.stringify(Array.isArray(row.tags) ? row.tags.filter(x => typeof x === "string").slice(0, 20) : []),
@@ -109,12 +111,11 @@ export async function verifyTaskmarketEscrow(task, fetchImpl = fetch) {
   if (String(receipt.status || "").toLowerCase() !== "0x1") return { verified: false, status: "transaction_failed" };
   for (const log of Array.isArray(receipt.logs) ? receipt.logs : []) {
     const topics = Array.isArray(log?.topics) ? log.topics : [];
-    if (String(log?.address || "").toLowerCase() !== DIAMOND || String(topics[0] || "").toLowerCase() !== ESCROW_TOPIC || String(topics[1] || "").toLowerCase() !== task.task_id) continue;
+    if (String(log?.address || "").toLowerCase() !== DIAMOND || String(topics[0] || "").toLowerCase() !== ESCROW_TOPIC || String(topics[1] || "").toLowerCase() !== task.task_id || topics.length < 4) continue;
+    // TaskCreated has four non-indexed data words: reward, expiryTime, stakeRequired, stakeBps.
     const data = String(log.data || "");
-    if (!/^0x[0-9a-f]{128}$/i.test(data)) continue;
+    if (!/^0x[0-9a-f]{256}$/i.test(data)) continue;
     const amount = BigInt("0x" + data.slice(2, 66));
-    const component = BigInt("0x" + data.slice(66, 130));
-    if (component !== 0n) continue;
     return { verified: amount.toString() === task.reward_base_units, status: amount.toString() === task.reward_base_units ? "verified" : "escrow_amount_mismatch", amount_base_units: amount.toString() };
   }
   return { verified: false, status: "escrow_funded_event_not_found" };
@@ -131,12 +132,14 @@ export async function pollTaskmarket(env, fetchImpl = fetch) {
     for (const preview of candidates) {
       let task = preview;
       try {
-        const detail = await fetchJson(API + "/api/tasks/" + encodeURIComponent(preview.task_id) + "?chainId=8453", {}, fetchImpl);
+        const detail = await fetchJson(API + "/api/tasks/" + encodeURIComponent(preview.task_id), {}, fetchImpl);
         if (!detail || detail.id?.toLowerCase() !== preview.task_id) throw new Error("task detail ID mismatch");
         task = normalizeTaskmarketTask(detail) || preview;
         if (task.eligible && task.escrow_tx_hash) {
           const escrow = await verifyTaskmarketEscrow(task, fetchImpl);
           task.escrow_verified = escrow.verified ? 1 : 0;
+          task.escrow_tracked = escrow.verified ? 1 : 0;
+          task.escrow_booked_base_units = escrow.amount_base_units || null;
           task.escrow_verification_status = escrow.status;
           task.escrow_verified_amount_base_units = escrow.amount_base_units || null;
           if (!escrow.verified) {
@@ -145,6 +148,8 @@ export async function pollTaskmarket(env, fetchImpl = fetch) {
           }
         } else {
           task.escrow_verified = 0;
+          task.escrow_tracked = 0;
+          task.escrow_booked_base_units = null;
           task.escrow_verification_status = "not_eligible_for_receipt_check";
           task.escrow_verified_amount_base_units = null;
         }
