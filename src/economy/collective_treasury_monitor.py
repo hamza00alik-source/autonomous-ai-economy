@@ -60,7 +60,7 @@ class QuorumTreasuryReceiptSource:
             page.transfers,
             key=lambda item: (item.tx_hash, item.transfer_ref),
         ))
-        return page.next_cursor, ordered
+        return page.next_cursor, page.has_more, ordered
 
     def fetch_transfers(self, *, network: str, token_contract: str,
                         addresses: tuple[str, ...], cursor: str | None) -> TransferPage:
@@ -432,7 +432,7 @@ class CollectiveTreasuryReceiptMonitor:
                     (network, asset.upper(), self.token_contract, page.next_cursor),
                 )
         return {**counts, "next_cursor": cursor if cursor_held else page.next_cursor,
-                "cursor_held": cursor_held}
+                "cursor_held": cursor_held, "has_more": page.has_more}
 
 
 __all__ = ["CollectiveTreasuryReceiptMonitor", "QuorumTreasuryReceiptSource", "TreasuryReceiptSource"]
