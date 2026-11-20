@@ -40,6 +40,11 @@ class CollectiveProfitPeriodCloser:
                     agent_id, network, asset, period_id,
                     reserve_bps=0, owner_share_bps=5000,
                 )
+                expected_owner_share = int(close["net_profit_minor"]) * 5000 // 10_000
+                if int(close["owner_share_minor"]) != expected_owner_share:
+                    raise ValueError(
+                        "existing period close does not match the fixed 50% owner allocation"
+                    )
                 results.append({
                     "agent_id": agent_id, "period_id": period_id,
                     "status": "closed", "owner_share_minor": close["owner_share_minor"],
