@@ -29,6 +29,15 @@ test("computes net reward from the task's platform fee", () => {
   assert.equal(task.eligible, 1);
 });
 
+test("rejects percentage-split prize pools as less than a single-worker dollar", () => {
+  const task = normalizeTaskmarketTask({
+    ...eligible,
+    description: "Total reward: 1 USDC, split 50% / 30% / 20% between three best submissions."
+  });
+  assert.equal(task.eligible, 0);
+  assert.ok(task.qualification_reasons.includes("split_reward_pool"));
+});
+
 test("rejects deposits, low rewards, expired tasks and crowded tasks", () => {
   const task = normalizeTaskmarketTask({
     ...eligible, reward: "500000", stakeRequired: true,
