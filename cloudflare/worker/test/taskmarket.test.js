@@ -59,6 +59,12 @@ test("rejects deposits, low rewards, expired tasks and crowded tasks", () => {
   assert.ok(task.qualification_reasons.includes("submission_fee_threshold_reached"));
 });
 
+test("rejects tasks without a valid requester address", () => {
+  const task = normalizeTaskmarketTask({ ...eligible, requester: null });
+  assert.equal(task.eligible, 0);
+  assert.ok(task.qualification_reasons.includes("requester_address_missing"));
+});
+
 test("rejects wrong network, mode and malformed IDs", () => {
   assert.equal(normalizeTaskmarketTask({ ...eligible, chainId: 84532 }).eligible, 0);
   assert.equal(normalizeTaskmarketTask({ ...eligible, mode: "claim" }).eligible, 0);
