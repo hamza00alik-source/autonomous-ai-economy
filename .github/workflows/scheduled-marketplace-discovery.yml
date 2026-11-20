@@ -16,6 +16,9 @@ jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      AAE_WORKER_URL: ${{ secrets.AAE_WORKER_URL }}
+      AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,9 +43,6 @@ jobs:
           if-no-files-found: warn
       - name: Sync shortlist to private owner dashboard
         if: success() && env.AAE_WORKER_URL != '' && env.AAE_QUEUE_TOKEN != ''
-        env:
-          AAE_WORKER_URL: ${{ secrets.AAE_WORKER_URL }}
-          AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
         run: economy-revenue sync --limit 25
       - name: Explain dashboard sync skipped
         if: success() && (env.AAE_WORKER_URL == '' || env.AAE_QUEUE_TOKEN == '')
