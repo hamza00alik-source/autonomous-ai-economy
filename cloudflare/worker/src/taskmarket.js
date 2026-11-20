@@ -2,7 +2,8 @@ const API = "https://api.taskmarket.dev";
 const RPC = "https://mainnet.base.org";
 const CHAIN_ID = 8453;
 const DIAMOND = "0xddc6cc3e4d11c1f3527b867c7dad4ed9869c33f7";
-const ESCROW_TOPIC = "0xe0dc4072f8420c56e984e9c6eec7bad2e5616825f0d1ca581bd96ff3e8eec948";
+const TASK_CREATED_TOPIC = "0xe0dc4072f8420c56e984e9c6eec7bad2e5616825f0d1ca581bd96ff3e8eec948";
+const ESCROW_FUNDED_TOPIC = "0x201d660f753914e19eddd41fa59c8765f90e47e94e92d03ea727a9280636ed79";
 const MAX_BYTES = 3_000_000;
 const MAX_TASKS_PER_POLL = 20;
 const TASK_ID = /^0x[a-f0-9]{64}$/i;
@@ -43,6 +44,7 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
   if (!row || typeof row !== "object" || Array.isArray(row) || !TASK_ID.test(row.id || "")) return null;
   const reward = String(row.reward ?? "");
   const description = bounded(row.description, 20000);
+  const escrow = row.escrow && typeof row.escrow === "object" ? row.escrow : null;
   const platformFeeBps = Number.isInteger(Number(row.platformFeeBps)) ? Number(row.platformFeeBps) : 0;
   const rewardIsInteger = /^[0-9]+$/.test(reward);
   const gross = rewardIsInteger ? BigInt(reward) : 0n;
@@ -84,8 +86,8 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
     net_reward_base_units: netReward,
     net_reward_usdc: usdc(netReward),
     escrow_tx_hash: tx,
-    escrow_tracked: 0,
-    escrow_booked_base_units: null,
+    escrow_tracked: escrow?.tracked === true ? 1 : 0,
+    escrow_booked_base_units: escrow?.booked === undefined ? null : String(escrow.booked),
     submission_count: count,
     stake_required: row.stakeRequired === true ? 1 : 0,
     stake_bps: stakeBps,
@@ -109,26 +111,39 @@ export async function verifyTaskmarketEscrow(task, fetchImpl = fetch) {
   if (!receipt) return { verified: false, status: "receipt_not_found" };
   if (String(receipt.transactionHash || "").toLowerCase() !== task.escrow_tx_hash.toLowerCase()) return { verified: false, status: "receipt_hash_mismatch" };
   if (String(receipt.status || "").toLowerCase() !== "0x1") return { verified: false, status: "transaction_failed" };
+  let created = null;
+  let funded = null;
   for (const log of Array.isArray(receipt.logs) ? receipt.logs : []) {
     const topics = Array.isArray(log?.topics) ? log.topics : [];
-    if (String(log?.address || "").toLowerCase() !== DIAMOND || String(topics[0] || "").toLowerCase() !== ESCROW_TOPIC || String(topics[1] || "").toLowerCase() !== task.task_id || topics.length < 4) continue;
-    const requester = String(task.requester || "").toLowerCase();
-    const indexedRequester = String(topics[2] || "").toLowerCase();
-    if (/^0x[0-9a-f]{40}$/.test(requester) && indexedRequester !== "0x" + requester.slice(2).padStart(64, "0")) continue;
-    // TaskCreated has four non-indexed data words: reward, expiryTime, stakeRequired, stakeBps.
+    if (String(log?.address || "").toLowerCase() !== DIAMOND || String(topics[1] || "").toLowerCase() !== task.task_id) continue;
+    const topic = String(topics[0] || "").toLowerCase();
     const data = String(log.data || "");
-    if (!/^0x[0-9a-f]{256}$/i.test(data)) continue;
-    const amount = BigInt("0x" + data.slice(2, 66));
-    const expiry = BigInt("0x" + data.slice(66, 130));
-    const stakeRequired = BigInt("0x" + data.slice(130, 194));
-    const stakeBps = BigInt("0x" + data.slice(194, 258));
-    const expectedExpiry = task.expiry_time ? BigInt(Math.floor(Date.parse(task.expiry_time) / 1000)) : -1n;
-    const matches = amount.toString() === task.reward_base_units &&
-      expiry === expectedExpiry && stakeRequired === BigInt(task.stake_required || 0) &&
-      stakeBps === BigInt(task.stake_bps || 0);
-    return { verified: matches, status: matches ? "verified" : "task_created_event_mismatch", amount_base_units: amount.toString() };
+    if (topic === TASK_CREATED_TOPIC && topics.length >= 4 && /^0x[0-9a-f]{256}$/i.test(data)) {
+      const requester = String(task.requester || "").toLowerCase();
+      const indexedRequester = String(topics[2] || "").toLowerCase();
+      if (/^0x[0-9a-f]{40}$/.test(requester) && indexedRequester !== "0x" + requester.slice(2).padStart(64, "0")) continue;
+      created = {
+        amount: BigInt("0x" + data.slice(2, 66)),
+        expiry: BigInt("0x" + data.slice(66, 130)),
+        stakeRequired: BigInt("0x" + data.slice(130, 194)),
+        stakeBps: BigInt("0x" + data.slice(194, 258)),
+      };
+    }
+    if (topic === ESCROW_FUNDED_TOPIC && /^0x[0-9a-f]{128}$/i.test(data)) {
+      funded = {
+        amount: BigInt("0x" + data.slice(2, 66)),
+        component: BigInt("0x" + data.slice(66, 130)),
+      };
+    }
   }
-  return { verified: false, status: "escrow_funded_event_not_found" };
+  if (!created) return { verified: false, status: "task_created_event_not_found" };
+  if (!funded) return { verified: false, status: "escrow_funded_event_not_found" };
+  const expectedExpiry = task.expiry_time ? BigInt(Math.ceil(Date.parse(task.expiry_time) / 1000)) : -1n;
+  const matches = created.amount.toString() === task.reward_base_units &&
+    created.expiry === expectedExpiry && created.stakeRequired === BigInt(task.stake_required || 0) &&
+    created.stakeBps === BigInt(task.stake_bps || 0) &&
+    funded.amount.toString() === task.reward_base_units && funded.component === 0n;
+  return { verified: matches, status: matches ? "verified" : "task_or_escrow_event_mismatch", amount_base_units: funded.amount.toString() };
 }
 export async function pollTaskmarket(env, fetchImpl = fetch) {
   const now = new Date().toISOString();
@@ -145,6 +160,10 @@ export async function pollTaskmarket(env, fetchImpl = fetch) {
         const detail = await fetchJson(API + "/api/tasks/" + encodeURIComponent(preview.task_id), {}, fetchImpl);
         if (!detail || detail.id?.toLowerCase() !== preview.task_id) throw new Error("task detail ID mismatch");
         task = normalizeTaskmarketTask(detail) || preview;
+        if (task.escrow_tracked !== 1 || task.escrow_booked_base_units !== task.reward_base_units) {
+          task.eligible = 0;
+          task.qualification_reasons.push("taskmarket_escrow_record_mismatch");
+        }
         if (task.eligible && task.escrow_tx_hash) {
           const escrow = await verifyTaskmarketEscrow(task, fetchImpl);
           task.escrow_verified = escrow.verified ? 1 : 0;
