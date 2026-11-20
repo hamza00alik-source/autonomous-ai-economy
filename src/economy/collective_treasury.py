@@ -179,6 +179,16 @@ class CollectiveTreasuryStore:
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY(network, asset)
                 );
+                CREATE TABLE IF NOT EXISTS treasury_owner_payout_audit (
+                    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    network TEXT NOT NULL,
+                    asset TEXT NOT NULL,
+                    previous_destination_address TEXT,
+                    new_destination_address TEXT NOT NULL,
+                    owner_principal_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE TABLE IF NOT EXISTS treasury_owner_overflow_sweeps (
                     sweep_id TEXT PRIMARY KEY,
                     network TEXT NOT NULL,
@@ -697,6 +707,21 @@ class CollectiveTreasuryStore:
         if destination.lower() == wallet.address.lower():
             raise ValueError("owner payout destination must differ from the collective treasury address")
         with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            previous = db.execute(
+                """SELECT destination_address FROM treasury_owner_payout_config
+                   WHERE network=? AND asset=?""",
+                (network, asset),
+            ).fetchone()
+            db.execute(
+                """INSERT INTO treasury_owner_payout_audit
+                   (network,asset,previous_destination_address,new_destination_address,
+                    owner_principal_id,reason)
+                   VALUES(?,?,?,?,?,?)""",
+                (network, asset,
+                 previous["destination_address"] if previous else None,
+                 destination, principal, reason),
+            )
             db.execute(
                 """INSERT INTO treasury_owner_payout_config
                    (network,asset,destination_address,owner_principal_id,reason)
@@ -707,6 +732,7 @@ class CollectiveTreasuryStore:
                      reason=excluded.reason,updated_at=CURRENT_TIMESTAMP""",
                 (network, asset, destination, principal, reason),
             )
+            db.commit()
 
     def reserve_owner_overflow_sweep(self, network: str, asset: str, *,
                                      period_id: str, idempotency_key: str) -> dict | None:
