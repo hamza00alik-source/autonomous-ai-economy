@@ -145,6 +145,26 @@ class ProfitPayoutWorkerTests(unittest.TestCase):
         self.assertEqual(result["paid"], 0)
         self.assertEqual(result["pending"], 1)
 
+    def test_runtime_callback_detects_pending_backlog_after_clean_batch(self):
+        worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier())
+        # Simulate a clean batch of 50 already-verified payouts while a further
+        # durable obligation remains queued in the store.
+        worker.process_pending = lambda **kwargs: [
+            {"period_key": f"paid-{i}", "status": "paid"} for i in range(kwargs["limit"])
+        ]
+        result = asyncio.run(worker.runtime_callback(limit=50))
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["paid"], 50)
+        self.assertEqual(result["pending"], 1)
+        self.assertFalse(result["backlog"])
+
+    def test_runtime_callback_rejects_invalid_batch_limit(self):
+        worker = ProfitPayoutWorker(self.store, FakeSigner(), FakeVerifier())
+        for invalid in (0, -1, 1000, True, 1.5):
+            with self.subTest(limit=invalid):
+                with self.assertRaises(ValueError):
+                    asyncio.run(worker.runtime_callback(limit=invalid))
+
 
 if __name__ == "__main__":
     unittest.main()
