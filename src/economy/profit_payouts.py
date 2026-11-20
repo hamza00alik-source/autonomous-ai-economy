@@ -106,3 +106,29 @@ class ProfitPayoutWorker:
                 results.append({"period_key": period["period_key"], "status": "pending",
                                 "reason": str(exc)[:240]})
         return results
+
+    async def runtime_callback(self, *, limit: int = 50) -> dict:
+        """Return the fail-closed result envelope expected by Accounting runtime.
+
+        The worker itself is synchronous; this async adapter keeps the runtime
+        callback contract consistent with the overflow worker. It reports
+        completion only when every pending owner obligation was verified paid.
+        """
+        results = self.process_pending(limit=limit)
+        paid = sum(item.get("status") == "paid" for item in results)
+        blocked = sum(item.get("status") == "blocked" for item in results)
+        pending = sum(item.get("status") == "pending" for item in results)
+        unknown = len(results) - paid - blocked - pending
+        if blocked or unknown:
+            status = "blocked"
+        elif pending:
+            status = "pending"
+        else:
+            status = "completed"
+        return {
+            "status": status,
+            "paid": paid,
+            "pending": pending,
+            "blocked": blocked + unknown,
+            "results": results,
+        }
