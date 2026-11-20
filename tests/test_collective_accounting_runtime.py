@@ -128,7 +128,8 @@ class FakeReceiptMonitor:
 
     def poll_once(self, **kwargs):
         self.events.append("receipts")
-        return {"allocated": 0}
+        return {"allocated": 0, "pending": 0, "orphaned": 0,
+                "cursor_held": False, "has_more": False}
 
 
 class FakeReorgGuard:
