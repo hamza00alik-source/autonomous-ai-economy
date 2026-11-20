@@ -101,6 +101,15 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 0)
 
     def test_pending_transfer_holds_cursor_until_it_finalizes(self):
+        # Start from a previously committed cursor to prove a pending event
+        # cannot advance the durable checkpoint past its own page.
+        with self.store._connect() as db:
+            db.execute(
+                """INSERT INTO treasury_receipt_monitor_cursors
+                   (network,asset,token_contract,cursor)
+                   VALUES('base-sepolia','USDC',?,'90')""",
+                (TOKEN,),
+            )
         pending = observation(finalized=False)
         self.source.transfers = (pending,)
         first = self.monitor.poll_once(
@@ -108,7 +117,7 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         )
         self.assertEqual(first["pending"], 1)
         self.assertTrue(first["cursor_held"])
-        self.assertIsNone(first["next_cursor"])
+        self.assertEqual(first["next_cursor"], "90")
 
         # A provider that only returns events after its cursor must be queried
         # again from the same position so this deposit cannot be skipped.
@@ -116,8 +125,8 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         second = self.monitor.poll_once(
             network="base-sepolia", asset="USDC", period_id="2026-11"
         )
-        self.assertIsNone(self.source.calls[0]["cursor"])
-        self.assertIsNone(self.source.calls[1]["cursor"])
+        self.assertEqual(self.source.calls[0]["cursor"], "90")
+        self.assertEqual(self.source.calls[1]["cursor"], "90")
         self.assertEqual(second["allocated"], 0)
         self.assertEqual(second["unallocated"], 1)
         self.assertFalse(second["cursor_held"])
