@@ -27,6 +27,7 @@ class FakeRPC:
         self.latest = hex(120)
         self.status = "0x1"
         self.block_hash = BLOCK_HASH
+        self.receipt_available = True
         self.logs = [{
             "address": TOKEN,
             "topics": [
@@ -44,6 +45,8 @@ class FakeRPC:
         if method == "eth_chainId":
             return self.chain_id
         if method == "eth_getTransactionReceipt":
+            if not self.receipt_available:
+                return None
             return {
                 "transactionHash": TX_HASH,
                 "status": self.status,
@@ -99,6 +102,11 @@ class ReadOnlyEVMTransferObserverTests(unittest.TestCase):
         with self.assertRaises(ChainObserverError):
             self.observer.verify_transfer(TX_HASH, self.expected)
 
+    def test_rejects_unavailable_receipt(self):
+        self.rpc.receipt_available = False
+        with self.assertRaises(ChainObserverError):
+            self.observer.verify_transfer(TX_HASH, self.expected)
+
     def test_rejects_insufficient_confirmations(self):
         self.rpc.latest = "0x64"
         with self.assertRaises(ChainObserverError):
@@ -116,6 +124,13 @@ class ReadOnlyEVMTransferObserverTests(unittest.TestCase):
 
     def test_rejects_wrong_token_contract(self):
         self.rpc.logs[0]["address"] = "0x" + "4" * 40
+        with self.assertRaises(ChainObserverError):
+            self.observer.verify_transfer(TX_HASH, self.expected)
+
+    def test_rejects_multiple_matching_transfer_logs(self):
+        duplicate = dict(self.rpc.logs[0])
+        duplicate["logIndex"] = "0x3"
+        self.rpc.logs.append(duplicate)
         with self.assertRaises(ChainObserverError):
             self.observer.verify_transfer(TX_HASH, self.expected)
 
