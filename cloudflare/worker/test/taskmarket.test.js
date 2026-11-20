@@ -82,6 +82,7 @@ test("decodes the four-word TaskCreated event and verifies the escrow reward", a
   const reward = "2000000";
   const word = (value) => BigInt(value).toString(16).padStart(64, "0");
   const data = "0x" + word(reward) + word(Math.ceil(Date.parse(eligible.expiryTime) / 1000)) + word(0) + word(0);
+  // The indexed requester and bounty-mode topics are part of the independent on-chain check.
   const receipt = {
     transactionHash: tx, status: "0x1",
     logs: [{
