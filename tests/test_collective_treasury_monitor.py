@@ -100,6 +100,30 @@ class CollectiveTreasuryReceiptMonitorTests(unittest.TestCase):
         self.assertEqual(orphaned["orphaned"], 1)
         self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 0)
 
+    def test_pending_transfer_holds_cursor_until_it_finalizes(self):
+        pending = observation(finalized=False)
+        self.source.transfers = (pending,)
+        first = self.monitor.poll_once(
+            network="base-sepolia", asset="USDC", period_id="2026-11"
+        )
+        self.assertEqual(first["pending"], 1)
+        self.assertTrue(first["cursor_held"])
+        self.assertIsNone(first["next_cursor"])
+
+        # A provider that only returns events after its cursor must be queried
+        # again from the same position so this deposit cannot be skipped.
+        self.source.transfers = (observation(finalized=True),)
+        second = self.monitor.poll_once(
+            network="base-sepolia", asset="USDC", period_id="2026-11"
+        )
+        self.assertIsNone(self.source.calls[0]["cursor"])
+        self.assertIsNone(self.source.calls[1]["cursor"])
+        self.assertEqual(second["allocated"], 0)
+        self.assertEqual(second["unallocated"], 1)
+        self.assertFalse(second["cursor_held"])
+        self.assertEqual(second["next_cursor"], "120")
+        self.assertEqual(self.store.pool_balance("base-sepolia", "USDC"), 5000)
+
     def test_binding_cannot_be_changed_after_creation(self):
         self.intent()
         self.monitor.bind_payer("invoice:1", PAYER)
