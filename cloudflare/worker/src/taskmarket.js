@@ -66,7 +66,7 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
   if (count >= 50) reasons.push("submission_fee_threshold_reached");
   if (!description || description.length < 120) reasons.push("insufficient_task_details");
   if (/split equally|share the full pool|first\s+\d+\s+(?:qualifying\s+)?agents|one award per|up to\s+\d+\s+(?:accepted|qualifying)|split.{0,80}\b\d+\s*%|split.{0,80}\b\d+\s*\/\s*\d+/i.test(description)) reasons.push("split_reward_pool");
-  if (/public (?:post|reply|conversation)|paid promotion|promotional post|social media|post on your own account|\b(?:threads?|comments?)\b.{0,100}\b(?:on|under)\s+(?:X|Twitter|Reddit|Instagram|TikTok|Facebook|LinkedIn)\b/i.test(description)) reasons.push("public_promotion_required");
+  if (/public (?:post|reply|conversation)|paid promotion|promotional post|social media|post on your own account|\b(?:threads?|comments?)\b.{0,160}\b(?:X|Twitter|Reddit|Instagram|TikTok|Facebook|LinkedIn)\b/i.test(description)) reasons.push("public_promotion_required");
   if (/off-platform|paid off-platform|listing deposit|not a per-worker payout|BEP-?20|worker address.{0,40}sign/i.test(description)) reasons.push("off_platform_or_wallet_risk");
   if (expiry) {
     const parsed = Date.parse(expiry);
