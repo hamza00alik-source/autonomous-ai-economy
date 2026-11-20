@@ -1054,6 +1054,16 @@ class CollectiveTreasuryStore:
             )
             db.commit()
 
+    def list_agents(self, network: str, asset: str) -> list[str]:
+        """Return every registered agent for a pool, including disabled agents with balances."""
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                """SELECT agent_id FROM treasury_agents
+                   WHERE network=? AND asset=? ORDER BY agent_id""",
+                (network, asset.upper()),
+            ).fetchall()
+        return [row["agent_id"] for row in rows]
+
     def agent_wallet(self, agent_id: str, network: str, asset: str) -> dict:
         """Return the shared public address and an agent's uncapped accounting view."""
         asset = self._required(asset, "asset").upper()
