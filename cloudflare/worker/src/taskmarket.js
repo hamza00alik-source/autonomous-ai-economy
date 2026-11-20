@@ -4,6 +4,7 @@ const CHAIN_ID = 8453;
 const DIAMOND = "0xddc6cc3e4d11c1f3527b867c7dad4ed9869c33f7";
 const TASK_CREATED_TOPIC = "0xe0dc4072f8420c56e984e9c6eec7bad2e5616825f0d1ca581bd96ff3e8eec948";
 const ESCROW_FUNDED_TOPIC = "0x201d660f753914e19eddd41fa59c8765f90e47e94e92d03ea727a9280636ed79";
+const BOUNTY_MODE_TOPIC = "0xa81913a5" + "0".repeat(56);
 const MAX_BYTES = 3_000_000;
 const MAX_TASKS_PER_POLL = 20;
 const TASK_ID = /^0x[a-f0-9]{64}$/i;
@@ -65,7 +66,7 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
   if (count >= 50) reasons.push("submission_fee_threshold_reached");
   if (!description || description.length < 120) reasons.push("insufficient_task_details");
   if (/split equally|share the full pool|first\s+\d+\s+(?:qualifying\s+)?agents|one award per|up to\s+\d+\s+(?:accepted|qualifying)|split.{0,80}\b\d+\s*%|split.{0,80}\b\d+\s*\/\s*\d+/i.test(description)) reasons.push("split_reward_pool");
-  if (/public (?:post|reply|conversation)|paid promotion|promotional post|social media|post on your own account/i.test(description)) reasons.push("public_promotion_required");
+  if (/public (?:post|reply|conversation)|paid promotion|promotional post|social media|post on your own account|\\b(?:threads?|comments?)\\b.{0,100}\\b(?:on|under)\\s+(?:X|Twitter|Reddit|Instagram|TikTok|Facebook|LinkedIn)\\b/i.test(description)) reasons.push("public_promotion_required");
   if (/off-platform|paid off-platform|listing deposit|not a per-worker payout|BEP-?20|worker address.{0,40}sign/i.test(description)) reasons.push("off_platform_or_wallet_risk");
   if (expiry) {
     const parsed = Date.parse(expiry);
@@ -122,6 +123,7 @@ export async function verifyTaskmarketEscrow(task, fetchImpl = fetch) {
       const requester = String(task.requester || "").toLowerCase();
       const indexedRequester = String(topics[2] || "").toLowerCase();
       if (/^0x[0-9a-f]{40}$/.test(requester) && indexedRequester !== "0x" + requester.slice(2).padStart(64, "0")) continue;
+      if (String(topics[3] || "").toLowerCase() !== BOUNTY_MODE_TOPIC) continue;
       created = {
         amount: BigInt("0x" + data.slice(2, 66)),
         expiry: BigInt("0x" + data.slice(66, 130)),
