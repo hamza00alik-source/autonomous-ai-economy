@@ -75,6 +75,12 @@ Do not enable Base mainnet merely because unit tests pass. Require all of the fo
 - The complete wallet transaction inventory, native ETH gas funding, gas valuation source, backups, pause controls, incident response and recovery procedure are reviewed.
 - Mainnet is enabled only by a separately reviewed deployment change. The explicit CLI flag `--confirm-mainnet` is a final guard, not a substitute for this review.
 
+## Pending receipt pages and cursor safety
+
+The receipt monitor deliberately holds its durable provider cursor whenever a fetched page contains at least one non-finalized transfer. It re-fetches that same page on later cycles until every observation on it is finalized or otherwise safely handled. This prevents a provider with an exclusive `after-cursor` API from making a still-pending deposit disappear permanently after the cursor moves past it. Replayed finalized receipts are idempotent.
+
+This is a deliberate safety-over-throughput tradeoff: one transfer that remains pending indefinitely can hold up later receipt pages from that provider. The Accounting runtime should expose and alert on repeated `cursor_held=true` cycles and the age of the oldest pending observation. Operators must investigate provider finality, transaction replacement, and chain canonicality; they must not manually advance the cursor to clear a backlog. If a provider offers a separately queryable pending-event feed or inclusive block-range replay, a future adapter may use that capability to avoid head-of-line blocking while preserving durable recovery. Any such change must retain a regression test proving that a deposit which finalizes after the initial observation is still ingested exactly once.
+
 ## Current repository boundary
 
 Unit and integration tests use controlled fixtures; they do not prove that a real CDP wallet has been provisioned or that real Base Sepolia transactions have settled. A deployment operator must execute this runbook in the protected environment. No private keys or secret values should ever be sent to the assistant.
