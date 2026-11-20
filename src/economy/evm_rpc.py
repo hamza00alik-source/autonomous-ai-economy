@@ -213,11 +213,14 @@ class EVMJSONRPCSource:
                         source_address: str, destination_address: str,
                         amount_minor: int) -> VerifiedTransfer:
         """Return exact finalized ERC-20 transfer evidence for a known tx hash."""
-        if network != self.config.network or asset.upper() != self.config.asset.upper():
+        if (not isinstance(network, str) or not isinstance(asset, str)
+                or network != self.config.network or asset.upper() != self.config.asset.upper()):
             raise ValueError("network or asset does not match EVM RPC configuration")
-        if not _HASH_RE.fullmatch(tx_hash):
+        if not isinstance(tx_hash, str) or not _HASH_RE.fullmatch(tx_hash):
             raise ValueError("tx_hash must be a 32-byte EVM transaction hash")
-        if not _ADDRESS_RE.fullmatch(source_address) or not _ADDRESS_RE.fullmatch(destination_address):
+        if (not isinstance(source_address, str) or not _ADDRESS_RE.fullmatch(source_address)
+                or not isinstance(destination_address, str)
+                or not _ADDRESS_RE.fullmatch(destination_address)):
             raise ValueError("source and destination must be valid EVM addresses")
         if isinstance(amount_minor, bool) or not isinstance(amount_minor, int) or amount_minor <= 0:
             raise ValueError("amount_minor must be a positive integer")
@@ -258,6 +261,8 @@ class EVMJSONRPCSource:
                 raise EVMRPCError("receipt contains a malformed log")
             if not isinstance(log.get("address"), str) or log["address"].lower() != self.config.token_contract.lower():
                 continue
+            if "removed" in log and not isinstance(log["removed"], bool):
+                raise EVMRPCError("token receipt log removed flag must be boolean")
             topics = log.get("topics")
             if not isinstance(topics, list) or not topics:
                 raise EVMRPCError("token receipt log omitted event topics")
@@ -281,7 +286,7 @@ class EVMJSONRPCSource:
                 matches.append(log_index)
         if len(matches) != 1:
             raise EVMRPCError(
-                f"expected exactly one matching finalized USDC Transfer log; found {len(matches)}"
+                f"expected exactly one matching finalized ERC-20 Transfer log; found {len(matches)}"
             )
         return VerifiedTransfer(
             network=self.config.network, asset=self.config.asset.upper(),
