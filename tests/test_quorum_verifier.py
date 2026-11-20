@@ -1,6 +1,8 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
 
+from economy.agent_finance import VerifiedTransfer
 from economy.evm_rpc import EVMRPCError
 from economy.quorum_verifier import QuorumEVMVerifier
 
@@ -22,7 +24,57 @@ class FakeProvider:
         return self.canonical
 
 
+class FakePayoutProvider(FakeProvider):
+    def __init__(self, transfer=None, error=None):
+        super().__init__(error=error)
+        self.transfer = transfer
+
+    def verify_transfer(self, **kwargs):
+        if self.error:
+            raise self.error
+        return self.transfer
+
+
 class QuorumVerifierTests(unittest.TestCase):
+    def test_payout_transfer_requires_matching_independent_quorum(self):
+        tx = "0x" + "c" * 64
+        src = "0x" + "a" * 40
+        dst = "0x" + "b" * 40
+        good = VerifiedTransfer(
+            "base-sepolia", "USDC", tx, "log:4", dst, 2500, 12, True, source=src,
+        )
+        disagreement = VerifiedTransfer(
+            "base-sepolia", "USDC", tx, "log:5", dst, 2500, 12, True, source=src,
+        )
+        verifier = QuorumEVMVerifier([
+            FakePayoutProvider(good), FakePayoutProvider(good),
+            FakePayoutProvider(disagreement),
+        ])
+        result = asyncio.run(verifier.verify_transfer(
+            network="base-sepolia", asset="USDC", tx_hash=tx,
+            source_address=src, destination_address=dst, amount_minor=2500,
+        ))
+        self.assertEqual(result.transfer_ref, "log:4")
+
+    def test_payout_transfer_without_matching_quorum_fails_closed(self):
+        tx = "0x" + "c" * 64
+        src = "0x" + "a" * 40
+        dst = "0x" + "b" * 40
+        good = VerifiedTransfer(
+            "base-sepolia", "USDC", tx, "log:4", dst, 2500, 12, True, source=src,
+        )
+        bad = VerifiedTransfer(
+            "base-sepolia", "USDC", tx, "log:4", dst, 2499, 12, True, source=src,
+        )
+        verifier = QuorumEVMVerifier([
+            FakePayoutProvider(good), FakePayoutProvider(bad),
+        ])
+        with self.assertRaises(EVMRPCError):
+            asyncio.run(verifier.verify_transfer(
+                network="base-sepolia", asset="USDC", tx_hash=tx,
+                source_address=src, destination_address=dst, amount_minor=2500,
+            ))
+
     def test_default_majority_quorum_and_height(self):
         verifier = QuorumEVMVerifier([
             FakeProvider(100), FakeProvider(95), FakeProvider(110),
