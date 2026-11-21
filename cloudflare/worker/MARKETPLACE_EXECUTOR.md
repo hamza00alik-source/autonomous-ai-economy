@@ -32,3 +32,13 @@ This Cloudflare Worker lane connects the existing read-only SwarmMemo and Taskma
 
 ## Deployment status
 The implementation is merged into `main` via PR #41. Production D1 schema is provisioned. Worker version `15` (`35da2e85-7f35-4dc8-bae4-4434a8683b84`) is deployed at 100% through deployment `79105284-e4bf-4d45-8fdb-03a9d928e80c`; existing secret bindings, AI, D1, rate limit, static assets, and the `*/5 * * * *` cron schedule were verified after deployment. The deployed script source was read back and confirmed to include the queue import, approval route, cron intake, and owner-approval gate. At the last D1 check, the execution queue still had zero rows; no AI draft generation, task claim, or submission has occurred.
+
+
+## External cash-bounty discovery
+- A read-only connector polls the public Agent Bounty Feed `/earn-now` endpoint every five minutes.
+- Fresh items with at least $1 USD-equivalent, a supported currency, a valid HTTPS source URL, and an unexpired deadline are stored in `aae_external_bounty_discoveries`.
+- The scanner rejects feed data older than six hours and items requiring KYC, stake, bond, purchase, or human-only participation.
+- Wallet requirements such as `wallet_evm` are recorded for human review; they do not authorize signing or spending.
+- Inspect candidates at authenticated `GET /v1/marketplace/discovered-bounties`.
+- Discovery candidates are separate from the execution queue. They are not automatically sent to AI, claimed, or submitted.
+- The source feed is a third-party aggregator. Its own verification and reward estimates are leads, not payment guarantees; re-check the original bounty's terms, remaining slots, deadlines, and payout before work.
