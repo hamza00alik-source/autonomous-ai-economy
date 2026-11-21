@@ -52,9 +52,10 @@ test("rejects social promotion, bonds, funding and stale tasks", () => {
     {...baseGig, id:"bond", content_text:"Claim this bounty by paying a refundable claim bond."},
     {...baseGig, id:"fund", content_text:"Create and fully fund a child bounty."},
     {...baseGig, id:"stale", date_modified:"2026-11-10T00:00:00.000Z"},
+    {...baseGig, id:"first-timer", _jobbi:{...baseGig._jobbi,extra:{first_timers_only:true}}},
   ] }, now);
   assert.equal(result.items.length, 0);
-  assert.equal(result.rejected, 4);
+  assert.equal(result.rejected, 5);
 });
 
 test("stores normalized candidates and records a successful feed run", async () => {
