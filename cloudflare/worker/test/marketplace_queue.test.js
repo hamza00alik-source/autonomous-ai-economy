@@ -2,11 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "../src/marketplace_queue.js";
 
-function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use." } = {}) {
+function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.", reviewerOutput = '{"pass":true,"issues":[],"reason":"The work meets the stated requirements."}' } = {}) {
   const jobs = [];
   let aiCall = 0;
   const env = {
-    AI: { run: async () => ({ response: aiCall++ % 2 === 0 ? aiOutput : '{"pass":true,"issues":[],"reason":"The work meets the stated requirements."}' }) },
+    AI: { run: async () => ({ response: aiCall++ % 2 === 0 ? aiOutput : reviewerOutput }) },
     DB: {
       prepare(sql) {
         let values = [];
@@ -40,7 +40,7 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft:
             const jobId = values[values.length - 1];
             const job = jobs.find(x => x.job_id === jobId);
             if (!job) return { meta: { changes: 0 } };
-            if (sql.includes("SET status=?")) { job.status = values[0]; job.result_text = values[1]; }
+            if (sql.includes("SET status=?")) { job.status = values[0]; job.result_text = values[1]; job.error = values[3] ?? null; }
             else if (sql.includes("status='failed'")) { job.status = "failed"; job.error = values[0]; }
             else if (sql.includes("status='blocked'")) job.status = "blocked";
             return { meta: { changes: 1 } };
@@ -127,5 +127,21 @@ test("queued task becomes a private draft automatically without external actions
   assert.equal(result.status, "draft_ready");
   assert.equal(result.externalActionsTaken, false);
   assert.equal(jobs[0].status, "draft_ready");
+  assert.match(jobs[0].result_text, /Documentation draft/);
+});
+
+test("failed independent QA is stored as blocked with its draft, not an invalid status", async () => {
+  const { env, jobs } = fakeEnv({
+    reviewerOutput: '{"pass":false,"issues":[],"reason":"The deliverable is not sufficiently supported."}',
+    taskmarket: [{
+      task_id: "0xqa", title: "Prepare documentation", description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain the steps, assumptions, expected results, and limitations, then provide a short checklist.",
+      eligible: 1, net_reward_usdc: "1.00", stake_required: 0,
+    }],
+  });
+  await enqueueMarketplaceTasks(env);
+  const result = await processOneMarketplaceDraft(env);
+  assert.equal(result.status, "blocked");
+  assert.equal(jobs[0].status, "blocked");
+  assert.match(jobs[0].error, /quality gate did not pass/);
   assert.match(jobs[0].result_text, /Documentation draft/);
 });
