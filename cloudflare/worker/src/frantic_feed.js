@@ -7,7 +7,7 @@ const BLOCKED_TEXT = /\b(reddit|twitter|tweet|\bx\.com|social media|thread|comme
 const TECHNICAL_WORK = /\b(pull request|github|repository|code|data|api|bug|test|docs|documentation|research|integration|yaml|schema)\b/i;
 
 function safeApiPath(value) {
-  return typeof value === "string" && /^\\/v1\\/bounties\\/\\d+$/.test(value) ? value : null;
+  return typeof value === "string" && /^\\/v1\\/bounties\\/(?:\\d+|p-[a-f0-9]+)$/.test(value) ? value : null;
 }
 
 async function readJson(response, maxBytes, label) {
