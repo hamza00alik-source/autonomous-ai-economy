@@ -17,7 +17,7 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft:
             return { results: [] };
           },
           async first() {
-            if (sql.includes("FROM aae_execution_jobs WHERE status='queued'")) return jobs.find(x => x.status === "queued" && x.owner_approved === 1) || null;
+            if (sql.includes("FROM aae_execution_jobs WHERE status='queued'")) return jobs.find(x => x.status === "queued") || null;
             return null;
           },
           async run() {
