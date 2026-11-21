@@ -41,7 +41,7 @@ export function assessTask(task, source = "unknown") {
   // Require a finite, strictly positive amount; unknown/credit-only rewards never qualify.
   const reward = task?.reward ?? task?.reward_usdc ?? task?.reward_amount ?? null;
   const rewardText = typeof reward === "number" ? String(reward) : typeof reward === "string" ? reward.trim() : "";
-  const rewardAmount = /^\\d+(?:\\.\\d{1,6})?$/.test(rewardText) ? Number(rewardText) : NaN;
+  const rewardAmount = /^\d+(?:\.\d{1,6})?$/.test(rewardText) ? Number(rewardText) : NaN;
   if (!Number.isFinite(rewardAmount) || rewardAmount <= 0) reasons.push("reward_not_positive_verified_usdc");
   const creditsOnly = task?.credits_only === true || (reward == null && task?.reward_credits != null);
   if (creditsOnly) reasons.push("non_cash_reward");
