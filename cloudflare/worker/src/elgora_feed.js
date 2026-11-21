@@ -31,7 +31,7 @@ export function normalizeElgoraList(payload, now = Date.now()) {
     const reward = amount / 1_000_000;
     const url = BASE_URL + "/bounties/" + id;
     items.push({
-      bounty_id: "elgora:" + id,
+      bounty_id: "elgora-api:" + id,
       title: "Elgora bounty #" + id,
       source_url: url,
       reward_usd: reward,
