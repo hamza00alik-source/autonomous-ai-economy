@@ -1,6 +1,7 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 import { pollTaskmarket, listTaskmarketWork } from "./taskmarket.js";
+import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "./marketplace_queue.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -757,6 +758,18 @@ export default {
       }
     }
     if (url.pathname === "/v1/status" && request.method === "GET") return status(env);
+    const marketplaceApproval = url.pathname.match(new RegExp("^/v1/marketplace/execution-jobs/([0-9a-f-]{36})/approve$", "i"));
+    if (marketplaceApproval && request.method === "POST") {
+      const now = new Date().toISOString();
+      const result = await env.DB.prepare("UPDATE aae_execution_jobs SET owner_approved=1,updated_at=? WHERE job_id=? AND status='queued' AND owner_approved=0").bind(now, marketplaceApproval[1]).run();
+      if (result.meta?.changes !== 1) return json({ error: "job not found, not queued, or already approved" }, 409);
+      return json({ approved: true, job_id: marketplaceApproval[1], notice: "Approval authorizes private AI draft generation only; no external task claim, submission, publication, message, signature, transfer, or spending." });
+    }
+    if (url.pathname === "/v1/marketplace/execution-jobs" && request.method === "GET") {
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 30)));
+      const rows = await env.DB.prepare("SELECT job_id,source,external_task_id,title,reward_text,status,owner_approved,eligibility_json,task_snapshot_json,result_text,error,created_at,updated_at FROM aae_execution_jobs ORDER BY created_at DESC LIMIT ?").bind(limit).all();
+      return json({ items: rows.results || [], notice: "Private draft queue only. No task claims, submissions, posts, messages, signatures, transfers, or spending." });
+    }
     if (url.pathname === "/v1/taskmarket/work" && request.method === "GET") {
       const limit = Number(url.searchParams.get("limit") || 50);
       const qualifiedOnly = url.searchParams.get("qualified_only") === "true";
@@ -785,6 +798,11 @@ export default {
     return json({ error: "not found" }, 404);
   },
   async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(Promise.allSettled([processOne(env), pollSwarmMemo(env), pollTaskmarket(env)]));
+    ctx.waitUntil((async () => {
+      await Promise.allSettled([pollSwarmMemo(env), pollTaskmarket(env)]);
+      await enqueueMarketplaceTasks(env);
+      await processOneMarketplaceDraft(env);
+      await processOne(env);
+    })());
   },
 };
