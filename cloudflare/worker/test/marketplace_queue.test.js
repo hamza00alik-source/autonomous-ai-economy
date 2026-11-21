@@ -74,6 +74,19 @@ test("unsafe or ineligible work is blocked and never sent to the model", async (
   assert.equal(processed.processed, false);
 });
 
+test("SwarmMemo credit-denominated rewards are blocked as non-cash", async () => {
+  const { env, jobs } = fakeEnv({ swarm: [{
+    task_id: "credits-123", title: "Research a public software topic",
+    task_text: "Research a public software topic and write a concise evidence-based summary with citations and limitations.",
+    reward_json: '{"amount":240,"unit":"credit","fee":1,"state":"held"}',
+    simulated: 0, eligible: 1,
+  }] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.blocked, 1);
+  assert.equal(jobs[0].status, "blocked");
+  assert.match(jobs[0].eligibility_json, /non_cash_reward/);
+});
+
 test("one queued task becomes a private draft without external actions", async () => {
   const { env, jobs } = fakeEnv({ taskmarket: [{
     task_id: "0xdef", title: "Prepare documentation", description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain the steps, assumptions, expected results, and limitations, then provide a short checklist.",
