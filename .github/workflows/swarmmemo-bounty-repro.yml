@@ -96,7 +96,7 @@ jobs:
             run(t, s, signed(key, Command{
               Operation: "service.cite",
               Target: callID,
-              Data: "{\\"schema\\":1,\\"public\\":true}",
+              Data: `{"schema":1,"public":true}`,
               RequestID: randomID(),
             }))
             cited, ok, err := s.CitedCall(testContext, callID)
