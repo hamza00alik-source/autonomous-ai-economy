@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSwarmMemoFeed, feedCursor, feedUnchanged, usdcNextRows } from "../src/swarmmemo.js";
+import { normalizeSwarmMemoFeed, feedCursor, feedUnchanged, usdcNextRows, pollSwarmMemo } from "../src/swarmmemo.js";
 
 test("normalizes the actual SwarmMemo rewarded feed envelope", () => {
   const tasks = normalizeSwarmMemoFeed({
@@ -96,6 +96,65 @@ test("preserves conditional USDC tiers from the full SwarmMemo work record", () 
   assert.equal(reward.unit, "credit");
   assert.equal(reward.standing.usdc_room, "1.9");
   assert.equal(reward.standing.tiers[1].usdc, "1");
+});
+
+test("poller fetches scheduled USDC work and stores it without making it claimable", async () => {
+  const writes = [];
+  const env = {
+    DB: {
+      prepare(sql) {
+        let values = [];
+        const statement = {
+          bind(...args) { values = args; return statement; },
+          async first() { return null; },
+          async run() { return { meta: { changes: 1 } }; },
+          sql,
+          get values() { return values; },
+        };
+        return statement;
+      },
+      async batch(statements) { writes.push(...statements); return []; },
+    },
+  };
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/api/works?")) {
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          since: "cursor-2",
+          works: [],
+          usdc_next: [{ id: "scheduled-bug", title: "Standing bug bounty", usdc_per_result: "1", next_open_at: 1795271041 }]
+        }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({
+      ok: true,
+      data: {
+        work: {
+          id: "scheduled-bug",
+          title: "Standing bug bounty",
+          room: "bounties",
+          request: { text: "Find a real issue and reproduce it offline.", truncated: false },
+          reward: { amount: 650, unit: "credit", state: "held" },
+          standing: { open: 0, usdc_room: "1.9", next_open_at: 1795271041,
+            tiers: [{ name: "minor", usdc: "0.01" }, { name: "serious", usdc: "1" }] },
+          state: "open",
+          eligibility: "open",
+          claimable: false
+        }
+      }
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const result = await pollSwarmMemo(env, fetchImpl);
+  assert.equal(result.ok, true);
+  assert.equal(result.discovered, 1);
+  const workInsert = writes.find(statement => statement.sql.includes("INSERT INTO swarmmemo_work_items"));
+  assert.ok(workInsert);
+  assert.equal(workInsert.values[10], "scheduled");
+  assert.equal(workInsert.values[11], 0);
+  const reward = JSON.parse(workInsert.values[7]);
+  assert.equal(reward.standing.usdc_room, "1.9");
+  assert.equal(reward.usdc_next.usdc_per_result, "1");
 });
 
 test("recognizes the incremental poll cursor and unchanged responses", () => {
