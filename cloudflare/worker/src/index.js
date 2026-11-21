@@ -3,6 +3,7 @@ import { createHostedSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_m
 import { pollTaskmarket, listTaskmarketWork } from "./taskmarket.js";
 import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "./marketplace_queue.js";
 import { syncExternalBountyFeed } from "./external_bounty_feed.js";
+import { syncJobbiFeed } from "./jobbi_feed.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -766,6 +767,11 @@ export default {
       if (result.meta?.changes !== 1) return json({ error: "job not found, not queued, or already approved" }, 409);
       return json({ approved: true, job_id: marketplaceApproval[1], notice: "Approval authorizes private AI draft generation only; no external task claim, submission, publication, message, signature, transfer, or spending." });
     }
+    if (url.pathname === "/v1/marketplace/jobbi-discoveries" && request.method === "GET") {
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 30)));
+      const rows = await env.DB.prepare("SELECT gig_id,board_source,title,source_url,reward_usd,currency,payment_rail,payment_state,payout_grade,acceptance_type,requirements_json,deadline,verified_at,feed_fetched_at,snapshot_json,first_seen_at,last_seen_at FROM aae_jobbi_discoveries ORDER BY reward_usd DESC,payout_grade ASC,last_seen_at DESC LIMIT ?").bind(limit).all();
+      return json({ items: rows.results || [], notice: "Read-only Jobbi index. Only fresh, escrowed USDC-on-Base agent tasks from higher-confidence boards are shown; source terms and payout eligibility must still be checked. No task is claimed or submitted." });
+    }
     if (url.pathname === "/v1/marketplace/bounty-feed-runs" && request.method === "GET") {
       const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 10)));
       const rows = await env.DB.prepare("SELECT run_id,status,fetched,stored,rejected,feed_generated_at,error,started_at,finished_at FROM aae_external_bounty_feed_runs ORDER BY started_at DESC LIMIT ?").bind(limit).all();
@@ -810,7 +816,7 @@ export default {
   },
   async scheduled(_controller, env, ctx) {
     ctx.waitUntil((async () => {
-      await Promise.allSettled([pollSwarmMemo(env), pollTaskmarket(env), syncExternalBountyFeed(env)]);
+      await Promise.allSettled([pollSwarmMemo(env), pollTaskmarket(env), syncExternalBountyFeed(env), syncJobbiFeed(env)]);
       await enqueueMarketplaceTasks(env);
       await processOneMarketplaceDraft(env);
       await processOne(env);
