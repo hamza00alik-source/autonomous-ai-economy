@@ -32,6 +32,22 @@ function workRows(payload) {
     : null;
 }
 
+export function usdcNextRows(payload) {
+  const rows = Array.isArray(payload?.usdc_next) ? payload.usdc_next
+    : Array.isArray(payload?.data?.usdc_next) ? payload.data.usdc_next : [];
+  return rows.flatMap((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return [];
+    const taskId = safeString(row.id || row.work_id, 128);
+    if (!taskId) return [];
+    return [{
+      task_id: taskId,
+      title: safeString(row.title, 300),
+      usdc_per_result: safeString(row.usdc_per_result, 40),
+      next_open_at: normalizeDeadline(row.next_open_at),
+    }];
+  });
+}
+
 export function normalizeSwarmMemoFeed(payload) {
   const rows = workRows(payload);
   if (!rows) throw new Error("SwarmMemo feed schema did not contain a works array");
@@ -47,8 +63,13 @@ export function normalizeSwarmMemoFeed(payload) {
       (typeof rawTaskText === "string" && rawTaskText.length > MAX_TASK_TEXT);
     const reward = row.reward && typeof row.reward === "object" ? row.reward : {};
     const standing = row.standing && typeof row.standing === "object" ? row.standing : null;
-    // Keep the existing reward fields intact while preserving conditional USDC tiers and room.
-    const rewardSnapshot = standing ? { ...reward, standing } : reward;
+    const usdcNext = row.usdc_next && typeof row.usdc_next === "object" ? row.usdc_next : null;
+    // Keep existing reward fields intact while preserving conditional USDC tiers, room and opening schedule.
+    const rewardSnapshot = {
+      ...reward,
+      ...(standing ? { standing } : {}),
+      ...(usdcNext ? { usdc_next: usdcNext } : {}),
+    };
     const requesterRecord = row.requester_record && typeof row.requester_record === "object"
       ? row.requester_record : null;
     return [{
@@ -122,18 +143,38 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
     const rows = unchanged ? [] : workRows(payload);
     if (!unchanged && !rows) throw new Error("SwarmMemo feed schema did not contain a works array");
     const normalized = normalizeSwarmMemoFeed({ works: rows || [] });
+    const previewById = new Map(normalized.map((preview) => [preview.task_id, preview]));
+    for (const scheduled of usdcNextRows(payload)) {
+      const existing = previewById.get(scheduled.task_id);
+      if (existing) existing.usdc_next = scheduled;
+      else previewById.set(scheduled.task_id, {
+        task_id: scheduled.task_id,
+        title: scheduled.title || "Scheduled USDC task",
+        task_text: "",
+        request_truncated: 1,
+        simulated: 0,
+        eligible: 0,
+        board_state: "scheduled",
+        eligibility_reason: "waiting_for_usdc_window",
+        usdc_next: scheduled,
+      });
+    }
     const hasMore = payload?.data?.has_more === true || payload?.has_more === true;
     const pageCursor = hasMore ? nextPageCursor(payload) : null;
-    const tasks = await Promise.all(normalized.map(async (preview) => {
+    const tasks = (await Promise.all([...previewById.values()].map(async (preview) => {
       try {
         const fetchedWork = await fetchFullWork(preview.task_id, fetchImpl);
+        const isScheduledUsdc = !!preview.usdc_next;
+        const fetchedClaimable = typeof fetchedWork.claimable === "boolean"
+          ? fetchedWork.claimable : (!isScheduledUsdc && preview.eligible === 1);
         const fullWork = {
           ...fetchedWork,
           id: fetchedWork.id || preview.task_id,
           simulated: typeof fetchedWork.simulated === "boolean" ? fetchedWork.simulated : preview.simulated === 1,
-          state: fetchedWork.state || preview.board_state,
+          state: isScheduledUsdc && !fetchedClaimable ? "scheduled" : fetchedWork.state || preview.board_state,
           eligibility: fetchedWork.eligibility || preview.eligibility_reason,
-          claimable: typeof fetchedWork.claimable === "boolean" ? fetchedWork.claimable : preview.eligible === 1,
+          claimable: fetchedClaimable,
+          ...(preview.usdc_next ? { usdc_next: preview.usdc_next } : {}),
           request: fetchedWork.request && typeof fetchedWork.request === "object"
             ? { ...fetchedWork.request, truncated: fetchedWork.request.truncated === true }
             : { text: preview.task_text, truncated: preview.request_truncated === 1 },
@@ -141,11 +182,12 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
         const fullRows = normalizeSwarmMemoFeed({ works: [fullWork] });
         if (fullRows.length && fullRows[0].request_truncated === 0) return fullRows[0];
       } catch {
-        // Keep the bounded feed preview, but mark it truncated so it cannot be approved.
+        // A scheduled USDC item without its full brief is skipped; never queue a title-only task.
       }
+      if (preview.usdc_next) return null;
       return { ...preview, request_truncated: 1, eligible: 0,
         eligibility_reason: "full_task_fetch_failed" };
-    }));
+    }))).filter(Boolean);
 
     const statements = tasks.map((task) => env.DB.prepare(
       `INSERT INTO swarmmemo_work_items
