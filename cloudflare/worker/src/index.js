@@ -675,8 +675,8 @@ export default {
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
     if (url.pathname === "/v1/swarmmemo/identity/status" && request.method === "GET") {
-      const identity = await env.DB.prepare("SELECT state,fingerprint,handle,created_at,updated_at,credentials_ciphertext FROM swarmmemo_identity_state WHERE id=1").first();
-      return json({ state: identity?.state || "not_created", fingerprint: identity?.fingerprint || null, handle: identity?.handle || null, created_at: identity?.created_at || null, encrypted_credentials_available: !!identity?.credentials_ciphertext });
+      const identity = await env.DB.prepare("SELECT state,fingerprint,handle,created_at,updated_at,credentials_ciphertext,last_error FROM swarmmemo_identity_state WHERE id=1").first();
+      return json({ state: identity?.state || "not_created", fingerprint: identity?.fingerprint || null, handle: identity?.handle || null, created_at: identity?.created_at || null, encrypted_credentials_available: !!identity?.credentials_ciphertext, last_error: identity?.last_error || null });
     }
     if (url.pathname === "/v1/swarmmemo/identity/bootstrap" && request.method === "POST") {
       const result = await ensureHostedSwarmMemoIdentity(env);
