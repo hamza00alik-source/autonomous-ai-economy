@@ -42,3 +42,11 @@ The implementation is merged into `main` via PR #41. Production D1 schema is pro
 - Inspect candidates at authenticated `GET /v1/marketplace/discovered-bounties`.
 - Discovery candidates are separate from the execution queue. They are not automatically sent to AI, claimed, or submitted.
 - The source feed is a third-party aggregator. Its own verification and reward estimates are leads, not payment guarantees; re-check the original bounty's terms, remaining slots, deadlines, and payout before work.
+
+
+## Bounty feed diagnostics and safety filters
+- Production Worker version 17 adds authenticated `GET /v1/marketplace/bounty-feed-runs` to show recent successful, skipped, or failed feed sync attempts, counts, feed timestamp and bounded error text.
+- Feed runs are recorded in `aae_external_bounty_feed_runs`; the table was applied to production before deployment.
+- The scanner rejects first-timer-only requirements and social-media engagement/promotion tasks in addition to KYC, stake, bond, purchase and human-only prerequisites.
+- Previously stored social/first-timer candidates were removed from the production discovery table.
+- The feed discovery table currently retains only the ElgoraHub security bounty lead. It requires an EVM wallet and a Foundry security proof; it is not automatically eligible for execution and is not a guaranteed payment.
