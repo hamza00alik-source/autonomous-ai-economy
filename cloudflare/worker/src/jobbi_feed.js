@@ -2,7 +2,7 @@ const FEED_URL = "https://jobbi.org/gigs.json?lane=agent&currency=USDC&min_rewar
 const MAX_FEED_BYTES = 1_000_000;
 const MAX_MODIFIED_AGE_MS = 7 * 24 * 60 * 60_000;
 const TRUSTED_GRADES = new Set(["A", "A-", "B+", "B"]);
-const BLOCKED_TEXT = /\b(reddit|twitter|tweet|\bx\.com|social media|thread|comment|reply|like|follow|influencer|kol|promotion|promote|claim bond|\bbond\b|\bstake\b|deposit|purchase|buy|fully fund|fund a child|child bounty|first[- ]timer|human[- ]only|macos|safari)\b/i;
+const BLOCKED_TEXT = /\b(reddit|twitter|tweet|\bx\.com|social media|thread|comment|reply|like|follow|influencer|kol|promotion|promote|claim bond|\bbond\b|\bstake\b|deposit|purchase|buy|fully fund|fund a child|child bounty|first[_ -]timer|human[_ -]only|macos|safari)\b/i;
 
 function safeHttpsUrl(value) {
   if (typeof value !== "string") return null;
@@ -29,7 +29,7 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
     const grade = String(meta?.payout_grade || "").toUpperCase();
     const modified = Date.parse(item?.date_modified || "");
     const url = safeHttpsUrl(item?.url);
-    const text = [item?.title, item?.content_text, ...(Array.isArray(item?.tags) ? item.tags : [])].filter(Boolean).join(" ");
+    const text = [item?.title, item?.content_text, meta?.acceptance, JSON.stringify(meta?.extra || {}), ...(Array.isArray(item?.tags) ? item.tags : [])].filter(Boolean).join(" ");
     const expires = meta?.expires ? Date.parse(meta.expires) : null;
     if (
       typeof item?.id !== "string" || !item.id.trim() ||
