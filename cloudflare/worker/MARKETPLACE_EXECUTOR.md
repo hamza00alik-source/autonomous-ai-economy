@@ -31,4 +31,4 @@ This Cloudflare Worker lane connects the existing read-only SwarmMemo and Taskma
 - `test/marketplace_executor.test.js` and `test/marketplace_queue.test.js`: unit and integration coverage.
 
 ## Deployment status
-The additive D1 schema is provisioned in production. GitHub integration remains on draft PR #41; the production Worker has not yet been updated. No marketplace jobs have been inserted and no AI draft generation has been run by this lane.
+The implementation is merged into `main` via PR #41. Production D1 schema is provisioned. Worker version `15` (`35da2e85-7f35-4dc8-bae4-4434a8683b84`) is deployed at 100% through deployment `79105284-e4bf-4d45-8fdb-03a9d928e80c`; existing secret bindings, AI, D1, rate limit, static assets, and the `*/5 * * * *` cron schedule were verified after deployment. The deployed script source was read back and confirmed to include the queue import, approval route, cron intake, and owner-approval gate. At the last D1 check, the execution queue still had zero rows; no AI draft generation, task claim, or submission has occurred.
