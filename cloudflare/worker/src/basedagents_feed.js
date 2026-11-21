@@ -53,6 +53,7 @@ export function normalizeBasedAgentsTask(row, now = Date.now()) {
   if (description.length < 160) reasons.push("task_description_too_short");
   if (status !== "open") reasons.push("not_open");
   if (!bounty || rewardAtomic == null || BigInt(rewardAtomic) < 100000n) reasons.push("missing_or_below_minimum_bounty_0_10_usdc");
+  if (row.claimable !== true) reasons.push("bounty_not_verified_claimable");
   if (!CASH_TOKENS.has(token)) reasons.push("not_usdc");
   if (!BASE_NETWORKS.has(network)) reasons.push("not_base_mainnet");
   if (SOCIAL_PATTERN.test(title + "\\n" + description)) reasons.push("social_or_engagement_task");
@@ -67,10 +68,11 @@ export function normalizeBasedAgentsTask(row, now = Date.now()) {
   const grossReward = rewardAtomic == null ? 0n : BigInt(rewardAtomic);
   const rewardUsdc = reward == null ? null : reward;
   const eligible = reasons.length === 0;
+  const daysRemaining = expiresAt ? (Date.parse(expiresAt) - now) / 86400000 : Infinity;
+  const deadlinePenalty = daysRemaining <= 1 ? 10 : daysRemaining <= 3 ? 3 : 0;
   const score = eligible
     ? Number(grossReward > 1000000000n ? 1000000000n : grossReward) / 1000000 +
-      (expectedOutput ? 4 : 0) + (capabilities.length ? 2 : 0) -
-      (expiresAt ? Math.max(0, Math.min(10, (Date.parse(expiresAt) - now) / 86400000 < 1 ? 10 : 0)) : 0)
+      (expectedOutput ? 4 : 0) + (capabilities.length ? 2 : 0) - deadlinePenalty
     : 0;
   return {
     source: "basedagents",
