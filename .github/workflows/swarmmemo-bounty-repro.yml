@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/swarmmemo-bounty-repro.trigger"
+      - "scripts/swarmmemo-cite-query-repro.trigger"
 
 permissions:
   contents: read
@@ -99,6 +100,76 @@ jobs:
         working-directory: /tmp/swarmmemo
         run: |
           go test ./internal/board -run '^TestAAEBountyMeaningfulHTTPStatusFalsePositive$' -count=1 -v
+
+
+      - name: Add an isolated cited-fetch privacy reproduction
+        run: |
+          cat > /tmp/swarmmemo/internal/board/aae_cite_query_repro_test.go <<'EOF'
+          package board
+
+          import (
+            "encoding/json"
+            "fmt"
+            "strings"
+            "testing"
+          )
+
+          // AAE offline reproduction: citing a successful fetch publishes its
+          // final URL as the history target, including sensitive query values.
+          func TestAAEBountyCitedFetchTargetExposesQuerySecret(t *testing.T) {
+            s := toolHistoryStore(t)
+            key := keyFor(177)
+            register(t, s, key)
+            account := keyID(key)
+            callID := fmt.Sprintf("%032x", 177)
+            secret := "AAE_TEST_QUERY_SECRET_DO_NOT_USE"
+            target := "https://example.test/private?token=" + secret
+            body, err := json.Marshal(map[string]any{
+              "url": target,
+              "final_url": target,
+              "status": 200,
+              "raw_sha256": strings.Repeat("a", 64),
+              "text_bytes": 42,
+              "text": "synthetic page body",
+            })
+            if err != nil {
+              t.Fatal(err)
+            }
+            seedHistoryCall(t, s, callID, account, "fetch", "page", string(body), testTime-100)
+
+            run(t, s, signed(key, Command{
+              Operation: "service.cite",
+              Target: callID,
+              Data: "{\"schema\":1,\"public\":true}",
+              RequestID: randomID(),
+            }))
+            cited, ok, err := s.CitedCall(testContext, callID)
+            if err != nil || !ok {
+              t.Fatalf("cited call: ok=%v err=%v", ok, err)
+            }
+            public, err := json.Marshal(cited)
+            if err != nil {
+              t.Fatal(err)
+            }
+            if !strings.Contains(string(public), secret) {
+              t.Fatalf("expected to reproduce query disclosure, got %s", public)
+            }
+            fmt.Printf("REPRODUCED: service.cite published the fetch target's token query value %q in /api/calls/%s; no fetch network request or production mutation was made\\n", secret, callID)
+          }
+          EOF
+
+      - name: Run the cited-fetch privacy reproduction
+        working-directory: /tmp/swarmmemo
+        run: |
+          go test ./internal/board -run '^TestAAEBountyCitedFetchTargetExposesQuerySecret
+        if: always()
+        run: |
+          {
+            echo "This is an offline test against the pinned upstream source commit."
+            echo "It uses test keys and an isolated test database; it does not contact or mutate production."
+            echo "A reproduced 409 demonstrates the checker conflates distinct numeric result values; bounty acceptance and tier remain the requester's decision."
+          } >> "$GITHUB_STEP_SUMMARY"
+ -count=1 -v
 
       - name: Record reproduction boundary
         if: always()
