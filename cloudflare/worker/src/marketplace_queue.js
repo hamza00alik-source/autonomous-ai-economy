@@ -89,6 +89,22 @@ export async function processOneMarketplaceDraft(env) {
   if (reserved.meta?.changes !== 1) return { processed: false, raced: true };
   try {
     const task = JSON.parse(row.task_snapshot_json);
+    // Reserve worst-case specialist + reviewer + one revision + final review usage
+    // against the same daily cap used by the product-copy lane.
+    const utcDay = new Date().toISOString().slice(0, 10);
+    const estimatedNeurons = 550;
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO ai_daily_budget (utc_day,reserved_neurons) VALUES (?,0)"
+    ).bind(utcDay).run();
+    const budget = await env.DB.prepare(
+      "UPDATE ai_daily_budget SET reserved_neurons=reserved_neurons+? WHERE utc_day=? AND reserved_neurons+?<=?"
+    ).bind(estimatedNeurons, utcDay, estimatedNeurons, 6500).run();
+    if (budget.meta?.changes !== 1) {
+      await env.DB.prepare(
+        "UPDATE aae_execution_jobs SET status='blocked',error=?,updated_at=? WHERE job_id=? AND status='running'"
+      ).bind("Shared daily Workers AI safety budget reached; no agent inference was made", new Date().toISOString(), row.job_id).run();
+      return { processed: true, status: "blocked_budget", job_id: row.job_id, estimated_neurons: estimatedNeurons };
+    }
     const draft = await executePrivateDraft(env, task, row.source);
     if (draft.status !== "draft_ready") {
       await env.DB.prepare(
