@@ -4,6 +4,7 @@ import { pollTaskmarket, listTaskmarketWork } from "./taskmarket.js";
 import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "./marketplace_queue.js";
 import { syncExternalBountyFeed } from "./external_bounty_feed.js";
 import { syncJobbiFeed } from "./jobbi_feed.js";
+import { syncElgoraList } from "./elgora_feed.js";
 import { syncFranticFeed } from "./frantic_feed.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
@@ -822,7 +823,7 @@ export default {
   },
   async scheduled(_controller, env, ctx) {
     ctx.waitUntil((async () => {
-      await Promise.allSettled([pollSwarmMemo(env), pollTaskmarket(env), syncExternalBountyFeed(env), syncJobbiFeed(env), syncFranticFeed(env)]);
+      await Promise.allSettled([pollSwarmMemo(env), pollTaskmarket(env), syncExternalBountyFeed(env), syncJobbiFeed(env), syncFranticFeed(env), syncElgoraList(env)]);
       await enqueueMarketplaceTasks(env);
       await processOneMarketplaceDraft(env);
       await processOne(env);
