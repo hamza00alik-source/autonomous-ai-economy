@@ -155,6 +155,6 @@ test("does not create a remote identity when the encryption secret is weak", asy
   );
   assert.equal(result.ready, false);
   assert.equal(result.state, "missing_or_weak_encryption_secret");
-  assert.equal(savedError, "missing_or_weak_encryption_secret");
+  assert.equal(savedError, "missing_or_weak_encryption_secret:length=5");
   assert.equal(fetchCalled, false);
 });
