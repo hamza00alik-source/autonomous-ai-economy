@@ -132,3 +132,15 @@ test("rejects weak encryption secret and malformed identity credentials", async 
     /credentials are unavailable/,
   );
 });
+
+test("does not create a remote identity when the encryption secret is weak", async () => {
+  const { ensureHostedSwarmMemoIdentity } = await import("../src/swarmmemo_mcp.js");
+  let fetchCalled = false;
+  const result = await ensureHostedSwarmMemoIdentity(
+    { AAE_QUEUE_TOKEN: "short" },
+    async () => { fetchCalled = true; throw new Error("must not create identity"); },
+  );
+  assert.equal(result.ready, false);
+  assert.equal(result.state, "missing_or_weak_encryption_secret");
+  assert.equal(fetchCalled, false);
+});
