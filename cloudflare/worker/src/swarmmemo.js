@@ -144,7 +144,22 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
     if (!unchanged && !rows) throw new Error("SwarmMemo feed schema did not contain a works array");
     const normalized = normalizeSwarmMemoFeed({ works: rows || [] });
     const previewById = new Map(normalized.map((preview) => [preview.task_id, preview]));
-    for (const scheduled of usdcNextRows(payload)) {
+    let schedulePayload = payload;
+    // Incremental "unchanged" responses omit usdc_next. Fetch an unconditioned
+    // snapshot so scheduled cash work is still discovered on quiet polling cycles.
+    if (unchanged && usdcNextRows(payload).length === 0) {
+      try {
+        const scheduleResponse = await fetchImpl(FEED_URL, {
+          method: "GET",
+          headers: { accept: "application/json", "user-agent": "AutonomousAIEconomy/0.1" },
+          signal: AbortSignal.timeout(12_000),
+        });
+        schedulePayload = await readJsonLimited(scheduleResponse);
+      } catch {
+        schedulePayload = payload;
+      }
+    }
+    for (const scheduled of usdcNextRows(schedulePayload)) {
       const existing = previewById.get(scheduled.task_id);
       if (existing) existing.usdc_next = scheduled;
       else previewById.set(scheduled.task_id, {
