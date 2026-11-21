@@ -114,15 +114,12 @@ test("SwarmMemo USDC tiers are rejected when the USDC cap has no room", async ()
   assert.match(jobs[0].eligibility_json, /non_cash_reward/);
 });
 
-test("one queued task becomes a private draft without external actions", async () => {
+test("queued task becomes a private draft automatically without external actions", async () => {
   const { env, jobs } = fakeEnv({ taskmarket: [{
     task_id: "0xdef", title: "Prepare documentation", description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain the steps, assumptions, expected results, and limitations, then provide a short checklist.",
     eligible: 1, net_reward_usdc: "1.00", stake_required: 0,
   }] });
   await enqueueMarketplaceTasks(env);
-  const beforeApproval = await processOneMarketplaceDraft(env);
-  assert.equal(beforeApproval.processed, false);
-  jobs[0].owner_approved = 1;
   const result = await processOneMarketplaceDraft(env);
   assert.equal(result.status, "draft_ready");
   assert.equal(result.externalActionsTaken, false);
