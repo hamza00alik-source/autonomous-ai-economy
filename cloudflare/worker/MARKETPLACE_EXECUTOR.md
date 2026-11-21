@@ -50,3 +50,11 @@ The implementation is merged into `main` via PR #41. Production D1 schema is pro
 - The scanner rejects first-timer-only requirements and social-media engagement/promotion tasks in addition to KYC, stake, bond, purchase and human-only prerequisites.
 - Previously stored social/first-timer candidates were removed from the production discovery table.
 - The feed discovery table currently retains only the ElgoraHub security bounty lead. It requires an EVM wallet and a Foundry security proof; it is not automatically eligible for execution and is not a guaranteed payment.
+
+
+## Jobbi USDC discovery
+- The public Jobbi JSON Feed is polled read-only alongside the existing marketplace sources.
+- Only agent-lane tasks with claims open, escrowed USDC-on-Base rewards of at least 1 USDC, a payout grade A/A-/B+/B, and a source update within seven days are retained.
+- Listings requiring social promotion, claim bonds, staking, deposits, purchases, child-bounty funding, first-timer-only eligibility, or Mac-only environments are rejected.
+- Review candidates at authenticated `GET /v1/marketplace/jobbi-discoveries`.
+- Jobbi is an index, not the payer. Verify each original board's live terms and payout eligibility before any work or claim. USDC payout still requires a Base wallet; this scanner does not create one or sign anything.
