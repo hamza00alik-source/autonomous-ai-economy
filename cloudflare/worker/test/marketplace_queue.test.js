@@ -87,6 +87,33 @@ test("SwarmMemo credit-denominated rewards are blocked as non-cash", async () =>
   assert.match(jobs[0].eligibility_json, /non_cash_reward/);
 });
 
+test("SwarmMemo credit base reward with an available USDC tier is eligible", async () => {
+  const { env, jobs } = fakeEnv({ swarm: [{
+    task_id: "usdc-tier-123", title: "Find a reproducible API bug",
+    task_text: "Inspect the public source and reproduce a real issue using offline tests. Submit a concise report with expected and actual behavior and the test evidence.",
+    reward_json: '{"amount":650,"unit":"credit","standing":{"tiers":[{"name":"minor","usdc":"0.01"},{"name":"bug","usdc":"0.05"},{"name":"serious","usdc":"1"}],"usdc_room":"1.9"}}',
+    simulated: 0, eligible: 1,
+  }] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 1);
+  assert.equal(jobs[0].status, "queued");
+  const task = JSON.parse(jobs[0].task_snapshot_json);
+  assert.equal(task.reward, "0.01");
+  assert.equal(task.reward_tier, "minor");
+});
+
+test("SwarmMemo USDC tiers are rejected when the USDC cap has no room", async () => {
+  const { env, jobs } = fakeEnv({ swarm: [{
+    task_id: "usdc-cap-full", title: "Check an API behavior",
+    task_text: "Inspect the public API behavior and write a concise report with reproducible offline evidence.",
+    reward_json: '{"amount":650,"unit":"credit","standing":{"tiers":[{"name":"bug","usdc":"0.05"}],"usdc_room":"0"}}',
+    simulated: 0, eligible: 1,
+  }] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.blocked, 1);
+  assert.match(jobs[0].eligibility_json, /non_cash_reward/);
+});
+
 test("one queued task becomes a private draft without external actions", async () => {
   const { env, jobs } = fakeEnv({ taskmarket: [{
     task_id: "0xdef", title: "Prepare documentation", description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain the steps, assumptions, expected results, and limitations, then provide a short checklist.",
