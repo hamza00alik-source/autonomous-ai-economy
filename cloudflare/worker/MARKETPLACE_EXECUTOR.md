@@ -78,3 +78,11 @@ The implementation is merged into `main` via PR #41. Production D1 schema is pro
 - ElgoraHub bounties #4 (20 USDC) and #5 (25 USDC) already have 10/10 submission slots used. They are not available to new Solvers.
 - Current AAE earnings remain $0.00. No task has been claimed or submitted; no execution job has been approved.
 - GitHub Actions for the Jobbi discovery PR passed 69/69 tests. Production D1 migration for Jobbi discoveries is applied and the Jobbi scanner is live.
+
+
+## Direct Elgora discovery
+- PR #46 merged after GitHub Actions passed 77/77 tests.
+- Production Worker version 20 is deployed at 100%; the existing five-minute cron and all prior bindings/secrets/assets are preserved.
+- Added a read-only poll of Elgora's public open-bounty API. It retains Base mainnet listings only when the escrow token is the official Base USDC contract, escrow is at least 1 USDC, the deadline is in the future, and fewer than 10 submissions are recorded.
+- The 10-submission limit is the default-cap assumption; the worker records this explicitly and requires a separate on-chain guard-override check before any future submission.
+- No wallet, claim, submission, signature, transfer, or spend is performed by this scanner.
