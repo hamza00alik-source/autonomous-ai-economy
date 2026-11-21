@@ -112,10 +112,11 @@ export async function processOneMarketplaceDraft(env) {
       ).bind(JSON.stringify({ eligible: false, reasons: draft.assessment?.reasons || ["screened_out"] }), new Date().toISOString(), row.job_id).run();
       return { processed: true, status: "blocked", job_id: row.job_id };
     }
-    const finalStatus = draft.submissionReady === true ? "draft_ready" : "needs_revision";
+    const finalStatus = draft.submissionReady === true ? "draft_ready" : "blocked";
+    const qaError = draft.submissionReady === true ? null : "Independent QA or deterministic quality gate did not pass";
     await env.DB.prepare(
-      "UPDATE aae_execution_jobs SET status=?,result_text=?,eligibility_json=?,updated_at=? WHERE job_id=? AND status='running'"
-    ).bind(finalStatus, draft.deliverable, JSON.stringify({ eligible: true, reasons: [], qa: draft.qa, submissionReady: draft.submissionReady === true }), new Date().toISOString(), row.job_id).run();
+      "UPDATE aae_execution_jobs SET status=?,result_text=?,eligibility_json=?,error=?,updated_at=? WHERE job_id=? AND status='running'"
+    ).bind(finalStatus, draft.deliverable, JSON.stringify({ eligible: true, reasons: [], qa: draft.qa, agentTeam: draft.agentTeam, revised: draft.revised, submissionReady: draft.submissionReady === true }), qaError, new Date().toISOString(), row.job_id).run();
     return { processed: true, status: finalStatus, job_id: row.job_id, externalActionsTaken: false };
   } catch (error) {
     await env.DB.prepare(
