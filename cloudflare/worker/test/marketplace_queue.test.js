@@ -17,14 +17,14 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Private draft" } = {
             return { results: [] };
           },
           async first() {
-            if (sql.includes("FROM aae_execution_jobs WHERE status='queued'")) return jobs.find(x => x.status === "queued") || null;
+            if (sql.includes("FROM aae_execution_jobs WHERE status='queued'")) return jobs.find(x => x.status === "queued" && x.owner_approved === 1) || null;
             return null;
           },
           async run() {
             if (sql.startsWith("INSERT OR IGNORE INTO aae_execution_jobs")) {
               const [job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at] = values;
               if (!jobs.some(x => x.source === source && x.external_task_id === external_task_id)) {
-                jobs.push({job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at});
+                jobs.push({job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,owner_approved:0,created_at,updated_at});
                 return { meta: { changes: 1 } };
               }
               return { meta: { changes: 0 } };
