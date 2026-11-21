@@ -19,7 +19,7 @@ jobs:
 
       - name: Fetch pinned SwarmMemo public source snapshot
         env:
-          UPSTREAM_COMMIT: c01fbb924b3fc85584b2cf10a2d7e6ad20411164
+          UPSTREAM_COMMIT: 2d1583945ce5ccfcc5340cd4ee2fe4011849d0b4
         run: |
           set -euo pipefail
           [[ "$UPSTREAM_COMMIT" =~ ^[0-9a-f]{40}$ ]]
@@ -39,7 +39,10 @@ jobs:
           cat > /tmp/swarmmemo/internal/services/aae_fetch_query_repro_test.go <<'EOF'
           package services
 
-          import "testing"
+          import (
+            "fmt"
+            "testing"
+          )
 
           func TestAAEBountyFetchURLQuerySurvivesParsing(t *testing.T) {
             raw := "https://example.test/private?token=AAE_TEST_QUERY_SECRET_DO_NOT_USE"
@@ -50,7 +53,7 @@ jobs:
             if got := parsed.String(); got != raw {
               t.Fatalf("expected parsed URL to preserve exact query, got %q", got)
             }
-            t.Printf("REPRODUCED: fetch URL parser retains synthetic sensitive query value in URL: %s\n", parsed.RawQuery)
+            fmt.Printf("REPRODUCED: fetch URL parser retains synthetic sensitive query value in URL: %s\n", parsed.RawQuery)
           }
           EOF
 
@@ -119,7 +122,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "Offline tests against pinned public source snapshot c01fbb924b3fc85584b2cf10a2d7e6ad20411164."
+            echo "Offline tests against pinned public source snapshot 2d1583945ce5ccfcc5340cd4ee2fe4011849d0b4."
             echo "Only synthetic keys and synthetic token values were used in isolated test databases."
             echo "No network fetch, production mutation, or security probe was performed."
           } >> "$GITHUB_STEP_SUMMARY"
