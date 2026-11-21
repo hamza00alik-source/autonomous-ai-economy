@@ -17,7 +17,7 @@ const base = {
 test("keeps only open Base USDC bounties with estimated free submission slots", () => {
   const result = normalizeElgoraList(base, now);
   assert.equal(result.items.length, 1);
-  assert.equal(result.items[0].bounty_id, "elgora:3");
+  assert.equal(result.items[0].bounty_id, "elgora-api:3");
   assert.equal(result.items[0].reward_usd, 36);
   assert.equal(result.items[0].currency, "USDC");
   assert.equal(result.items[0].requirements.remaining_slots_estimate, 3);
