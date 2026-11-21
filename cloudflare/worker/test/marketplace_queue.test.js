@@ -93,6 +93,9 @@ test("one queued task becomes a private draft without external actions", async (
     eligible: 1, net_reward_usdc: "1.00", stake_required: 0,
   }] });
   await enqueueMarketplaceTasks(env);
+  const beforeApproval = await processOneMarketplaceDraft(env);
+  assert.equal(beforeApproval.processed, false);
+  jobs[0].owner_approved = 1;
   const result = await processOneMarketplaceDraft(env);
   assert.equal(result.status, "draft_ready");
   assert.equal(result.externalActionsTaken, false);
