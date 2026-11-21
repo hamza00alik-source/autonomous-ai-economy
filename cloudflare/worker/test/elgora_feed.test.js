@@ -25,9 +25,10 @@ test("keeps only open Base USDC bounties with estimated free submission slots", 
 });
 
 test("rejects wrong chain/token, closed, expired, underfunded and full bounties", () => {
+  assert.equal(normalizeElgoraList({...base, chain_id:1}, now).reason, "invalid_elgora_list_shape");
   const result = normalizeElgoraList({
     ...base,
-    chain_id: 1,
+    chain_id: 8453,
     bounties: [
       {...base.bounties[0], status:"awarded"},
       {...base.bounties[0], submission_deadline:Math.floor(now/1000)-1},
