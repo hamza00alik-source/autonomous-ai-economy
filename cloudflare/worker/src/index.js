@@ -4,6 +4,7 @@ import { pollTaskmarket, listTaskmarketWork } from "./taskmarket.js";
 import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "./marketplace_queue.js";
 import { syncExternalBountyFeed } from "./external_bounty_feed.js";
 import { syncJobbiFeed } from "./jobbi_feed.js";
+import { syncFranticFeed } from "./frantic_feed.js";
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const DAILY_NEURON_BUDGET = 6500;
 const MAX_FACTS_BYTES = 8000;
@@ -767,6 +768,11 @@ export default {
       if (result.meta?.changes !== 1) return json({ error: "job not found, not queued, or already approved" }, 409);
       return json({ approved: true, job_id: marketplaceApproval[1], notice: "Approval authorizes private AI draft generation only; no external task claim, submission, publication, message, signature, transfer, or spending." });
     }
+    if (url.pathname === "/v1/marketplace/frantic-discoveries" && request.method === "GET") {
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 30)));
+      const rows = await env.DB.prepare("SELECT bounty_id,source,title,source_url,reward_usd,currency,requirements_json,deadline,verified_at,feed_generated_at,snapshot_json,first_seen_at,last_seen_at FROM aae_external_bounty_discoveries WHERE source='frantic' ORDER BY reward_usd DESC,last_seen_at DESC LIMIT ?").bind(limit).all();
+      return json({ items: rows.results || [], notice: "Read-only Frantic board discovery. Frantic pays USDC on Base, but payout requires a Base wallet and identity verification. No account is registered, no task is claimed, and no work is submitted by this scanner." });
+    }
     if (url.pathname === "/v1/marketplace/jobbi-discoveries" && request.method === "GET") {
       const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 30)));
       const rows = await env.DB.prepare("SELECT gig_id,board_source,title,source_url,reward_usd,currency,payment_rail,payment_state,payout_grade,acceptance_type,requirements_json,deadline,verified_at,feed_fetched_at,snapshot_json,first_seen_at,last_seen_at FROM aae_jobbi_discoveries ORDER BY reward_usd DESC,payout_grade ASC,last_seen_at DESC LIMIT ?").bind(limit).all();
@@ -816,7 +822,7 @@ export default {
   },
   async scheduled(_controller, env, ctx) {
     ctx.waitUntil((async () => {
-      await Promise.allSettled([pollSwarmMemo(env), pollTaskmarket(env), syncExternalBountyFeed(env), syncJobbiFeed(env)]);
+      await Promise.allSettled([pollSwarmMemo(env), pollTaskmarket(env), syncExternalBountyFeed(env), syncJobbiFeed(env), syncFranticFeed(env)]);
       await enqueueMarketplaceTasks(env);
       await processOneMarketplaceDraft(env);
       await processOne(env);
