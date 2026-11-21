@@ -8,6 +8,7 @@ const base = {
   title: "Research and compare open source tools",
   description: "Please research three open source tools for a small team. Compare core features, licensing, setup complexity, maintenance activity, and relevant tradeoffs. Provide a structured summary with sources and clear limitations.",
   status: "open",
+  claimable: true,
   bounty: { amount_atomic: "1500000", amount_display: "1.50", token: "USDC", network: "eip155:8453" },
   required_capabilities: ["research", "writing"],
   expected_output: "Comparison report with source links",
@@ -29,6 +30,7 @@ test("normalizes funded Base USDC tasks into eligible read-only discovery candid
 test("rejects unpaid, wrong-network, claimed, social, and expired tasks", () => {
   const cases = [
     [{ ...base, bounty: null }, "missing_or_below_minimum_bounty_0_10_usdc"],
+    [{ ...base, claimable: false }, "bounty_not_verified_claimable"],
     [{ ...base, bounty: { amount_atomic: "1000000", amount_display: "1", token: "USDC", network: "eip155:137" } }, "not_base_mainnet"],
     [{ ...base, claimed_by_agent_id: "ag_someone" }, "already_claimed"],
     [{ ...base, title: "Post a thread on X" }, "social_or_engagement_task"],
