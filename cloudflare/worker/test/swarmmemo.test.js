@@ -98,7 +98,7 @@ test("preserves conditional USDC tiers from the full SwarmMemo work record", () 
   assert.equal(reward.standing.tiers[1].usdc, "1");
 });
 
-test("poller fetches scheduled USDC work and stores it without making it claimable", async () => {
+test("poller refreshes scheduled USDC work on an unchanged incremental response", async () => {
   const writes = [];
   const env = {
     DB: {
@@ -116,8 +116,14 @@ test("poller fetches scheduled USDC work and stores it without making it claimab
       async batch(statements) { writes.push(...statements); return []; },
     },
   };
+  let feedCalls = 0;
   const fetchImpl = async (url) => {
     if (String(url).includes("/api/works?")) {
+      feedCalls += 1;
+      if (feedCalls === 1) {
+        return new Response(JSON.stringify({ ok: true, data: { unchanged: true, since: "cursor-2" } }),
+          { status: 200, headers: { "content-type": "application/json" } });
+      }
       return new Response(JSON.stringify({
         ok: true,
         data: {
@@ -146,6 +152,7 @@ test("poller fetches scheduled USDC work and stores it without making it claimab
     }), { status: 200, headers: { "content-type": "application/json" } });
   };
   const result = await pollSwarmMemo(env, fetchImpl);
+  assert.equal(feedCalls, 2);
   assert.equal(result.ok, true);
   assert.equal(result.discovered, 1);
   const workInsert = writes.find(statement => statement.sql.includes("INSERT INTO swarmmemo_work_items"));
