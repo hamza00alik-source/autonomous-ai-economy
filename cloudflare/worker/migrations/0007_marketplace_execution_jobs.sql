@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS aae_execution_jobs (
-  job_id TEXT PRIMARY PRIMARY KEY,
+  job_id TEXT PRIMARY KEY,
   source TEXT NOT NULL,
   external_task_id TEXT NOT NULL,
   title TEXT NOT NULL,
