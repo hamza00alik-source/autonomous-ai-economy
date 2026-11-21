@@ -1,11 +1,9 @@
-name: SwarmMemo offline bounty reproductions
+name: SwarmMemo offline cited-fetch privacy reproduction
 
 on:
   push:
     branches: [main]
     paths:
-      - "scripts/swarmmemo-bounty-repro.trigger"
-      - "scripts/swarmmemo-cite-query-repro.trigger"
       - "scripts/swarmmemo-cite-query-repro-retry.trigger"
 
 permissions:
@@ -19,16 +17,16 @@ jobs:
       - name: Check out AAE evidence harness
         uses: actions/checkout@v4
 
-      - name: Fetch pinned SwarmMemo source
+      - name: Fetch pinned SwarmMemo public source snapshot
         env:
-          UPSTREAM_COMMIT: 6382efc1d1eef87a7aa4bf3735d146b08b4c15fb
+          UPSTREAM_COMMIT: 454000fa75f06abc1af28d8ebea84214a41be120
         run: |
           set -euo pipefail
           [[ "$UPSTREAM_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           git clone --filter=blob:none https://github.com/Hugo0/swarmmemo.git /tmp/swarmmemo
           git -C /tmp/swarmmemo checkout --detach "$UPSTREAM_COMMIT"
-          printf 'UPSTREAM_COMMIT=%s\n' "$UPSTREAM_COMMIT" >> "$GITHUB_STEP_SUMMARY"
           git -C /tmp/swarmmemo rev-parse HEAD
+          printf 'Pinned source commit: %s\n' "$UPSTREAM_COMMIT" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install upstream Go version
         uses: actions/setup-go@v5
@@ -36,50 +34,31 @@ jobs:
           go-version: "1.27.0"
           cache: false
 
-      - name: Add offline duplicate-reply integration reproduction
+      - name: Add offline fetch URL parsing test
         run: |
-          cat > /tmp/swarmmemo/internal/board/aae_bounty_repro_test.go <<'EOF'
-          package board
+          cat > /tmp/swarmmemo/internal/services/aae_fetch_query_repro_test.go <<'EOF'
+          package services
 
-          import (
-            "errors"
-            "fmt"
-            "strings"
-            "testing"
-            "time"
-          )
+          import "testing"
 
-          func TestAAEBountyMeaningfulHTTPStatusFalsePositive(t *testing.T) {
-            s := openTest(t, Config{})
-            base := time.Unix(testTime, 0)
-            s.now = func() time.Time { return base }
-            asker, worker := keyFor(141), keyFor(142)
-            parent := postAs(t, s, asker, Command{Room: "bounties", Text: "Offline regression task", RequestID: "aae-task"})
-            common := strings.Repeat("The same public endpoint was requested with the same method and path. The response was parsed and the result was recorded. ", 3)
-            firstText := common + "Observed HTTP status: 404."
-            secondText := common + "Observed HTTP status: 500."
-            if len([]rune(firstText)) < ReplyRepeatMaskMinRunes || len([]rune(secondText)) < ReplyRepeatMaskMinRunes {
-              t.Fatal("messages must both activate long-reply masking")
+          func TestAAEBountyFetchURLQuerySurvivesParsing(t *testing.T) {
+            raw := "https://example.test/private?token=AAE_TEST_QUERY_SECRET_DO_NOT_USE"
+            parsed, err := parseFetchURL(raw)
+            if err != nil {
+              t.Fatalf("expected public HTTPS URL with query to be accepted: %v", err)
             }
-            postAs(t, s, worker, Command{Room: "bounties", ReplyTo: parent, Text: firstText, RequestID: "aae-first-result"})
-            s.now = func() time.Time { return base.Add(time.Minute) }
-            _, err := s.Execute(testContext, signed(worker, Command{
-              Operation: "post", Room: "bounties", ReplyTo: parent, Text: secondText,
-              RequestID: "aae-second-result", Timestamp: s.now().Unix(),
-            }), "test-origin")
-            var boardErr *Error
-            if !errors.As(err, &boardErr) || boardErr.Code != "duplicate_reply" || boardErr.Status != 409 {
-              t.Fatalf("expected 409 duplicate_reply for distinct HTTP statuses, got %v", err)
+            if got := parsed.String(); got != raw {
+              t.Fatalf("expected parsed URL to preserve exact query, got %q", got)
             }
-            fmt.Printf("REPRODUCED duplicate_reply: distinct HTTP 404 and 500 reports, same parent/account, 60 seconds apart\\n")
+            t.Printf("REPRODUCED: fetch URL parser retains synthetic sensitive query value in URL: %s\n", parsed.RawQuery)
           }
           EOF
 
-      - name: Run duplicate-reply reproduction against upstream package
+      - name: Run fetch URL parsing test against upstream
         working-directory: /tmp/swarmmemo
-        run: go test ./internal/board -run '^TestAAEBountyMeaningfulHTTPStatusFalsePositive$' -count=1 -v
+        run: go test ./internal/services -run '^TestAAEBountyFetchURLQuerySurvivesParsing$' -count=1 -v
 
-      - name: Add offline cited-fetch query disclosure reproduction
+      - name: Add offline cited-fetch history integration test
         run: |
           cat > /tmp/swarmmemo/internal/board/aae_cite_query_repro_test.go <<'EOF'
           package board
@@ -128,19 +107,19 @@ jobs:
             if !strings.Contains(string(public), secret) {
               t.Fatalf("expected query disclosure reproduction, got %s", public)
             }
-            fmt.Printf("REPRODUCED cited-fetch query disclosure: synthetic token %q appears in public /api/calls/%s\\n", secret, callID)
+            fmt.Printf("REPRODUCED: cited fetch target exposed synthetic query token %q in public /api/calls/%s\n", secret, callID)
           }
           EOF
 
-      - name: Run cited-fetch query disclosure reproduction against upstream package
+      - name: Run cited-fetch history integration test against upstream
         working-directory: /tmp/swarmmemo
         run: go test ./internal/board -run '^TestAAEBountyCitedFetchTargetExposesQuerySecret$' -count=1 -v
 
-      - name: Record offline test boundary
+      - name: Record test boundary
         if: always()
         run: |
           {
-            echo "Tests ran against pinned public source in an isolated local test database."
-            echo "Synthetic keys and a synthetic token only; no live fetch, production mutation, or security probe."
-            echo "Reproductions are evidence, not accepted bounty claims."
+            echo "Offline tests against pinned public source snapshot 454000fa75f06abc1af28d8ebea84214a41be120."
+            echo "Only synthetic keys and synthetic token values were used in isolated test databases."
+            echo "No network fetch, production mutation, or security probe was performed."
           } >> "$GITHUB_STEP_SUMMARY"
