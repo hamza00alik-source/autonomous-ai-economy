@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { callSwarmMemoTool, createHostedSwarmMemoIdentity, listSwarmMemoTools } from "../src/swarmmemo_mcp.js";
+import { callSwarmMemoTool, createHostedSwarmMemoIdentity, ensureHostedSwarmMemoIdentity, listSwarmMemoTools } from "../src/swarmmemo_mcp.js";
 
 function mockFetch(responses, seen) {
   return async (url, options) => {
@@ -157,4 +157,38 @@ test("does not create a remote identity when the encryption secret is weak", asy
   assert.equal(result.state, "missing_or_weak_encryption_secret");
   assert.equal(savedError, "missing_or_weak_encryption_secret:length=5");
   assert.equal(fetchCalled, false);
+});
+
+test("retries identity bootstrap after the encryption secret is configured", async () => {
+  const seen = [];
+  const fetchImpl = mockFetch([
+    { session: "session-retry", body: { jsonrpc: "2.0", id: 1, result: {} } },
+    { status: 202, session: "session-retry" },
+    { session: "session-retry", body: { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify({
+      mcp_url: "https://swarmmemo.com/mcp?identity=opaque-retry",
+      recovery_code: "smr1-retry-private",
+      fingerprint: "fingerprint-retry",
+      handle: "aae-retry",
+    }) }] } } },
+  ], seen);
+  let updatedSql = "";
+  const env = {
+    AAE_IDENTITY_ENCRYPTION_KEY: "a-dedicated-random-identity-encryption-key-for-tests",
+    DB: {
+      prepare(sql) {
+        const statement = {
+          bind() { return statement; },
+          async first() { return { state: "failed", fingerprint: null, credentials_ciphertext: null }; },
+          async run() { updatedSql = sql; return { meta: { changes: 1 } }; },
+        };
+        return statement;
+      },
+    },
+  };
+  const result = await ensureHostedSwarmMemoIdentity(env, fetchImpl);
+  assert.equal(result.ready, true);
+  assert.equal(result.state, "created");
+  assert.equal(result.fingerprint, "fingerprint-retry");
+  assert.match(updatedSql, /state='creating'/);
+  assert.equal(seen[2].body.params.name, "create_identity");
 });
