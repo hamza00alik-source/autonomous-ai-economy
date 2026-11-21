@@ -7,15 +7,28 @@ function parseJson(value) {
 
 function normalizeSwarmMemo(row) {
   const reward = parseJson(row.reward_json);
+  const standing = reward?.standing && typeof reward.standing === "object" ? reward.standing : null;
   const unit = String(reward?.unit || "").toLowerCase();
-  const rewardValue = unit === "usdc" ? reward?.amount : reward?.usdc ?? reward?.amount_usdc ?? reward?.cash_usdc ?? null;
+  const directValue = unit === "usdc" ? reward?.amount : reward?.usdc ?? reward?.amount_usdc ?? reward?.cash_usdc ?? null;
+  const parseUsdc = (value) => {
+    const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+    return /^\\d+(?:\\.\\d{1,6})?$/.test(text) ? Number(text) : NaN;
+  };
+  const room = parseUsdc(standing?.usdc_room);
+  const tiers = Array.isArray(standing?.tiers) ? standing.tiers : [];
+  const payableTier = tiers
+    .filter(tier => typeof tier?.name === "string" && Number.isFinite(parseUsdc(tier.usdc)) &&
+      parseUsdc(tier.usdc) > 0 && Number.isFinite(room) && room >= parseUsdc(tier.usdc))
+    .sort((a, b) => parseUsdc(a.usdc) - parseUsdc(b.usdc))[0] || null;
+  const rewardValue = directValue ?? payableTier?.usdc ?? null;
   return {
     task_id: row.task_id,
     title: row.title,
     description: row.task_text,
-    eligible: row.eligible === 1,
+    eligible: row.eligible === 1 && (directValue != null || !!payableTier),
     simulated: row.simulated === 1,
     reward: rewardValue,
+    reward_tier: payableTier?.name ?? null,
     credits_only: !!reward && rewardValue == null &&
       (unit === "credit" || unit === "credits" || reward.credits != null || reward.reward_credits != null || reward.type === "credits"),
   };
