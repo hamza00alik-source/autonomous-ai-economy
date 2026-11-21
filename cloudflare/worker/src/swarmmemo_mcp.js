@@ -233,10 +233,14 @@ export async function ensureHostedSwarmMemoIdentity(env, fetchImpl = fetch) {
     const credentials = await decryptIdentityCredentials(env.AAE_IDENTITY_ENCRYPTION_KEY, current);
     return { ready: true, state: "created", fingerprint: current.fingerprint, handle: current.handle, mcp_url: credentials.mcp_url };
   }
-  if (current) return { ready: false, state: current.state || "unknown" };
-  const reserved = await env.DB.prepare(
-    "INSERT OR IGNORE INTO swarmmemo_identity_state (id,state,updated_at) VALUES (1,'creating',?)"
-  ).bind(now).run();
+  if (current && current.state !== "failed") return { ready: false, state: current.state || "unknown" };
+  const reserved = current?.state === "failed"
+    ? await env.DB.prepare(
+        "UPDATE swarmmemo_identity_state SET state='creating',last_error=NULL,updated_at=? WHERE id=1 AND state='failed' AND fingerprint IS NULL AND credentials_ciphertext IS NULL"
+      ).bind(now).run()
+    : await env.DB.prepare(
+        "INSERT OR IGNORE INTO swarmmemo_identity_state (id,state,updated_at) VALUES (1,'creating',?)"
+      ).bind(now).run();
   if (reserved.meta?.changes !== 1) return { ready: false, state: "bootstrap_race" };
   try {
     const identity = await createHostedSwarmMemoIdentity(fetchImpl);
