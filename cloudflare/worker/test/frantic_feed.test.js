@@ -71,7 +71,7 @@ test("rejects a stale board candidate when the detail endpoint has no claim slot
 test("stores only after the detail endpoint confirms funded capacity", async () => {
   const calls = [];
   const env = { DB: { prepare(sql) {
-    return { bind(...values) { return { async run() { calls.push({sql,values}); return {meta:{changes:1}}; } }; };
+    return { bind(...values) { return { async run() { calls.push({sql,values}); return {meta:{changes:1}}; } }; } };
   } } };
   let count = 0;
   const result = await syncFranticFeed(env, async (url) => {
