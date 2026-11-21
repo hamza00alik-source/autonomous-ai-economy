@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeSwarmMemoFeed, feedCursor, feedUnchanged } from "../src/swarmmemo.js";
+import { normalizeSwarmMemoFeed, feedCursor, feedUnchanged, usdcNextRows } from "../src/swarmmemo.js";
 
 test("normalizes the actual SwarmMemo rewarded feed envelope", () => {
   const tasks = normalizeSwarmMemoFeed({
@@ -32,6 +32,45 @@ test("normalizes the actual SwarmMemo rewarded feed envelope", () => {
   assert.equal(tasks[0].deadline, new Date(1795942233 * 1000).toISOString());
   assert.deepEqual(JSON.parse(tasks[0].reward_json), { amount: 30, unit: "credit", fee: 1, state: "held" });
   assert.equal(tasks[0].requester_record_json.includes('"paid":10'), true);
+});
+
+test("extracts scheduled USDC tasks separately from the rewarded work list", () => {
+  const rows = usdcNextRows({
+    data: {
+      usdc_next: [
+        { id: "bug-bounty-1", title: "Standing bug bounty", usdc_per_result: "1", next_open_at: 1795271041 },
+        { id: "recheck-1", title: "Re-check a board entry", usdc_per_result: "0.05", next_open_at: 1795322881 },
+        { title: "Malformed entry" }
+      ]
+    }
+  });
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].task_id, "bug-bounty-1");
+  assert.equal(rows[0].usdc_per_result, "1");
+  assert.equal(rows[0].next_open_at, new Date(1795271041 * 1000).toISOString());
+});
+
+test("keeps scheduled USDC tasks non-claimable until the board opens them", () => {
+  const tasks = normalizeSwarmMemoFeed({
+    works: [{
+      id: "scheduled-1",
+      title: "Standing bug bounty",
+      room: "bounties",
+      request: { text: "Find a reproducible issue and provide a local test.", truncated: false },
+      reward: { amount: 650, unit: "credit", state: "held" },
+      standing: { open: 0, usdc_room: "1.9", next_open_at: 1795271041,
+        tiers: [{ name: "minor", usdc: "0.01" }, { name: "serious", usdc: "1" }] },
+      usdc_next: { task_id: "scheduled-1", usdc_per_result: "1", next_open_at: new Date(1795271041 * 1000).toISOString() },
+      state: "scheduled",
+      eligibility: "open",
+      claimable: false
+    }]
+  });
+  assert.equal(tasks[0].board_state, "scheduled");
+  assert.equal(tasks[0].eligible, 0);
+  const reward = JSON.parse(tasks[0].reward_json);
+  assert.equal(reward.standing.usdc_room, "1.9");
+  assert.equal(reward.usdc_next.usdc_per_result, "1");
 });
 
 test("preserves conditional USDC tiers from the full SwarmMemo work record", () => {
