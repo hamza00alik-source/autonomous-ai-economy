@@ -218,7 +218,7 @@ export async function getStoredSwarmMemoIdentity(env) {
 }
 
 export async function ensureHostedSwarmMemoIdentity(env, fetchImpl = fetch) {
-  if (!env.AAE_QUEUE_TOKEN) return { ready: false, state: "missing_encryption_secret" };
+  if (typeof env.AAE_QUEUE_TOKEN !== "string" || env.AAE_QUEUE_TOKEN.length < 32) return { ready: false, state: "missing_or_weak_encryption_secret" };
   const now = new Date().toISOString();
   const current = await env.DB.prepare(
     "SELECT state,fingerprint,handle,credentials_ciphertext,credentials_salt,credentials_iv FROM swarmmemo_identity_state WHERE id=1"
