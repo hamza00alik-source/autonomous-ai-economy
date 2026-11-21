@@ -31,7 +31,7 @@ export function normalizeBountyFeed(feed, now = Date.now()) {
     const url = safeSourceUrl(item?.url);
     const deadlineMs = item?.deadline ? Date.parse(item.deadline) : null;
     if (
-      item?.kind !== "bounty" ||
+      (item?.kind != null && item.kind !== "bounty") ||
       typeof item?.id !== "string" || !item.id.trim() ||
       typeof item?.title !== "string" || !item.title.trim() ||
       !url || !Number.isFinite(reward) || reward < 1 ||
