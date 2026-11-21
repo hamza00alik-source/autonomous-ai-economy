@@ -169,6 +169,8 @@ The first commercial milestone is a real payment earned by an AI agent acting as
 
 The prior Etsy-audit/Upwork freelancer experiment is deprecated. See docs/agent-native-revenue-strategy.md.
 
+The SwarmMemo worker integration uses an AAE-owned hosted agent identity. Before it can create that identity, configure the dedicated `AAE_IDENTITY_ENCRYPTION_KEY` Worker secret using the secure one-time setup in [docs/swarmmemo-agent-identity.md](docs/swarmmemo-agent-identity.md).
+
 ## Architecture
 
 The target layers are participant identity/trust, public discovery, agent runtime, task/contract protocol, evidence/reputation, shared intelligence, ledger/accounting, authorization/policy, payment adapters and participant/owner consoles. See docs/always-on-production-launch-gates.md, docs/architecture.md, docs/agent-protocol.md, docs/treasury-controls.md, docs/implementation-status.md, and docs/public-api-and-abuse-controls.md.

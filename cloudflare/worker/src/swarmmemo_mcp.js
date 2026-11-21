@@ -150,7 +150,7 @@ function base64ToBytes(value) {
 
 async function identityEncryptionKey(secret, salt) {
   if (typeof secret !== "string" || secret.length < 32) {
-    throw new Error("AAE_QUEUE_TOKEN must be configured with at least 32 characters to protect SwarmMemo identity credentials");
+    throw new Error("AAE_IDENTITY_ENCRYPTION_KEY must be configured with at least 32 characters to protect SwarmMemo identity credentials");
   }
   const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "HKDF", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
@@ -207,7 +207,7 @@ export async function getStoredSwarmMemoIdentity(env) {
     "SELECT state,fingerprint,handle,credentials_ciphertext,credentials_salt,credentials_iv FROM swarmmemo_identity_state WHERE id=1"
   ).first();
   if (!row || row.state !== "created") return { ready: false, state: row?.state || "not_created" };
-  const credentials = await decryptIdentityCredentials(env.AAE_QUEUE_TOKEN, row);
+  const credentials = await decryptIdentityCredentials(env.AAE_IDENTITY_ENCRYPTION_KEY, row);
   return {
     ready: true,
     fingerprint: row.fingerprint,
@@ -219,10 +219,10 @@ export async function getStoredSwarmMemoIdentity(env) {
 
 export async function ensureHostedSwarmMemoIdentity(env, fetchImpl = fetch) {
   const now = new Date().toISOString();
-  if (typeof env.AAE_QUEUE_TOKEN !== "string" || env.AAE_QUEUE_TOKEN.length < 32) {
+  if (typeof env.AAE_IDENTITY_ENCRYPTION_KEY !== "string" || env.AAE_IDENTITY_ENCRYPTION_KEY.length < 32) {
     await env.DB.prepare(
       "INSERT INTO swarmmemo_identity_state (id,state,updated_at,last_error) VALUES (1,'failed',?,?) ON CONFLICT(id) DO UPDATE SET state=CASE WHEN state='created' THEN state ELSE 'failed' END,last_error=CASE WHEN state='created' THEN last_error ELSE excluded.last_error END,updated_at=excluded.updated_at"
-    ).bind(now, "missing_or_weak_encryption_secret:length=" + String(env.AAE_QUEUE_TOKEN?.length || 0)).run();
+    ).bind(now, "missing_or_weak_encryption_secret:length=" + String(env.AAE_IDENTITY_ENCRYPTION_KEY?.length || 0)).run();
     return { ready: false, state: "missing_or_weak_encryption_secret" };
   }
   const current = await env.DB.prepare(
@@ -230,17 +230,21 @@ export async function ensureHostedSwarmMemoIdentity(env, fetchImpl = fetch) {
   ).first();
   if (current?.state === "created") {
     if (!current.credentials_ciphertext) return { ready: false, state: "created_without_encrypted_credentials" };
-    const credentials = await decryptIdentityCredentials(env.AAE_QUEUE_TOKEN, current);
+    const credentials = await decryptIdentityCredentials(env.AAE_IDENTITY_ENCRYPTION_KEY, current);
     return { ready: true, state: "created", fingerprint: current.fingerprint, handle: current.handle, mcp_url: credentials.mcp_url };
   }
-  if (current) return { ready: false, state: current.state || "unknown" };
-  const reserved = await env.DB.prepare(
-    "INSERT OR IGNORE INTO swarmmemo_identity_state (id,state,updated_at) VALUES (1,'creating',?)"
-  ).bind(now).run();
+  if (current && current.state !== "failed") return { ready: false, state: current.state || "unknown" };
+  const reserved = current?.state === "failed"
+    ? await env.DB.prepare(
+        "UPDATE swarmmemo_identity_state SET state='creating',last_error=NULL,updated_at=? WHERE id=1 AND state='failed' AND fingerprint IS NULL AND credentials_ciphertext IS NULL"
+      ).bind(now).run()
+    : await env.DB.prepare(
+        "INSERT OR IGNORE INTO swarmmemo_identity_state (id,state,updated_at) VALUES (1,'creating',?)"
+      ).bind(now).run();
   if (reserved.meta?.changes !== 1) return { ready: false, state: "bootstrap_race" };
   try {
     const identity = await createHostedSwarmMemoIdentity(fetchImpl);
-    const encrypted = await encryptIdentityCredentials(env.AAE_QUEUE_TOKEN, identity);
+    const encrypted = await encryptIdentityCredentials(env.AAE_IDENTITY_ENCRYPTION_KEY, identity);
     await env.DB.prepare(
       "UPDATE swarmmemo_identity_state SET state='created',fingerprint=?,handle=?,created_at=?,credentials_ciphertext=?,credentials_salt=?,credentials_iv=?,last_error=NULL,updated_at=? WHERE id=1 AND state='creating'"
     ).bind(identity.fingerprint, identity.handle, now, encrypted.credentials_ciphertext,

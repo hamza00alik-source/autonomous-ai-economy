@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { callSwarmMemoTool, createHostedSwarmMemoIdentity, listSwarmMemoTools } from "../src/swarmmemo_mcp.js";
+import { callSwarmMemoTool, createHostedSwarmMemoIdentity, ensureHostedSwarmMemoIdentity, listSwarmMemoTools } from "../src/swarmmemo_mcp.js";
 
 function mockFetch(responses, seen) {
   return async (url, options) => {
@@ -102,22 +102,22 @@ test("preserves assistant_mcp_url identity response without losing recovery code
   assert.equal(identity.recovery_code, "smr1-recovery");
 });
 
-test("encrypts hosted identity credentials and decrypts only with the AAE queue secret", async () => {
+test("encrypts hosted identity credentials and decrypts only with the AAE identity encryption secret", async () => {
   const { encryptIdentityCredentials, decryptIdentityCredentials } = await import("../src/swarmmemo_mcp.js");
   const identity = {
     mcp_url: "https://swarmmemo.com/mcp?identity=private-token",
     recovery_code: "smr1-private-recovery-code",
   };
-  const encrypted = await encryptIdentityCredentials("a-long-random-worker-token-that-is-not-public", identity);
+  const encrypted = await encryptIdentityCredentials("a-dedicated-random-identity-encryption-key-for-tests", identity);
   assert.ok(encrypted.credentials_ciphertext);
   assert.ok(encrypted.credentials_salt);
   assert.ok(encrypted.credentials_iv);
   assert.equal(JSON.stringify(encrypted).includes(identity.mcp_url), false);
   assert.equal(JSON.stringify(encrypted).includes(identity.recovery_code), false);
-  const decrypted = await decryptIdentityCredentials("a-long-random-worker-token-that-is-not-public", encrypted);
+  const decrypted = await decryptIdentityCredentials("a-dedicated-random-identity-encryption-key-for-tests", encrypted);
   assert.deepEqual(decrypted, identity);
   await assert.rejects(
-    decryptIdentityCredentials("a-different-long-random-worker-token", encrypted),
+    decryptIdentityCredentials("a-different-dedicated-random-identity-encryption-key", encrypted),
   );
 });
 
@@ -128,7 +128,7 @@ test("rejects weak encryption secret and malformed identity credentials", async 
     /at least 32 characters/,
   );
   await assert.rejects(
-    decryptIdentityCredentials("a-long-random-worker-token-that-is-not-public", {}),
+    decryptIdentityCredentials("a-dedicated-random-identity-encryption-key-for-tests", {}),
     /credentials are unavailable/,
   );
 });
@@ -138,7 +138,7 @@ test("does not create a remote identity when the encryption secret is weak", asy
   let fetchCalled = false;
   let savedError = null;
   const env = {
-    AAE_QUEUE_TOKEN: "short",
+    AAE_IDENTITY_ENCRYPTION_KEY: "short",
     DB: {
       prepare(sql) {
         const statement = {
@@ -157,4 +157,38 @@ test("does not create a remote identity when the encryption secret is weak", asy
   assert.equal(result.state, "missing_or_weak_encryption_secret");
   assert.equal(savedError, "missing_or_weak_encryption_secret:length=5");
   assert.equal(fetchCalled, false);
+});
+
+test("retries identity bootstrap after the encryption secret is configured", async () => {
+  const seen = [];
+  const fetchImpl = mockFetch([
+    { session: "session-retry", body: { jsonrpc: "2.0", id: 1, result: {} } },
+    { status: 202, session: "session-retry" },
+    { session: "session-retry", body: { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify({
+      mcp_url: "https://swarmmemo.com/mcp?identity=opaque-retry",
+      recovery_code: "smr1-retry-private",
+      fingerprint: "fingerprint-retry",
+      handle: "aae-retry",
+    }) }] } } },
+  ], seen);
+  let updatedSql = "";
+  const env = {
+    AAE_IDENTITY_ENCRYPTION_KEY: "a-dedicated-random-identity-encryption-key-for-tests",
+    DB: {
+      prepare(sql) {
+        const statement = {
+          bind() { return statement; },
+          async first() { return { state: "failed", fingerprint: null, credentials_ciphertext: null }; },
+          async run() { updatedSql = sql; return { meta: { changes: 1 } }; },
+        };
+        return statement;
+      },
+    },
+  };
+  const result = await ensureHostedSwarmMemoIdentity(env, fetchImpl);
+  assert.equal(result.ready, true);
+  assert.equal(result.state, "created");
+  assert.equal(result.fingerprint, "fingerprint-retry");
+  assert.match(updatedSql, /state='creating'/);
+  assert.equal(seen[2].body.params.name, "create_identity");
 });
