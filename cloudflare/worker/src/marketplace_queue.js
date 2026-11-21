@@ -7,7 +7,8 @@ function parseJson(value) {
 
 function normalizeSwarmMemo(row) {
   const reward = parseJson(row.reward_json);
-  const rewardValue = reward?.usdc ?? reward?.amount_usdc ?? reward?.cash_usdc ?? null;
+  const unit = String(reward?.unit || "").toLowerCase();
+  const rewardValue = unit === "usdc" ? reward?.amount : reward?.usdc ?? reward?.amount_usdc ?? reward?.cash_usdc ?? null;
   return {
     task_id: row.task_id,
     title: row.title,
@@ -16,7 +17,7 @@ function normalizeSwarmMemo(row) {
     simulated: row.simulated === 1,
     reward: rewardValue,
     credits_only: !!reward && rewardValue == null &&
-      (reward.credits != null || reward.reward_credits != null || reward.type === "credits"),
+      (unit === "credit" || unit === "credits" || reward.credits != null || reward.reward_credits != null || reward.type === "credits"),
   };
 }
 
