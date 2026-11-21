@@ -62,7 +62,7 @@ test("stores only normalized items and preserves the source snapshot", async () 
   assert.equal(result.stored, 1);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].values[0], "elgora:3");
-  assert.match(calls[0].values[10], /Elgora/);
+  assert.match(calls[0].values[10], /Escrow contract review/);
 });
 
 test("fails closed on HTTP and oversized feed responses", async () => {
