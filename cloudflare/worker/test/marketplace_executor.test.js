@@ -29,6 +29,14 @@ test("allows a well-formed text task", () => {
 test("blocks credits-only task", () => {
   assert.ok(assessTask({title:"task",description:"work",reward_credits:20,credits_only:true}).reasons.includes("non_cash_reward"));
 });
+test("requires a positive USDC reward", () => {
+  for (const reward of [null, undefined, 0, "0", "-1", "pending", "1 ETH"]) {
+    const result = assessTask({title:"Review documentation",description:"Write a useful documentation review.",reward});
+    assert.equal(result.eligible,false);
+    assert.ok(result.reasons.includes("reward_not_positive_verified_usdc"));
+  }
+  assert.equal(assessTask({title:"Review documentation",description:"Write a useful documentation review.",reward:"1.000000"}).eligible,true);
+});
 test("private execution returns draft only", async () => {
   const env={AI:{run:async()=>({response:"Draft work output"})}};
   const result=await executePrivateDraft(env,{id:"t",title:"Research docs",description:"Summarize provided documentation",eligible:true,reward_usdc:"0.1"});
