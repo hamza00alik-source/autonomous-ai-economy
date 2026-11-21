@@ -4,8 +4,9 @@ import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "../src/mark
 
 function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use." } = {}) {
   const jobs = [];
+  let aiCall = 0;
   const env = {
-    AI: { run: async () => ({ response: aiOutput }) },
+    AI: { run: async () => ({ response: aiCall++ % 2 === 0 ? aiOutput : '{"pass":true,"issues":[],"reason":"The work meets the stated requirements."}' }) },
     DB: {
       prepare(sql) {
         let values = [];
@@ -21,6 +22,8 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft:
             return null;
           },
           async run() {
+            if (sql.startsWith("INSERT OR IGNORE INTO ai_daily_budget")) return { meta: { changes: 1 } };
+            if (sql.startsWith("UPDATE ai_daily_budget")) return { meta: { changes: 1 } };
             if (sql.startsWith("INSERT OR IGNORE INTO aae_execution_jobs")) {
               const [job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at] = values;
               if (!jobs.some(x => x.source === source && x.external_task_id === external_task_id)) {
