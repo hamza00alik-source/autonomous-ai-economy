@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "../src/marketplace_queue.js";
 
-function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Private draft" } = {}) {
+function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use." } = {}) {
   const jobs = [];
   const env = {
     AI: { run: async () => ({ response: aiOutput }) },
@@ -37,7 +37,7 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Private draft" } = {
             const jobId = values[values.length - 1];
             const job = jobs.find(x => x.job_id === jobId);
             if (!job) return { meta: { changes: 0 } };
-            if (sql.includes("status='draft_ready'")) { job.status = "draft_ready"; job.result_text = values[0]; }
+            if (sql.includes("SET status=?")) { job.status = values[0]; job.result_text = values[1]; }
             else if (sql.includes("status='failed'")) { job.status = "failed"; job.error = values[0]; }
             else if (sql.includes("status='blocked'")) job.status = "blocked";
             return { meta: { changes: 1 } };
@@ -100,5 +100,5 @@ test("one queued task becomes a private draft without external actions", async (
   assert.equal(result.status, "draft_ready");
   assert.equal(result.externalActionsTaken, false);
   assert.equal(jobs[0].status, "draft_ready");
-  assert.equal(jobs[0].result_text, "Private draft");
+  assert.match(jobs[0].result_text, /Documentation draft/);
 });
