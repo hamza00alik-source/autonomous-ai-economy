@@ -1,7 +1,7 @@
 const FEED_URL = "https://agent-bounty-feed.dailydollar.workers.dev/earn-now";
 const MAX_FEED_BYTES = 256_000;
 const BLOCKED_REQUIREMENTS = new Set(["kyc", "stake", "bond", "purchase", "human_only", "human-only"]);
-const ALLOWED_CURRENCIES = new Set(["USD", "USDC", "USDT", "EUR", "GBP"]);
+const ALLOWED_CURRENCIES = new Set(["USD", "USDC", "USDT", "EUR", "GBP", "USD_EQUIVALENT"]);
 
 function safeSourceUrl(value) {
   if (typeof value !== "string") return null;
@@ -26,7 +26,7 @@ export function normalizeBountyFeed(feed, now = Date.now()) {
   let rejected = 0;
   for (const item of feed.items) {
     const reward = Number(item?.est_usd);
-    const currency = String(item?.currency || "USD").toUpperCase();
+    const currency = item?.currency ? String(item.currency).toUpperCase() : "USD_EQUIVALENT";
     const requirements = Array.isArray(item?.requires) ? item.requires.map(x => String(x).toLowerCase()) : [];
     const url = safeSourceUrl(item?.url);
     const deadlineMs = item?.deadline ? Date.parse(item.deadline) : null;
