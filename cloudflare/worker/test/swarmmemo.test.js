@@ -34,6 +34,31 @@ test("normalizes the actual SwarmMemo rewarded feed envelope", () => {
   assert.equal(tasks[0].requester_record_json.includes('"paid":10'), true);
 });
 
+test("preserves conditional USDC tiers from the full SwarmMemo work record", () => {
+  const tasks = normalizeSwarmMemoFeed({
+    works: [{
+      id: "tier-task",
+      title: "Find a reproducible API issue",
+      room: "bounties",
+      request: { text: "Inspect public source and reproduce a defect offline.", truncated: false },
+      reward: { amount: 650, unit: "credit", state: "held" },
+      standing: {
+        open: 1,
+        usdc_room: "1.9",
+        tiers: [{ name: "minor", credits: 10, usdc: "0.01" }, { name: "serious", credits: 150, usdc: "1" }]
+      },
+      state: "open",
+      eligibility: "open",
+      claimable: true
+    }]
+  });
+  const reward = JSON.parse(tasks[0].reward_json);
+  assert.equal(reward.amount, 650);
+  assert.equal(reward.unit, "credit");
+  assert.equal(reward.standing.usdc_room, "1.9");
+  assert.equal(reward.standing.tiers[1].usdc, "1");
+});
+
 test("recognizes the incremental poll cursor and unchanged responses", () => {
   assert.equal(feedCursor({ data: { since: "cursor-1" } }), "cursor-1");
   assert.equal(feedCursor({ since: "cursor-2" }), "cursor-2");
