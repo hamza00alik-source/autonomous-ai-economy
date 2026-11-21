@@ -84,7 +84,9 @@ test("stores only normalized items and preserves the source snapshot", async () 
   }, new Date(now));
   assert.equal(result.fetched, 1);
   assert.equal(result.stored, 1);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].sql, /aae_external_bounty_feed_runs/);
+  assert.equal(calls[1].values[1], "success");
   assert.equal(calls[0].values[0], "elgora:3");
   assert.match(calls[0].values[10], /Escrow contract review/);
 });
