@@ -3,8 +3,8 @@ const BASE_URL = "https://gofrantic.com";
 const MAX_BOARD_BYTES = 512_000;
 const MAX_BOUNTY_BYTES = 128_000;
 const MAX_DETAILS_PER_RUN = 10;
-const BLOCKED_TEXT = /\\b(reddit|twitter|tweet|\\bx\\.com|social media|thread|comment|reply|like|follow|influencer|kol|promotion|promote|external citation|citation|outreach|email the author|guest piece|blog post|linkedin|substack|medium|quora|fund a bounty|funding|deposit|purchase|\\bbond\\b|\\bstake\\b|upfront payment|first five funders)\\b/i;
-const TECHNICAL_WORK = /\\b(pull request|github|repository|code|data|api|bug|test|docs|documentation|research|integration|yaml|schema)\\b/i;
+const BLOCKED_TEXT = /\b(reddit|twitter|tweet|\bx\.com|social media|thread|comment|reply|like|follow|influencer|kol|promotion|promote|external citation|citation|outreach|email the author|guest piece|blog post|linkedin|substack|medium|quora|fund a bounty|funding|deposit|purchase|\bbond\b|\bstake\b|upfront payment|first five funders)\b/i;
+const TECHNICAL_WORK = /\b(pull request|github|repository|code|data|api|bug|test|docs|documentation|research|integration|yaml|schema)\b/i;
 
 function safeApiPath(value) {
   return typeof value === "string" && /^\\/v1\\/bounties\\/\\d+$/.test(value) ? value : null;
