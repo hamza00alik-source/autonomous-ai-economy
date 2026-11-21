@@ -24,6 +24,15 @@ export function assessTask(task, source = "unknown") {
   const reasons = [];
   if (!combined) reasons.push("empty_task");
   if (combined.length > MAX_TASK_BYTES) reasons.push("task_too_large");
+  // Reject feed placeholders and headings masquerading as real task titles.
+  if (!title || /^(?:#+\\s*)?(?:title|task|untitled|unknown|n\\/?a|none|null|undefined|new task)[.!:_ -]*$/i.test(title) || /^#+\\s*(?:title|task)\\s*$/i.test(title)) {
+    reasons.push("malformed_task_title");
+  }
+  // This worker can create text/code drafts; it cannot independently render media,
+  // record voice, ship physical goods, or operate a production deployment.
+  if (/\\b(final video|video production|full video|voiceover recording|recorded voice|ship (?:the )?(?:product|item)|physical delivery|live production deployment)\\b/i.test(combined)) {
+    reasons.push("unsupported_deliverable");
+  }
   for (const pattern of BLOCK_PATTERNS) if (pattern.test(combined)) reasons.push("blocked_risk_pattern:" + pattern.source);
   if (task?.eligible === false) reasons.push("marketplace_ineligible");
   if (task?.simulated === true) reasons.push("simulated_task");
