@@ -218,8 +218,13 @@ export async function getStoredSwarmMemoIdentity(env) {
 }
 
 export async function ensureHostedSwarmMemoIdentity(env, fetchImpl = fetch) {
-  if (typeof env.AAE_QUEUE_TOKEN !== "string" || env.AAE_QUEUE_TOKEN.length < 32) return { ready: false, state: "missing_or_weak_encryption_secret" };
   const now = new Date().toISOString();
+  if (typeof env.AAE_QUEUE_TOKEN !== "string" || env.AAE_QUEUE_TOKEN.length < 32) {
+    await env.DB.prepare(
+      "INSERT INTO swarmmemo_identity_state (id,state,updated_at,last_error) VALUES (1,'failed',?,?) ON CONFLICT(id) DO UPDATE SET state=CASE WHEN state='created' THEN state ELSE 'failed' END,last_error=CASE WHEN state='created' THEN last_error ELSE excluded.last_error END,updated_at=excluded.updated_at"
+    ).bind(now, "missing_or_weak_encryption_secret").run();
+    return { ready: false, state: "missing_or_weak_encryption_secret" };
+  }
   const current = await env.DB.prepare(
     "SELECT state,fingerprint,handle,credentials_ciphertext,credentials_salt,credentials_iv FROM swarmmemo_identity_state WHERE id=1"
   ).first();
@@ -237,14 +242,14 @@ export async function ensureHostedSwarmMemoIdentity(env, fetchImpl = fetch) {
     const identity = await createHostedSwarmMemoIdentity(fetchImpl);
     const encrypted = await encryptIdentityCredentials(env.AAE_QUEUE_TOKEN, identity);
     await env.DB.prepare(
-      "UPDATE swarmmemo_identity_state SET state='created',fingerprint=?,handle=?,created_at=?,credentials_ciphertext=?,credentials_salt=?,credentials_iv=?,updated_at=? WHERE id=1 AND state='creating'"
+      "UPDATE swarmmemo_identity_state SET state='created',fingerprint=?,handle=?,created_at=?,credentials_ciphertext=?,credentials_salt=?,credentials_iv=?,last_error=NULL,updated_at=? WHERE id=1 AND state='creating'"
     ).bind(identity.fingerprint, identity.handle, now, encrypted.credentials_ciphertext,
       encrypted.credentials_salt, encrypted.credentials_iv, new Date().toISOString()).run();
     return { ready: true, state: "created", fingerprint: identity.fingerprint, handle: identity.handle, mcp_url: identity.mcp_url };
   } catch (error) {
     await env.DB.prepare(
-      "UPDATE swarmmemo_identity_state SET state='uncertain',updated_at=? WHERE id=1 AND state='creating'"
-    ).bind(new Date().toISOString()).run();
+      "UPDATE swarmmemo_identity_state SET state='uncertain',last_error=?,updated_at=? WHERE id=1 AND state='creating'"
+    ).bind(String(error?.message || "identity bootstrap failed").slice(0, 300), new Date().toISOString()).run();
     return { ready: false, state: "uncertain", error: String(error?.message || "identity bootstrap failed").slice(0, 300) };
   }
 }
