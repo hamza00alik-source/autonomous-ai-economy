@@ -1,0 +1,110 @@
+name: SwarmMemo offline bug-bounty reproduction
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/swarmmemo-bounty-repro.trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out AAE evidence harness
+        uses: actions/checkout@v4
+
+      - name: Fetch pinned SwarmMemo source
+        env:
+          UPSTREAM_COMMIT: 6382efc1d1eef87a7aa4bf3735d146b08b4c15fb
+        run: |
+          set -euo pipefail
+          [[ "$UPSTREAM_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          git clone --filter=blob:none https://github.com/Hugo0/swarmmemo.git /tmp/swarmmemo
+          git -C /tmp/swarmmemo checkout --detach "$UPSTREAM_COMMIT"
+          printf 'UPSTREAM_COMMIT=%s\n' "$UPSTREAM_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          git -C /tmp/swarmmemo rev-parse HEAD
+
+      - name: Install the Go version required by upstream
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.0"
+          cache: false
+
+      - name: Add an isolated integration reproduction
+        run: |
+          cat > /tmp/swarmmemo/internal/board/aae_bounty_repro_test.go <<'EOF'
+          package board
+
+          import (
+            "errors"
+            "fmt"
+            "strings"
+            "testing"
+            "time"
+          )
+
+          // AAE offline reproduction: two materially different technical
+          // results differ only in their HTTP status code (404 vs 500).
+          // Both are long enough to activate numeric masking.
+          func TestAAEBountyMeaningfulHTTPStatusFalsePositive(t *testing.T) {
+            s := openTest(t, Config{})
+            base := time.Unix(testTime, 0)
+            s.now = func() time.Time { return base }
+
+            asker, worker := keyFor(141), keyFor(142)
+            parent := postAs(t, s, asker, Command{
+              Room: "bounties", Text: "Offline duplicate-reply regression task", RequestID: "aae-task",
+            })
+
+            common := strings.Repeat(
+              "The same public endpoint was requested with the same method and path. The response was parsed and the result was recorded. ",
+              3,
+            )
+            firstText := common + "Observed HTTP status: 404."
+            secondText := common + "Observed HTTP status: 500."
+            if len([]rune(firstText)) < ReplyRepeatMaskMinRunes || len([]rune(secondText)) < ReplyRepeatMaskMinRunes {
+              t.Fatal("reproduction messages must both activate long-reply masking")
+            }
+            if firstText == secondText {
+              t.Fatal("test setup error: reports must be distinct")
+            }
+
+            postAs(t, s, worker, Command{
+              Room: "bounties", ReplyTo: parent, Text: firstText, RequestID: "aae-first-result",
+            })
+
+            s.now = func() time.Time { return base.Add(time.Minute) }
+            _, err := s.Execute(testContext, signed(worker, Command{
+              Operation: "post",
+              Room: "bounties",
+              ReplyTo: parent,
+              Text: secondText,
+              RequestID: "aae-second-result",
+              Timestamp: s.now().Unix(),
+            }), "test-origin")
+
+            var boardErr *Error
+            if !errors.As(err, &boardErr) || boardErr.Code != "duplicate_reply" || boardErr.Status != 409 {
+              t.Fatalf("expected to reproduce false-positive 409 duplicate_reply for distinct HTTP statuses, got %v", err)
+            }
+            fmt.Printf("REPRODUCED: distinct HTTP results 404 and 500, same parent/account, 60 seconds apart, both %d+ runes, rejected as duplicate_reply (409)\n", ReplyRepeatMaskMinRunes)
+          }
+          EOF
+
+      - name: Run the exact upstream board integration test
+        working-directory: /tmp/swarmmemo
+        run: |
+          go test ./internal/board -run '^TestAAEBountyMeaningfulHTTPStatusFalsePositive$' -count=1 -v
+
+      - name: Record reproduction boundary
+        if: always()
+        run: |
+          {
+            echo "This is an offline test against the pinned upstream source commit."
+            echo "It uses test keys and an isolated test database; it does not contact or mutate production."
+            echo "A reproduced 409 demonstrates the checker conflates distinct numeric result values; bounty acceptance and tier remain the requester's decision."
+          } >> "$GITHUB_STEP_SUMMARY"
