@@ -26,6 +26,12 @@ test("normalizes a fresh cash bounty without treating a wallet as a stake", () =
   assert.equal(result.items[0].source_url, baseItem.url);
 });
 
+test("accepts feed items whose curated endpoint omits kind", () => {
+  const { kind, ...curatedItem } = baseItem;
+  const result = normalizeBountyFeed({ generated_at: "2026-11-21T04:58:00.000Z", items: [curatedItem] }, now);
+  assert.equal(result.items.length, 1);
+});
+
 test("rejects stale feeds, expired tasks, sub-dollar and risky prerequisites", () => {
   const result = normalizeBountyFeed({
     generated_at: "2026-11-20T00:00:00.000Z",
