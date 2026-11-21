@@ -101,3 +101,46 @@ test("preserves assistant_mcp_url identity response without losing recovery code
   assert.equal(identity.mcp_url, "https://swarmmemo.com/mcp/assistant?identity=opaque");
   assert.equal(identity.recovery_code, "smr1-recovery");
 });
+
+test("encrypts hosted identity credentials and decrypts only with the AAE queue secret", async () => {
+  const { encryptIdentityCredentials, decryptIdentityCredentials } = await import("../src/swarmmemo_mcp.js");
+  const identity = {
+    mcp_url: "https://swarmmemo.com/mcp?identity=private-token",
+    recovery_code: "smr1-private-recovery-code",
+  };
+  const encrypted = await encryptIdentityCredentials("a-long-random-worker-token-that-is-not-public", identity);
+  assert.ok(encrypted.credentials_ciphertext);
+  assert.ok(encrypted.credentials_salt);
+  assert.ok(encrypted.credentials_iv);
+  assert.equal(JSON.stringify(encrypted).includes(identity.mcp_url), false);
+  assert.equal(JSON.stringify(encrypted).includes(identity.recovery_code), false);
+  const decrypted = await decryptIdentityCredentials("a-long-random-worker-token-that-is-not-public", encrypted);
+  assert.deepEqual(decrypted, identity);
+  await assert.rejects(
+    decryptIdentityCredentials("a-different-long-random-worker-token", encrypted),
+  );
+});
+
+test("rejects weak encryption secret and malformed identity credentials", async () => {
+  const { encryptIdentityCredentials, decryptIdentityCredentials } = await import("../src/swarmmemo_mcp.js");
+  await assert.rejects(
+    encryptIdentityCredentials("short", { mcp_url: "https://swarmmemo.com/mcp", recovery_code: "x" }),
+    /at least 32 characters/,
+  );
+  await assert.rejects(
+    decryptIdentityCredentials("a-long-random-worker-token-that-is-not-public", {}),
+    /credentials are unavailable/,
+  );
+});
+
+test("does not create a remote identity when the encryption secret is weak", async () => {
+  const { ensureHostedSwarmMemoIdentity } = await import("../src/swarmmemo_mcp.js");
+  let fetchCalled = false;
+  const result = await ensureHostedSwarmMemoIdentity(
+    { AAE_QUEUE_TOKEN: "short" },
+    async () => { fetchCalled = true; throw new Error("must not create identity"); },
+  );
+  assert.equal(result.ready, false);
+  assert.equal(result.state, "missing_or_weak_encryption_secret");
+  assert.equal(fetchCalled, false);
+});
