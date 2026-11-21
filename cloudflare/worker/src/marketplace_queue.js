@@ -1,0 +1,95 @@
+import { assessTask, executePrivateDraft } from "./marketplace_executor.js";
+
+function parseJson(value) {
+  if (!value) return null;
+  try { return JSON.parse(value); } catch { return null; }
+}
+
+function normalizeSwarmMemo(row) {
+  const reward = parseJson(row.reward_json);
+  const rewardValue = reward?.usdc ?? reward?.amount_usdc ?? reward?.cash_usdc ?? null;
+  return {
+    task_id: row.task_id,
+    title: row.title,
+    description: row.task_text,
+    eligible: row.eligible === 1,
+    simulated: row.simulated === 1,
+    reward: rewardValue,
+    credits_only: !!reward && rewardValue == null &&
+      (reward.credits != null || reward.reward_credits != null || reward.type === "credits"),
+  };
+}
+
+function normalizeTaskmarket(row) {
+  return {
+    task_id: row.task_id,
+    title: row.title,
+    description: row.description,
+    eligible: row.eligible === 1,
+    simulated: false,
+    reward: row.net_reward_usdc,
+    stake_required: row.stake_required === 1,
+  };
+}
+
+export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
+  const now = new Date().toISOString();
+  const limit = Math.min(50, Math.max(1, Number(limitPerSource) || 25));
+  const [swarm, taskmarket] = await Promise.all([
+    env.DB.prepare("SELECT task_id,title,task_text,reward_json,simulated,eligible FROM swarmmemo_work_items WHERE board_state='open' ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
+    env.DB.prepare("SELECT task_id,title,description,net_reward_usdc,stake_required,eligible FROM taskmarket_work_items WHERE board_state='open' ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
+  ]);
+  const candidates = [
+    ...(swarm.results || []).map(row => ({ source: "swarmmemo", task: normalizeSwarmMemo(row) })),
+    ...(taskmarket.results || []).map(row => ({ source: "taskmarket", task: normalizeTaskmarket(row) })),
+  ];
+  let queued = 0;
+  let blocked = 0;
+  for (const item of candidates) {
+    const assessment = assessTask(item.task, item.source);
+    const status = assessment.eligible ? "queued" : "blocked";
+    const id = crypto.randomUUID();
+    const result = await env.DB.prepare(
+      "INSERT OR IGNORE INTO aae_execution_jobs (job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ).bind(id, item.source, assessment.taskId, assessment.title || "Untitled task",
+      JSON.stringify(item.task), item.task.reward == null ? null : String(item.task.reward),
+      JSON.stringify({ eligible: assessment.eligible, reasons: assessment.reasons }),
+      status, now, now).run();
+    if (result.meta?.changes === 1) {
+      if (status === "queued") queued++;
+      else blocked++;
+    }
+  }
+  return { examined: candidates.length, queued, blocked };
+}
+
+export async function processOneMarketplaceDraft(env) {
+  const row = await env.DB.prepare(
+    "SELECT job_id,source,external_task_id,task_snapshot_json FROM aae_execution_jobs WHERE status='queued' ORDER BY created_at ASC LIMIT 1"
+  ).first();
+  if (!row) return { processed: false };
+  const now = new Date().toISOString();
+  const reserved = await env.DB.prepare(
+    "UPDATE aae_execution_jobs SET status='running',updated_at=? WHERE job_id=? AND status='queued'"
+  ).bind(now, row.job_id).run();
+  if (reserved.meta?.changes !== 1) return { processed: false, raced: true };
+  try {
+    const task = JSON.parse(row.task_snapshot_json);
+    const draft = await executePrivateDraft(env, task, row.source);
+    if (draft.status !== "draft_ready") {
+      await env.DB.prepare(
+        "UPDATE aae_execution_jobs SET status='blocked',eligibility_json=?,updated_at=? WHERE job_id=? AND status='running'"
+      ).bind(JSON.stringify({ eligible: false, reasons: draft.assessment?.reasons || ["screened_out"] }), new Date().toISOString(), row.job_id).run();
+      return { processed: true, status: "blocked", job_id: row.job_id };
+    }
+    await env.DB.prepare(
+      "UPDATE aae_execution_jobs SET status='draft_ready',result_text=?,eligibility_json=?,updated_at=? WHERE job_id=? AND status='running'"
+    ).bind(draft.deliverable, JSON.stringify({ eligible: true, reasons: [] }), new Date().toISOString(), row.job_id).run();
+    return { processed: true, status: "draft_ready", job_id: row.job_id, externalActionsTaken: false };
+  } catch (error) {
+    await env.DB.prepare(
+      "UPDATE aae_execution_jobs SET status='failed',error=?,updated_at=? WHERE job_id=? AND status='running'"
+    ).bind(String(error?.message || "draft generation failed").slice(0, 500), new Date().toISOString(), row.job_id).run();
+    return { processed: true, status: "failed", job_id: row.job_id };
+  }
+}
