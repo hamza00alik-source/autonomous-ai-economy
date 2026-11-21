@@ -44,5 +44,5 @@ test("private execution returns draft only", async () => {
   assert.equal(result.externalActionsTaken,false);
 });
 test("rejects empty model output", async () => {
-  await assert.rejects(()=>executePrivateDraft({AI:{run:async()=>({})}},{title:"Research",description:"Draft a research note",eligible:true}),/no draft text/);
+  await assert.rejects(()=>executePrivateDraft({AI:{run:async()=>({})}},{title:"Research",description:"Draft a research note",eligible:true,reward_usdc:"1.00"}),/no draft text/);
 });
