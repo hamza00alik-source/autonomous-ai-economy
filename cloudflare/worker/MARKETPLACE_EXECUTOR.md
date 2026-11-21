@@ -86,3 +86,10 @@ The implementation is merged into `main` via PR #41. Production D1 schema is pro
 - Added a read-only poll of Elgora's public open-bounty API. It retains Base mainnet listings only when the escrow token is the official Base USDC contract, escrow is at least 1 USDC, the deadline is in the future, and fewer than 10 submissions are recorded.
 - The 10-submission limit is the default-cap assumption; the worker records this explicitly and requires a separate on-chain guard-override check before any future submission.
 - No wallet, claim, submission, signature, transfer, or spend is performed by this scanner.
+
+
+## Direct Elgora scanner hardening
+- PR #47 merged after GitHub Actions passed 77/77 tests.
+- Worker version 21 is deployed at 100%; the existing five-minute schedule and all secret, D1, AI, assets and rate-limit bindings remain present.
+- Direct Elgora API discoveries now use the `elgora-api:` ID namespace, separate from third-party aggregator records, preventing concurrent D1 upserts from overwriting one another.
+- The previous observed direct scan found bounty #3 only (36 USDC escrow, 7 submissions, estimated 3 remaining slots); the two other open Elgora bounties were full at 10/10. The next scheduled scan after version 21 is required to verify the namespace fix in live D1 data.
