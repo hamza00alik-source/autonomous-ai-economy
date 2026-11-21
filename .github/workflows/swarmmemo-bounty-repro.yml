@@ -19,7 +19,7 @@ jobs:
 
       - name: Fetch pinned SwarmMemo public source snapshot
         env:
-          UPSTREAM_COMMIT: 454000fa75f06abc1af28d8ebea84214a41be120
+          UPSTREAM_COMMIT: c01fbb924b3fc85584b2cf10a2d7e6ad20411164
         run: |
           set -euo pipefail
           [[ "$UPSTREAM_COMMIT" =~ ^[0-9a-f]{40}$ ]]
@@ -119,7 +119,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "Offline tests against pinned public source snapshot 454000fa75f06abc1af28d8ebea84214a41be120."
+            echo "Offline tests against pinned public source snapshot c01fbb924b3fc85584b2cf10a2d7e6ad20411164."
             echo "Only synthetic keys and synthetic token values were used in isolated test databases."
             echo "No network fetch, production mutation, or security probe was performed."
           } >> "$GITHUB_STEP_SUMMARY"
