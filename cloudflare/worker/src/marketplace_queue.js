@@ -85,7 +85,7 @@ export async function processOneMarketplaceDraft(env) {
     }
     await env.DB.prepare(
       "UPDATE aae_execution_jobs SET status='draft_ready',result_text=?,eligibility_json=?,updated_at=? WHERE job_id=? AND status='running'"
-    ).bind(draft.deliverable, JSON.stringify({ eligible: true, reasons: [] }), new Date().toISOString(), row.job_id).run();
+    ).bind(draft.deliverable, JSON.stringify({ eligible: true, reasons: [], qa: draft.qa, submissionReady: draft.submissionReady }), new Date().toISOString(), row.job_id).run();
     return { processed: true, status: "draft_ready", job_id: row.job_id, externalActionsTaken: false };
   } catch (error) {
     await env.DB.prepare(
