@@ -134,3 +134,117 @@ export async function createHostedSwarmMemoIdentity(fetchImpl = fetch) {
     handle: typeof data.handle === "string" ? data.handle : null,
   };
 }
+
+const IDENTITY_AAD = new TextEncoder().encode("aae:swarmmemo:identity:v1");
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64ToBytes(value) {
+  const binary = atob(value);
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+async function identityEncryptionKey(secret, salt) {
+  if (typeof secret !== "string" || secret.length < 32) {
+    throw new Error("AAE_QUEUE_TOKEN must be configured with at least 32 characters to protect SwarmMemo identity credentials");
+  }
+  const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt, info: IDENTITY_AAD },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+export async function encryptIdentityCredentials(secret, identity) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await identityEncryptionKey(secret, salt);
+  const plaintext = new TextEncoder().encode(JSON.stringify({
+    mcp_url: identity.mcp_url,
+    recovery_code: identity.recovery_code,
+  }));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: IDENTITY_AAD },
+    key,
+    plaintext,
+  );
+  return {
+    credentials_ciphertext: bytesToBase64(new Uint8Array(encrypted)),
+    credentials_salt: bytesToBase64(salt),
+    credentials_iv: bytesToBase64(iv),
+  };
+}
+
+export async function decryptIdentityCredentials(secret, row) {
+  if (!row?.credentials_ciphertext || !row?.credentials_salt || !row?.credentials_iv) {
+    throw new Error("encrypted SwarmMemo identity credentials are unavailable");
+  }
+  const salt = base64ToBytes(row.credentials_salt);
+  const iv = base64ToBytes(row.credentials_iv);
+  const key = await identityEncryptionKey(secret, salt);
+  const plaintext = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv, additionalData: IDENTITY_AAD },
+    key,
+    base64ToBytes(row.credentials_ciphertext),
+  );
+  const data = JSON.parse(new TextDecoder().decode(plaintext));
+  const mcpUrl = validateIdentityUrl(data.mcp_url);
+  if (typeof data.recovery_code !== "string" || !data.recovery_code) {
+    throw new Error("encrypted SwarmMemo recovery material is invalid");
+  }
+  return { mcp_url: mcpUrl.toString(), recovery_code: data.recovery_code };
+}
+
+export async function getStoredSwarmMemoIdentity(env) {
+  const row = await env.DB.prepare(
+    "SELECT state,fingerprint,handle,credentials_ciphertext,credentials_salt,credentials_iv FROM swarmmemo_identity_state WHERE id=1"
+  ).first();
+  if (!row || row.state !== "created") return { ready: false, state: row?.state || "not_created" };
+  const credentials = await decryptIdentityCredentials(env.AAE_QUEUE_TOKEN, row);
+  return {
+    ready: true,
+    fingerprint: row.fingerprint,
+    handle: row.handle,
+    mcp_url: credentials.mcp_url,
+    recovery_code: credentials.recovery_code,
+  };
+}
+
+export async function ensureHostedSwarmMemoIdentity(env, fetchImpl = fetch) {
+  if (!env.AAE_QUEUE_TOKEN) return { ready: false, state: "missing_encryption_secret" };
+  const now = new Date().toISOString();
+  const current = await env.DB.prepare(
+    "SELECT state,fingerprint,handle,credentials_ciphertext,credentials_salt,credentials_iv FROM swarmmemo_identity_state WHERE id=1"
+  ).first();
+  if (current?.state === "created") {
+    if (!current.credentials_ciphertext) return { ready: false, state: "created_without_encrypted_credentials" };
+    const credentials = await decryptIdentityCredentials(env.AAE_QUEUE_TOKEN, current);
+    return { ready: true, state: "created", fingerprint: current.fingerprint, handle: current.handle, mcp_url: credentials.mcp_url };
+  }
+  if (current) return { ready: false, state: current.state || "unknown" };
+  const reserved = await env.DB.prepare(
+    "INSERT OR IGNORE INTO swarmmemo_identity_state (id,state,updated_at) VALUES (1,'creating',?)"
+  ).bind(now).run();
+  if (reserved.meta?.changes !== 1) return { ready: false, state: "bootstrap_race" };
+  try {
+    const identity = await createHostedSwarmMemoIdentity(fetchImpl);
+    const encrypted = await encryptIdentityCredentials(env.AAE_QUEUE_TOKEN, identity);
+    await env.DB.prepare(
+      "UPDATE swarmmemo_identity_state SET state='created',fingerprint=?,handle=?,created_at=?,credentials_ciphertext=?,credentials_salt=?,credentials_iv=?,updated_at=? WHERE id=1 AND state='creating'"
+    ).bind(identity.fingerprint, identity.handle, now, encrypted.credentials_ciphertext,
+      encrypted.credentials_salt, encrypted.credentials_iv, new Date().toISOString()).run();
+    return { ready: true, state: "created", fingerprint: identity.fingerprint, handle: identity.handle, mcp_url: identity.mcp_url };
+  } catch (error) {
+    await env.DB.prepare(
+      "UPDATE swarmmemo_identity_state SET state='uncertain',updated_at=? WHERE id=1 AND state='creating'"
+    ).bind(new Date().toISOString()).run();
+    return { ready: false, state: "uncertain", error: String(error?.message || "identity bootstrap failed").slice(0, 300) };
+  }
+}
