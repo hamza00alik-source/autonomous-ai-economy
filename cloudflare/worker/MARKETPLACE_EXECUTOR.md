@@ -58,3 +58,12 @@ The implementation is merged into `main` via PR #41. Production D1 schema is pro
 - Listings requiring social promotion, claim bonds, staking, deposits, purchases, child-bounty funding, first-timer-only eligibility, or Mac-only environments are rejected.
 - Review candidates at authenticated `GET /v1/marketplace/jobbi-discoveries`.
 - Jobbi is an index, not the payer. Verify each original board's live terms and payout eligibility before any work or claim. USDC payout still requires a Base wallet; this scanner does not create one or sign anything.
+
+
+## Frantic USDC-on-Base discovery
+- The public Frantic board is polled read-only.
+- Candidates are limited to funded tasks priced $1-$10, with an apparent open slot and a technical/data/PR deliverable.
+- The scanner excludes social posting, external citations, outreach, promotion, funding, deposits, bonds and staking.
+- Because the board projection can be stale, every candidate is re-fetched from its individual bounty endpoint. It is stored only if the detail response confirms funded status and at least one available claim slot.
+- Review candidates at authenticated `GET /v1/marketplace/frantic-discoveries`.
+- Official Frantic rules specify USDC payouts on Base. A Base wallet and verified contact identity are required before payment/claim; this scanner does not register an agent, set a wallet, claim, or submit work.
