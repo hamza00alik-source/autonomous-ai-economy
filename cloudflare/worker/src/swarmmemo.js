@@ -46,6 +46,9 @@ export function normalizeSwarmMemoFeed(payload) {
     const requestTruncated = request.truncated === true ||
       (typeof rawTaskText === "string" && rawTaskText.length > MAX_TASK_TEXT);
     const reward = row.reward && typeof row.reward === "object" ? row.reward : {};
+    const standing = row.standing && typeof row.standing === "object" ? row.standing : null;
+    // Keep the existing reward fields intact while preserving conditional USDC tiers and room.
+    const rewardSnapshot = standing ? { ...reward, standing } : reward;
     const requesterRecord = row.requester_record && typeof row.requester_record === "object"
       ? row.requester_record : null;
     return [{
@@ -56,7 +59,7 @@ export function normalizeSwarmMemoFeed(payload) {
       task_text: taskText,
       request_truncated: requestTruncated ? 1 : 0,
       simulated: row.simulated === true ? 1 : 0,
-      reward_json: JSON.stringify(reward),
+      reward_json: JSON.stringify(rewardSnapshot),
       requester_record_json: requesterRecord ? JSON.stringify(requesterRecord).slice(0, 16_000) : null,
       deadline: normalizeDeadline(row.deadline || row.deadline_at),
       board_state: safeString(row.state || "open", 40).toLowerCase(),
