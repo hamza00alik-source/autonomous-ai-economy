@@ -36,7 +36,7 @@ The implementation is merged into `main` via PR #41. Production D1 schema is pro
 
 ## External cash-bounty discovery
 - A read-only connector polls the public Agent Bounty Feed `/earn-now` endpoint every five minutes.
-- Fresh items with at least $1 USD-equivalent, a supported currency, a valid HTTPS source URL, and an unexpired deadline are stored in `aae_external_bounty_discoveries`.
+- Fresh items with at least $1 USD-equivalent, a supported source currency (or explicitly labeled `USD_EQUIVALENT` when the feed omits currency), a valid HTTPS source URL, and an unexpired deadline are stored in `aae_external_bounty_discoveries`. The aggregator's `est_usd` is an estimate, not proof of the exact payout token or amount.
 - The scanner rejects feed data older than six hours and items requiring KYC, stake, bond, purchase, or human-only participation.
 - Wallet requirements such as `wallet_evm` are recorded for human review; they do not authorize signing or spending.
 - Inspect candidates at authenticated `GET /v1/marketplace/discovered-bounties`.
