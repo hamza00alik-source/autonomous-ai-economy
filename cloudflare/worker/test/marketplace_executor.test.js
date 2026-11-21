@@ -13,6 +13,19 @@ test("blocks stake and external publishing risks", () => {
     {title:"Connect wallet",description:"Sign transaction"},
   ]) assert.equal(assessTask(task).eligible,false);
 });
+test("blocks placeholder titles and unsupported media production", () => {
+  for (const task of [
+    {title:"## Title",description:"Create a useful deliverable"},
+    {title:"Untitled",description:"Write a short note"},
+    {title:"Create a story",description:"Produce the final video with recorded voiceover"},
+  ]) assert.equal(assessTask(task).eligible,false);
+  assert.ok(assessTask({title:"## Title",description:"Create a useful deliverable"}).reasons.includes("malformed_task_title"));
+  assert.ok(assessTask({title:"Create a story",description:"Produce the final video with recorded voiceover"}).reasons.includes("unsupported_deliverable"));
+});
+test("allows a well-formed text task", () => {
+  const result=assessTask({title:"Review open source documentation",description:"Write a concise documentation review and list actionable improvements.",eligible:true,reward_usdc:"1.00"});
+  assert.equal(result.eligible,true);
+});
 test("blocks credits-only task", () => {
   assert.ok(assessTask({title:"task",description:"work",reward_credits:20,credits_only:true}).reasons.includes("non_cash_reward"));
 });
