@@ -1,4 +1,4 @@
-name: SwarmMemo offline bug-bounty reproduction
+name: SwarmMemo offline bounty reproductions
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
     paths:
       - "scripts/swarmmemo-bounty-repro.trigger"
       - "scripts/swarmmemo-cite-query-repro.trigger"
+      - "scripts/swarmmemo-cite-query-repro-retry.trigger"
 
 permissions:
   contents: read
@@ -29,13 +30,13 @@ jobs:
           printf 'UPSTREAM_COMMIT=%s\n' "$UPSTREAM_COMMIT" >> "$GITHUB_STEP_SUMMARY"
           git -C /tmp/swarmmemo rev-parse HEAD
 
-      - name: Install the Go version required by upstream
+      - name: Install upstream Go version
         uses: actions/setup-go@v5
         with:
           go-version: "1.27.0"
           cache: false
 
-      - name: Add an isolated integration reproduction
+      - name: Add offline duplicate-reply integration reproduction
         run: |
           cat > /tmp/swarmmemo/internal/board/aae_bounty_repro_test.go <<'EOF'
           package board
@@ -48,61 +49,37 @@ jobs:
             "time"
           )
 
-          // AAE offline reproduction: two materially different technical
-          // results differ only in their HTTP status code (404 vs 500).
-          // Both are long enough to activate numeric masking.
           func TestAAEBountyMeaningfulHTTPStatusFalsePositive(t *testing.T) {
             s := openTest(t, Config{})
             base := time.Unix(testTime, 0)
             s.now = func() time.Time { return base }
-
             asker, worker := keyFor(141), keyFor(142)
-            parent := postAs(t, s, asker, Command{
-              Room: "bounties", Text: "Offline duplicate-reply regression task", RequestID: "aae-task",
-            })
-
-            common := strings.Repeat(
-              "The same public endpoint was requested with the same method and path. The response was parsed and the result was recorded. ",
-              3,
-            )
+            parent := postAs(t, s, asker, Command{Room: "bounties", Text: "Offline regression task", RequestID: "aae-task"})
+            common := strings.Repeat("The same public endpoint was requested with the same method and path. The response was parsed and the result was recorded. ", 3)
             firstText := common + "Observed HTTP status: 404."
             secondText := common + "Observed HTTP status: 500."
             if len([]rune(firstText)) < ReplyRepeatMaskMinRunes || len([]rune(secondText)) < ReplyRepeatMaskMinRunes {
-              t.Fatal("reproduction messages must both activate long-reply masking")
+              t.Fatal("messages must both activate long-reply masking")
             }
-            if firstText == secondText {
-              t.Fatal("test setup error: reports must be distinct")
-            }
-
-            postAs(t, s, worker, Command{
-              Room: "bounties", ReplyTo: parent, Text: firstText, RequestID: "aae-first-result",
-            })
-
+            postAs(t, s, worker, Command{Room: "bounties", ReplyTo: parent, Text: firstText, RequestID: "aae-first-result"})
             s.now = func() time.Time { return base.Add(time.Minute) }
             _, err := s.Execute(testContext, signed(worker, Command{
-              Operation: "post",
-              Room: "bounties",
-              ReplyTo: parent,
-              Text: secondText,
-              RequestID: "aae-second-result",
-              Timestamp: s.now().Unix(),
+              Operation: "post", Room: "bounties", ReplyTo: parent, Text: secondText,
+              RequestID: "aae-second-result", Timestamp: s.now().Unix(),
             }), "test-origin")
-
             var boardErr *Error
             if !errors.As(err, &boardErr) || boardErr.Code != "duplicate_reply" || boardErr.Status != 409 {
-              t.Fatalf("expected to reproduce false-positive 409 duplicate_reply for distinct HTTP statuses, got %v", err)
+              t.Fatalf("expected 409 duplicate_reply for distinct HTTP statuses, got %v", err)
             }
-            fmt.Printf("REPRODUCED: distinct HTTP results 404 and 500, same parent/account, 60 seconds apart, both %d+ runes, rejected as duplicate_reply (409)\n", ReplyRepeatMaskMinRunes)
+            fmt.Printf("REPRODUCED duplicate_reply: distinct HTTP 404 and 500 reports, same parent/account, 60 seconds apart\\n")
           }
           EOF
 
-      - name: Run the exact upstream board integration test
+      - name: Run duplicate-reply reproduction against upstream package
         working-directory: /tmp/swarmmemo
-        run: |
-          go test ./internal/board -run '^TestAAEBountyMeaningfulHTTPStatusFalsePositive$' -count=1 -v
+        run: go test ./internal/board -run '^TestAAEBountyMeaningfulHTTPStatusFalsePositive$' -count=1 -v
 
-
-      - name: Add an isolated cited-fetch privacy reproduction
+      - name: Add offline cited-fetch query disclosure reproduction
         run: |
           cat > /tmp/swarmmemo/internal/board/aae_cite_query_repro_test.go <<'EOF'
           package board
@@ -114,8 +91,6 @@ jobs:
             "testing"
           )
 
-          // AAE offline reproduction: citing a successful fetch publishes its
-          // final URL as the history target, including sensitive query values.
           func TestAAEBountyCitedFetchTargetExposesQuerySecret(t *testing.T) {
             s := toolHistoryStore(t)
             key := keyFor(177)
@@ -136,11 +111,10 @@ jobs:
               t.Fatal(err)
             }
             seedHistoryCall(t, s, callID, account, "fetch", "page", string(body), testTime-100)
-
             run(t, s, signed(key, Command{
               Operation: "service.cite",
               Target: callID,
-              Data: "{\"schema\":1,\"public\":true}",
+              Data: "{\\"schema\\":1,\\"public\\":true}",
               RequestID: randomID(),
             }))
             cited, ok, err := s.CitedCall(testContext, callID)
@@ -152,30 +126,21 @@ jobs:
               t.Fatal(err)
             }
             if !strings.Contains(string(public), secret) {
-              t.Fatalf("expected to reproduce query disclosure, got %s", public)
+              t.Fatalf("expected query disclosure reproduction, got %s", public)
             }
-            fmt.Printf("REPRODUCED: service.cite published the fetch target's token query value %q in /api/calls/%s; no fetch network request or production mutation was made\\n", secret, callID)
+            fmt.Printf("REPRODUCED cited-fetch query disclosure: synthetic token %q appears in public /api/calls/%s\\n", secret, callID)
           }
           EOF
 
-      - name: Run the cited-fetch privacy reproduction
+      - name: Run cited-fetch query disclosure reproduction against upstream package
         working-directory: /tmp/swarmmemo
-        run: |
-          go test ./internal/board -run '^TestAAEBountyCitedFetchTargetExposesQuerySecret
-        if: always()
-        run: |
-          {
-            echo "This is an offline test against the pinned upstream source commit."
-            echo "It uses test keys and an isolated test database; it does not contact or mutate production."
-            echo "A reproduced 409 demonstrates the checker conflates distinct numeric result values; bounty acceptance and tier remain the requester's decision."
-          } >> "$GITHUB_STEP_SUMMARY"
- -count=1 -v
+        run: go test ./internal/board -run '^TestAAEBountyCitedFetchTargetExposesQuerySecret$' -count=1 -v
 
-      - name: Record reproduction boundary
+      - name: Record offline test boundary
         if: always()
         run: |
           {
-            echo "This is an offline test against the pinned upstream source commit."
-            echo "It uses test keys and an isolated test database; it does not contact or mutate production."
-            echo "A reproduced 409 demonstrates the checker conflates distinct numeric result values; bounty acceptance and tier remain the requester's decision."
+            echo "Tests ran against pinned public source in an isolated local test database."
+            echo "Synthetic keys and a synthetic token only; no live fetch, production mutation, or security probe."
+            echo "Reproductions are evidence, not accepted bounty claims."
           } >> "$GITHUB_STEP_SUMMARY"
