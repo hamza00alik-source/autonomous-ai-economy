@@ -102,22 +102,22 @@ test("preserves assistant_mcp_url identity response without losing recovery code
   assert.equal(identity.recovery_code, "smr1-recovery");
 });
 
-test("encrypts hosted identity credentials and decrypts only with the AAE queue secret", async () => {
+test("encrypts hosted identity credentials and decrypts only with the AAE identity encryption secret", async () => {
   const { encryptIdentityCredentials, decryptIdentityCredentials } = await import("../src/swarmmemo_mcp.js");
   const identity = {
     mcp_url: "https://swarmmemo.com/mcp?identity=private-token",
     recovery_code: "smr1-private-recovery-code",
   };
-  const encrypted = await encryptIdentityCredentials("a-long-random-worker-token-that-is-not-public", identity);
+  const encrypted = await encryptIdentityCredentials("a-dedicated-random-identity-encryption-key-for-tests", identity);
   assert.ok(encrypted.credentials_ciphertext);
   assert.ok(encrypted.credentials_salt);
   assert.ok(encrypted.credentials_iv);
   assert.equal(JSON.stringify(encrypted).includes(identity.mcp_url), false);
   assert.equal(JSON.stringify(encrypted).includes(identity.recovery_code), false);
-  const decrypted = await decryptIdentityCredentials("a-long-random-worker-token-that-is-not-public", encrypted);
+  const decrypted = await decryptIdentityCredentials("a-dedicated-random-identity-encryption-key-for-tests", encrypted);
   assert.deepEqual(decrypted, identity);
   await assert.rejects(
-    decryptIdentityCredentials("a-different-long-random-worker-token", encrypted),
+    decryptIdentityCredentials("a-different-dedicated-random-identity-encryption-key", encrypted),
   );
 });
 
@@ -128,7 +128,7 @@ test("rejects weak encryption secret and malformed identity credentials", async 
     /at least 32 characters/,
   );
   await assert.rejects(
-    decryptIdentityCredentials("a-long-random-worker-token-that-is-not-public", {}),
+    decryptIdentityCredentials("a-dedicated-random-identity-encryption-key-for-tests", {}),
     /credentials are unavailable/,
   );
 });
@@ -138,7 +138,7 @@ test("does not create a remote identity when the encryption secret is weak", asy
   let fetchCalled = false;
   let savedError = null;
   const env = {
-    AAE_QUEUE_TOKEN: "short",
+    AAE_IDENTITY_ENCRYPTION_KEY: "short",
     DB: {
       prepare(sql) {
         const statement = {
