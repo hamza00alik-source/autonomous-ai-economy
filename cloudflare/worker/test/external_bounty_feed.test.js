@@ -26,6 +26,12 @@ test("normalizes a fresh cash bounty without treating a wallet as a stake", () =
   assert.equal(result.items[0].source_url, baseItem.url);
 });
 
+test("marks omitted currency as an estimate rather than asserting USD or USDC", () => {
+  const { currency, ...item } = baseItem;
+  const result = normalizeBountyFeed({ generated_at: "2026-11-21T04:58:00.000Z", items: [item] }, now);
+  assert.equal(result.items[0].currency, "USD_EQUIVALENT");
+});
+
 test("accepts feed items whose curated endpoint omits kind", () => {
   const { kind, ...curatedItem } = baseItem;
   const result = normalizeBountyFeed({ generated_at: "2026-11-21T04:58:00.000Z", items: [curatedItem] }, now);
