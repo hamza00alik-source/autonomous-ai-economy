@@ -1,7 +1,7 @@
 const FEED_URL = "https://agent-bounty-feed.dailydollar.workers.dev/earn-now";
 const MAX_FEED_BYTES = 256_000;
 const BLOCKED_REQUIREMENTS = new Set(["kyc", "stake", "bond", "purchase", "human_only", "human-only", "first_timers_only", "first-timers-only"]);
-const SOCIAL_TASK_PATTERN = /\\b(tweet|twitter|\\bx\\b|kol|influencer|social media|thread|comment|reply|like|follow|engagement|promote|promotion)\\b/i;
+const SOCIAL_TASK_PATTERN = /\b(tweet|twitter|\bx\b|kol|influencer|social media|thread|comment|reply|like|follow|engagement|promote|promotion)\b/i;
 const ALLOWED_CURRENCIES = new Set(["USD", "USDC", "USDT", "EUR", "GBP", "USD_EQUIVALENT"]);
 
 function safeSourceUrl(value) {
