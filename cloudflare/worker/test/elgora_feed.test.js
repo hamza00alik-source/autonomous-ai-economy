@@ -61,7 +61,7 @@ test("persists the verified bounty and records the source run", async () => {
   assert.equal(result.fetched, 1);
   assert.equal(result.stored, 1);
   assert.equal(calls.length, 2);
-  assert.equal(calls[0].values[0], "elgora:3");
+  assert.equal(calls[0].values[0], "elgora-api:3");
   assert.equal(calls[0].values[1], "elgora");
   assert.equal(calls[0].values[5], "USDC");
   assert.equal(calls[1].values[1], "elgora");
