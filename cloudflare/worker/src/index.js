@@ -767,7 +767,7 @@ export default {
     }
     if (url.pathname === "/v1/marketplace/execution-jobs" && request.method === "GET") {
       const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 30)));
-      const rows = await env.DB.prepare("SELECT job_id,source,external_task_id,title,reward_text,status,owner_approved,eligibility_json,error,created_at,updated_at FROM aae_execution_jobs ORDER BY created_at DESC LIMIT ?").bind(limit).all();
+      const rows = await env.DB.prepare("SELECT job_id,source,external_task_id,title,reward_text,status,owner_approved,eligibility_json,task_snapshot_json,result_text,error,created_at,updated_at FROM aae_execution_jobs ORDER BY created_at DESC LIMIT ?").bind(limit).all();
       return json({ items: rows.results || [], notice: "Private draft queue only. No task claims, submissions, posts, messages, signatures, transfers, or spending." });
     }
     if (url.pathname === "/v1/taskmarket/work" && request.method === "GET") {
