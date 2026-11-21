@@ -59,6 +59,18 @@ test("rejects stale feeds, expired tasks, sub-dollar and risky prerequisites", (
   assert.equal(fresh.rejected, 4);
 });
 
+test("rejects social engagement and first-timer-only bounties", () => {
+  const result = normalizeBountyFeed({
+    generated_at: "2026-11-21T04:58:00.000Z",
+    items: [
+      {...baseItem, id:"social", title:"Create threads and comments on X for a KOL"},
+      {...baseItem, id:"first-timer", requires:["first_timers_only"]},
+    ],
+  }, now);
+  assert.equal(result.items.length, 0);
+  assert.equal(result.rejected, 2);
+});
+
 test("stores only normalized items and preserves the source snapshot", async () => {
   const calls = [];
   const env = { DB: { prepare(sql) {
@@ -72,7 +84,9 @@ test("stores only normalized items and preserves the source snapshot", async () 
   }, new Date(now));
   assert.equal(result.fetched, 1);
   assert.equal(result.stored, 1);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].sql, /aae_external_bounty_feed_runs/);
+  assert.equal(calls[1].values[1], "success");
   assert.equal(calls[0].values[0], "elgora:3");
   assert.match(calls[0].values[10], /Escrow contract review/);
 });

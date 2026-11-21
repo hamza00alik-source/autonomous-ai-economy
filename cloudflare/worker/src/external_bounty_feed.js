@@ -1,6 +1,7 @@
 const FEED_URL = "https://agent-bounty-feed.dailydollar.workers.dev/earn-now";
 const MAX_FEED_BYTES = 256_000;
-const BLOCKED_REQUIREMENTS = new Set(["kyc", "stake", "bond", "purchase", "human_only", "human-only"]);
+const BLOCKED_REQUIREMENTS = new Set(["kyc", "stake", "bond", "purchase", "human_only", "human-only", "first_timers_only", "first-timers-only"]);
+const SOCIAL_TASK_PATTERN = /\b(tweet|twitter|\bx\b|kol|influencer|social media|thread|comment|reply|like|follow|engagement|promote|promotion)\b/i;
 const ALLOWED_CURRENCIES = new Set(["USD", "USDC", "USDT", "EUR", "GBP", "USD_EQUIVALENT"]);
 
 function safeSourceUrl(value) {
@@ -37,6 +38,7 @@ export function normalizeBountyFeed(feed, now = Date.now()) {
       !url || !Number.isFinite(reward) || reward < 1 ||
       !ALLOWED_CURRENCIES.has(currency) ||
       requirements.some(x => BLOCKED_REQUIREMENTS.has(x)) ||
+      SOCIAL_TASK_PATTERN.test([item?.title, item?.one_liner, ...(Array.isArray(item?.how_to_enter) ? item.how_to_enter : [])].filter(Boolean).join(" ")) ||
       (deadlineMs != null && (!Number.isFinite(deadlineMs) || deadlineMs <= now))
     ) {
       rejected++;
@@ -71,26 +73,55 @@ export function normalizeBountyFeed(feed, now = Date.now()) {
   return { items, rejected, reason: null };
 }
 
-export async function syncExternalBountyFeed(env, fetchImpl = fetch, now = new Date()) {
-  const response = await fetchImpl(FEED_URL, {
-    method: "GET",
-    headers: { accept: "application/json" },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!response.ok) throw new Error("external bounty feed HTTP " + response.status);
-  const text = await response.text();
-  if (text.length > MAX_FEED_BYTES) throw new Error("external bounty feed exceeded size limit");
-  let feed;
-  try { feed = JSON.parse(text); } catch { throw new Error("external bounty feed returned invalid JSON"); }
-  const normalized = normalizeBountyFeed(feed, now.getTime());
-  if (normalized.reason) return { fetched: 0, stored: 0, rejected: normalized.rejected, reason: normalized.reason };
-  let stored = 0;
-  const timestamp = now.toISOString();
-  for (const item of normalized.items) {
-    const result = await env.DB.prepare(
-      "INSERT INTO aae_external_bounty_discoveries (bounty_id,source,title,source_url,reward_usd,currency,requirements_json,deadline,verified_at,feed_generated_at,snapshot_json,first_seen_at,last_seen_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(bounty_id) DO UPDATE SET source=excluded.source,title=excluded.title,source_url=excluded.source_url,reward_usd=excluded.reward_usd,currency=excluded.currency,requirements_json=excluded.requirements_json,deadline=excluded.deadline,verified_at=excluded.verified_at,feed_generated_at=excluded.feed_generated_at,snapshot_json=excluded.snapshot_json,last_seen_at=excluded.last_seen_at"
-    ).bind(item.bounty_id,item.source,item.title,item.source_url,item.reward_usd,item.currency,JSON.stringify(item.requirements),item.deadline,item.verified_at,item.feed_generated_at,JSON.stringify(item.snapshot),timestamp,timestamp).run();
-    if (result.meta?.changes === 1) stored++;
+async function recordRun(env, run) {
+  try {
+    await env.DB.prepare(
+      "INSERT INTO aae_external_bounty_feed_runs (run_id,status,fetched,stored,rejected,feed_generated_at,error,started_at,finished_at) VALUES (?,?,?,?,?,?,?,?,?)"
+    ).bind(run.run_id,run.status,run.fetched,run.stored,run.rejected,run.feed_generated_at,run.error,run.started_at,run.finished_at).run();
+  } catch {
+    // Observability must never hide the original feed result or error.
   }
-  return { fetched: normalized.items.length, stored, rejected: normalized.rejected, feed_generated_at: feed.generated_at };
+}
+
+export async function syncExternalBountyFeed(env, fetchImpl = fetch, now = new Date()) {
+  const startedAt = now.toISOString();
+  const runId = crypto.randomUUID();
+  let fetched = 0;
+  let stored = 0;
+  let rejected = 0;
+  let generatedAt = null;
+  try {
+    const response = await fetchImpl(FEED_URL, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) throw new Error("external bounty feed HTTP " + response.status);
+    const text = await response.text();
+    if (text.length > MAX_FEED_BYTES) throw new Error("external bounty feed exceeded size limit");
+    let feed;
+    try { feed = JSON.parse(text); } catch { throw new Error("external bounty feed returned invalid JSON"); }
+    generatedAt = feed?.generated_at || null;
+    const normalized = normalizeBountyFeed(feed, now.getTime());
+    if (normalized.reason) {
+      rejected = normalized.rejected;
+      const result = { fetched: 0, stored: 0, rejected, reason: normalized.reason };
+      await recordRun(env, {run_id:runId,status:"skipped",fetched,stored,rejected,feed_generated_at:generatedAt,error:normalized.reason,started_at:startedAt,finished_at:new Date().toISOString()});
+      return result;
+    }
+    rejected = normalized.rejected;
+    for (const item of normalized.items) {
+      const result = await env.DB.prepare(
+        "INSERT INTO aae_external_bounty_discoveries (bounty_id,source,title,source_url,reward_usd,currency,requirements_json,deadline,verified_at,feed_generated_at,snapshot_json,first_seen_at,last_seen_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(bounty_id) DO UPDATE SET source=excluded.source,title=excluded.title,source_url=excluded.source_url,reward_usd=excluded.reward_usd,currency=excluded.currency,requirements_json=excluded.requirements_json,deadline=excluded.deadline,verified_at=excluded.verified_at,feed_generated_at=excluded.feed_generated_at,snapshot_json=excluded.snapshot_json,last_seen_at=excluded.last_seen_at"
+      ).bind(item.bounty_id,item.source,item.title,item.source_url,item.reward_usd,item.currency,JSON.stringify(item.requirements),item.deadline,item.verified_at,item.feed_generated_at,JSON.stringify(item.snapshot),startedAt,startedAt).run();
+      if (result.meta?.changes === 1) stored++;
+    }
+    fetched = normalized.items.length;
+    const result = { fetched, stored, rejected, feed_generated_at: generatedAt };
+    await recordRun(env, {run_id:runId,status:"success",fetched,stored,rejected,feed_generated_at:generatedAt,error:null,started_at:startedAt,finished_at:new Date().toISOString()});
+    return result;
+  } catch (error) {
+    await recordRun(env, {run_id:runId,status:"failed",fetched,stored,rejected,feed_generated_at:generatedAt,error:String(error?.message||error).slice(0,1000),started_at:startedAt,finished_at:new Date().toISOString()});
+    throw error;
+  }
 }

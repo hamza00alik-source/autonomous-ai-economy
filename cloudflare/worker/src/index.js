@@ -766,6 +766,11 @@ export default {
       if (result.meta?.changes !== 1) return json({ error: "job not found, not queued, or already approved" }, 409);
       return json({ approved: true, job_id: marketplaceApproval[1], notice: "Approval authorizes private AI draft generation only; no external task claim, submission, publication, message, signature, transfer, or spending." });
     }
+    if (url.pathname === "/v1/marketplace/bounty-feed-runs" && request.method === "GET") {
+      const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 10)));
+      const rows = await env.DB.prepare("SELECT run_id,status,fetched,stored,rejected,feed_generated_at,error,started_at,finished_at FROM aae_external_bounty_feed_runs ORDER BY started_at DESC LIMIT ?").bind(limit).all();
+      return json({ runs: rows.results || [] });
+    }
     if (url.pathname === "/v1/marketplace/discovered-bounties" && request.method === "GET") {
       const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 30)));
       const rows = await env.DB.prepare("SELECT bounty_id,source,title,source_url,reward_usd,currency,requirements_json,deadline,verified_at,feed_generated_at,snapshot_json,first_seen_at,last_seen_at FROM aae_external_bounty_discoveries ORDER BY reward_usd DESC,deadline ASC LIMIT ?").bind(limit).all();
