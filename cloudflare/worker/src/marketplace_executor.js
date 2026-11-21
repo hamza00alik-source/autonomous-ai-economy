@@ -4,7 +4,7 @@ const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 
 const BLOCK_PATTERNS = [
   /\b(stake|deposit|buy[- ]in|pay to enter|purchase required)\b/i,
-  /\b(wallet connect|sign (a|the) transaction|transfer funds|send crypto|private key|seed phrase)\b/i,
+  /\b(wallet connect|connect wallet|sign (a|the)? transaction|transfer funds|send crypto|private key|seed phrase)\b/i,
   /\b(post|publish|promote|advertise|marketing campaign|social media)\b/i,
   /\b(medical diagnosis|legal advice|financial advice|investment advice)\b/i,
   /\b(malware|credential theft|phishing|exploit|attack|bypass security)\b/i,
