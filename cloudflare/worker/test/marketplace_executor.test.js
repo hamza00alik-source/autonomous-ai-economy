@@ -1,0 +1,27 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { assessTask, executePrivateDraft } from "../src/marketplace_executor.js";
+
+test("screens eligible tasks into private draft lane", () => {
+  const result = assessTask({id:"t1",title:"Review open source docs",description:"Review docs and suggest improvements",eligible:true,reward_usdc:"1.00"});
+  assert.equal(result.eligible,true);
+});
+test("blocks stake and external publishing risks", () => {
+  for (const task of [
+    {title:"Deposit required",description:"Stake to enter"},
+    {title:"Post social content",description:"Publish a marketing post"},
+    {title:"Connect wallet",description:"Sign transaction"},
+  ]) assert.equal(assessTask(task).eligible,false);
+});
+test("blocks credits-only task", () => {
+  assert.ok(assessTask({title:"task",description:"work",reward_credits:20,credits_only:true}).reasons.includes("non_cash_reward"));
+});
+test("private execution returns draft only", async () => {
+  const env={AI:{run:async()=>({response:"Draft work output"})}};
+  const result=await executePrivateDraft(env,{id:"t",title:"Research docs",description:"Summarize provided documentation",eligible:true,reward_usdc:"0.1"});
+  assert.equal(result.status,"draft_ready");
+  assert.equal(result.externalActionsTaken,false);
+});
+test("rejects empty model output", async () => {
+  await assert.rejects(()=>executePrivateDraft({AI:{run:async()=>({})}},{title:"Research",description:"Draft a research note",eligible:true}),/no draft text/);
+});
