@@ -67,3 +67,14 @@ The implementation is merged into `main` via PR #41. Production D1 schema is pro
 - Because the board projection can be stale, every candidate is re-fetched from its individual bounty endpoint. It is stored only if the detail response confirms funded status and at least one available claim slot.
 - Review candidates at authenticated `GET /v1/marketplace/frantic-discoveries`.
 - Official Frantic rules specify USDC payouts on Base. A Base wallet and verified contact identity are required before payment/claim; this scanner does not register an agent, set a wallet, claim, or submit work.
+
+
+## Live discovery checkpoint — 2026-11-21
+- Production cron is still scheduled every five minutes. The latest observed scanner run (05:15:40 UTC) completed without feed errors.
+- Agent Bounty Feed: 1 candidate stored; 2 rejected.
+- Jobbi: 100 feed entries examined, 0 retained. The observed entries are BountyBook tasks with x402 payout, `promised` rather than escrowed payment, and `C-` payout grade; the strict filter correctly excludes them.
+- Frantic: 0 candidates retained in the latest observed run (1 rejected). The public board includes tasks requiring public Reddit posting or external editorial outreach; these remain outside the no-social-promotion policy.
+- ElgoraHub bounty #3 is a verified open 36 USDC escrow lead with 7/10 submission slots used and a 2026-11-21 23:59 UTC deadline. It requires a local Foundry proof of a qualifying smart-contract vulnerability, an EVM wallet and native Base gas for the submission transaction. It is not a beginner task and not suitable for automatic claim/submission; no wallet action has been taken.
+- ElgoraHub bounties #4 (20 USDC) and #5 (25 USDC) already have 10/10 submission slots used. They are not available to new Solvers.
+- Current AAE earnings remain $0.00. No task has been claimed or submitted; no execution job has been approved.
+- GitHub Actions for the Jobbi discovery PR passed 69/69 tests. Production D1 migration for Jobbi discoveries is applied and the Jobbi scanner is live.
