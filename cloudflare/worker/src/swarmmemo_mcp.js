@@ -222,7 +222,7 @@ export async function ensureHostedSwarmMemoIdentity(env, fetchImpl = fetch) {
   if (typeof env.AAE_QUEUE_TOKEN !== "string" || env.AAE_QUEUE_TOKEN.length < 32) {
     await env.DB.prepare(
       "INSERT INTO swarmmemo_identity_state (id,state,updated_at,last_error) VALUES (1,'failed',?,?) ON CONFLICT(id) DO UPDATE SET state=CASE WHEN state='created' THEN state ELSE 'failed' END,last_error=CASE WHEN state='created' THEN last_error ELSE excluded.last_error END,updated_at=excluded.updated_at"
-    ).bind(now, "missing_or_weak_encryption_secret").run();
+    ).bind(now, "missing_or_weak_encryption_secret:length=" + String(env.AAE_QUEUE_TOKEN?.length || 0)).run();
     return { ready: false, state: "missing_or_weak_encryption_secret" };
   }
   const current = await env.DB.prepare(
