@@ -65,7 +65,7 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
 
 export async function processOneMarketplaceDraft(env) {
   const row = await env.DB.prepare(
-    "SELECT job_id,source,external_task_id,task_snapshot_json FROM aae_execution_jobs WHERE status='queued' ORDER BY created_at ASC LIMIT 1"
+    "SELECT job_id,source,external_task_id,task_snapshot_json FROM aae_execution_jobs WHERE status='queued' AND owner_approved=1 ORDER BY created_at ASC LIMIT 1"
   ).first();
   if (!row) return { processed: false };
   const now = new Date().toISOString();
