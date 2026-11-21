@@ -12,7 +12,7 @@ function normalizeSwarmMemo(row) {
   const directValue = unit === "usdc" ? reward?.amount : reward?.usdc ?? reward?.amount_usdc ?? reward?.cash_usdc ?? null;
   const parseUsdc = (value) => {
     const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
-    return /^\\d+(?:\\.\\d{1,6})?$/.test(text) ? Number(text) : NaN;
+    return /^\d+(?:\.\d{1,6})?$/.test(text) ? Number(text) : NaN;
   };
   const room = parseUsdc(standing?.usdc_room);
   const tiers = Array.isArray(standing?.tiers) ? standing.tiers : [];
