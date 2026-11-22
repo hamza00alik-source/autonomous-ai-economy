@@ -54,7 +54,7 @@ test("requires a positive USDC reward", () => {
 test("private execution requires independent review and takes no external action", async () => {
   const outputs = [goodDraft, reviewerPass];
   const env={AI:{run:async()=>({response:outputs.shift()})}};
-  const result=await executePrivateDraft(env,{id:"t",title:"Research docs",description:"Summarize provided documentation",eligible:true,reward_usdc:"0.1"});
+  const result=await executePrivateDraft(env,{id:"t",title:"Prepare a concise software guide",description:"Summarize the supplied material",eligible:true,reward_usdc:"0.1"});
   assert.equal(result.status,"draft_ready");
   assert.equal(result.externalActionsTaken,false);
   assert.equal(result.agentTeam.length,2);
