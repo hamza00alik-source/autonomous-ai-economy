@@ -86,7 +86,7 @@ function exactExcerpt(sourceText, draft) {
   }
   const words = sourceText.split(/\s+/);
   for (let width = Math.min(100, words.length); width >= 6; width--) {
-    for (let start = 0; start + width <= words.length; start += Math.max(1, Math.floor(width / 3))) {
+    for (let start = 0; start + width <= words.length; start++) {
       const candidate = words.slice(start, start + width).join(" ");
       if (candidate.length >= 30 && candidate.length <= 800 && draft.includes(candidate)) return candidate;
     }
