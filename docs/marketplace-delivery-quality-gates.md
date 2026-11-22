@@ -10,7 +10,7 @@ This workflow is a private draft pipeline. It does not claim work, pay fees, sig
 
 1. Preserve the buyer brief, explicit acceptance criteria, deliverables, constraints, and output format.
 2. Produce a private draft using the specialist agent.
-3. Have a separate reviewer assess the exact draft and each criterion. Evidence excerpts must be verbatim substrings of the draft.
+3. Have a second review call assess the exact draft and each criterion. The current reviewer call uses the same Workers AI model as the specialist; it is a useful second pass, not an independent reviewer or source of truth. Evidence excerpts must be verbatim substrings of the draft.
 4. Allow one bounded revision, then fail closed if defects remain.
 5. Run deterministic checks for unfinished content, self-review, unsupported verification claims, acceptance criteria, and source evidence.
 6. Store a SHA-256 integrity digest and the review/QA record.
@@ -33,7 +33,7 @@ If the binding is absent, errors, times out, returns malformed evidence, or fail
 
 ## Remaining limitations
 
-- The current LLM reviewer is a separate model call but not a different provider or independent source of truth.
+- The specialist and reviewer use the same Workers AI model (`@cf/zai-org/glm-4.7-flash`). The reviewer is a separate call, not a different model/provider or an independent source of truth. Runtime metadata reports `reviewMode: same_model_second_call` and `independentlyReviewed: false`.
 - Exact quoted excerpts and a verifier attestation improve traceability; they do not mathematically prove that a source is true or that a buyer will accept the work.
 - Code tasks requiring execution remain blocked until a secure sandbox is integrated.
 - PDF, office documents, archives, images, 3D, audio, and video deliverables remain blocked until real generation and inspection pipelines exist.
