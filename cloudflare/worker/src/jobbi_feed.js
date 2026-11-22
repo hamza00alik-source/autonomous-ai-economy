@@ -70,7 +70,8 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
   let rejected = 0;
   for (const item of feed.items) {
     const meta = item?._jobbi;
-    const reward = Number(meta?.reward?.amount);
+    const rewardText = String(meta?.reward?.amount ?? "").trim();
+    const reward = Number(rewardText);
     const payout = classifyPayout(meta?.reward, meta?.reward?.rail, meta?.extra);
     const grade = String(meta?.payout_grade || "").toUpperCase();
     const modified = Date.parse(item?.date_modified || "");
@@ -87,14 +88,15 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
     if (meta?.claims_open !== true) reasons.push("claims_not_open");
     if (meta?.payment_state !== "escrowed") reasons.push("reward_not_reported_escrowed");
     if (!TRUSTED_GRADES.has(grade)) reasons.push("payout_confidence_below_B");
-    if (!Number.isFinite(reward) || reward <= 0) reasons.push("invalid_reward_amount");
+    if (!/^(?:0|[1-9]\\d*)(?:\\.\\d+)?$/.test(rewardText) || !Number.isFinite(reward) || reward <= 0) reasons.push("invalid_reward_amount");
     if (!Number.isFinite(modified) || modified > now + 5 * 60_000 || now - modified > 7 * 24 * 60 * 60_000) reasons.push("stale_or_invalid_listing");
     if (!Number.isFinite(expires) || expires <= now) reasons.push("deadline_missing_or_expired");
     if (criteria.length < 45 || !meta?.acceptance) reasons.push("acceptance_criteria_missing");
     if (BLOCKED_TEXT.test(text)) reasons.push("prohibited_or_costly_requirement");
     if (reasons.length) { rejected++; continue; }
 
-    const usdEstimate = payout.kind === "stablecoin" && ["USDC", "USDT"].includes(payout.currency)
+    const usdEstimate = (payout.kind === "stablecoin" && ["USDC", "USDT"].includes(payout.currency)) ||
+      (payout.kind === "digital_payout" && payout.currency === "USD")
       ? reward
       : Number.isFinite(Number(meta?.reward?.usd_estimate)) ? Number(meta.reward.usd_estimate)
       : Number.isFinite(Number(meta?.extra?.reward_usd_estimate)) ? Number(meta.extra.reward_usd_estimate)
@@ -121,8 +123,8 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
       board_source: String(meta?.source || "unknown").slice(0, 80),
       title: item.title.slice(0, 500),
       source_url: url,
-      reward_usd: usdEstimate ?? reward,
-      reward_amount: reward,
+      reward_usd: usdEstimate ?? 0,
+      reward_amount: rewardText,
       reward_usd_estimate: usdEstimate,
       currency: payout.currency,
       payment_rail: payout.rail,
