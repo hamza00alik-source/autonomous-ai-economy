@@ -63,7 +63,7 @@ test("rejects oversized source bodies",async()=>{
 });
 test("limits methods and route surface",async()=>{
   const e=env();
-  assert.equal((await verifier.fetch(new Request("https://internal/v1/verify"),e)).status,405);
+  assert.equal((await verifier.fetch(new Request("https://internal/v1/verify",{headers:{"x-aae-source-verifier-token":TOKEN}}),e)).status,405);
   assert.equal((await verifier.fetch(new Request("https://internal/healthz",{method:"POST",
     headers:{"x-aae-source-verifier-token":TOKEN}}),e)).status,404);
   assert.equal(e.calls.length,0);
