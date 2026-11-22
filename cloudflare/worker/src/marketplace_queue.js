@@ -1,4 +1,5 @@
 import { assessTask, executePrivateDraft } from "./marketplace_executor.js";
+import { submitTaskmarketDeliverable } from "./marketplace_submission.js";
 
 function parseJson(value) {
   if (!value) return null;
@@ -78,7 +79,19 @@ function normalizeTaskmarket(row) {
     eligible: row.eligible === 1,
     simulated: false,
     reward: row.net_reward_usdc,
-    stake_required: row.stake_required === 1,
+    chain_id: Number(row.chain_id || 0),
+    mode: row.mode,
+    board_state: row.board_state,
+    reward_base_units: row.reward_base_units,
+    net_reward_base_units: row.net_reward_base_units,
+    escrow_tx_hash: row.escrow_tx_hash,
+    escrow_verified: Number(row.escrow_verified || 0),
+    submission_count: Number(row.submission_count || 0),
+    stake_required: row.stake_required === 1 ? 1 : 0,
+    stake_bps: Number(row.stake_bps || 0),
+    expiry_time: row.expiry_time,
+    requester: row.requester,
+    submission_window_open: Number(row.submission_window_open || 0),
   };
 }
 
@@ -87,7 +100,7 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
   const limit = Math.min(50, Math.max(1, Number(limitPerSource) || 25));
   const [swarm, taskmarket] = await Promise.all([
     env.DB.prepare("SELECT task_id,title,task_text,reward_json,simulated,eligible FROM swarmmemo_work_items WHERE board_state='open' AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='swarmmemo' AND j.external_task_id=swarmmemo_work_items.task_id) ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
-    env.DB.prepare("SELECT task_id,title,description,net_reward_usdc,stake_required,eligible FROM taskmarket_work_items WHERE board_state='open' AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='taskmarket' AND j.external_task_id=taskmarket_work_items.task_id) ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
+    env.DB.prepare("SELECT task_id,title,description,chain_id,mode,board_state,reward_base_units,net_reward_base_units,net_reward_usdc,escrow_tx_hash,escrow_verified,submission_count,stake_required,stake_bps,expiry_time,requester,submission_window_open,eligible FROM taskmarket_work_items WHERE board_state='open' AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='taskmarket' AND j.external_task_id=taskmarket_work_items.task_id) ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
   ]);
   const candidates = [
     ...(swarm.results || []).map(row => ({ source: "swarmmemo", task: normalizeSwarmMemo(row) })),
@@ -161,16 +174,27 @@ export async function processOneMarketplaceDraft(env) {
       new Date().toISOString(), row.job_id).run();
       return { processed: true, status: "blocked", job_id: row.job_id, externalActionsTaken: false };
     }
-    const finalStatus = draft.submissionReady === true ? "draft_ready" : "blocked";
-    const qaError = draft.submissionReady === true ? null : "Independent QA or deterministic quality gate did not pass";
+    let submission = null;
+    if (draft.submissionReady === true && row.source === "taskmarket") {
+      submission = await submitTaskmarketDeliverable(env, task, draft.deliverable);
+    }
+    const finalStatus = submission?.status === "submitted" ? "submitted" :
+      (submission?.status === "uncertain" || submission?.status === "blocked" ? "blocked" :
+        (draft.submissionReady === true ? "draft_ready" : "blocked"));
+    const qaError = draft.submissionReady !== true
+      ? "Independent QA or deterministic quality gate did not pass"
+      : submission && submission.status !== "submitted" && submission.status !== "not_configured"
+        ? submission.reason || "Marketplace submission did not complete" : null;
     await env.DB.prepare(
       "UPDATE aae_execution_jobs SET status=?,result_text=?,eligibility_json=?,error=?,updated_at=? WHERE job_id=? AND status='running'"
     ).bind(finalStatus, draft.deliverable, JSON.stringify({
       eligible: true, reasons: [], qa: draft.qa, agentTeam: draft.agentTeam,
       revised: draft.revised, reviewRounds: draft.reviewRounds,
       deliverableSha256: draft.deliverableSha256, submissionReady: draft.submissionReady === true,
+      submission,
     }), qaError, new Date().toISOString(), row.job_id).run();
-    return { processed: true, status: finalStatus, job_id: row.job_id, externalActionsTaken: false };
+    return { processed: true, status: finalStatus, job_id: row.job_id,
+      externalActionsTaken: submission?.externalActionsTaken === true, submission: submission || null };
   } catch (error) {
     await env.DB.prepare(
       "UPDATE aae_execution_jobs SET status='failed',error=?,updated_at=? WHERE job_id=? AND status='running'"
