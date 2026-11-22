@@ -72,7 +72,21 @@ Both service bindings are present in the proposed parent Wrangler config, but th
 
 The task assessor blocks unsuitable deliverables including long-form video production, non-USDC token rewards such as FLAPJAX, and tasks requiring external financial settlement/account access. The task queue only marks an item draft-ready when the executor returns submission_candidate and submissionReady=true.
 
-Marketplace claiming and submission adapters, agent wallet/signing setup and external identity registration remain separate work. No marketplace task has been claimed, pitched or submitted by this PR. A successful internal QA result is not buyer acceptance or payment.
+### Automatic Taskmarket submission
+
+QA-passed Taskmarket Base bounty drafts can be submitted automatically without a per-task owner approval step, but only after the dedicated signer service is configured and the explicit `TASKMARKET_SUBMISSION_ENABLED=true` flag is set. The adapter:
+
+- Supports Base mainnet bounty mode only; it does not claim, pitch, bid, post, publish, or contact buyers.
+- Re-fetches the task and checks that it remains open, unexpired, unchanged, escrow-backed, unstaked, and on chain 8453.
+- Requires a separately configured `WALLET_SIGNER` service binding. The signer must expose authenticated `GET /healthz` returning `{ok:true,address,chainId:8453,signing:"eip191"}`, and authenticated `POST /v1/sign` accepting only the exact `taskmarket:submit:<taskId>` message. The Worker pins the expected wallet address and never stores a private key.
+- Checks for an existing submission from the worker before writing.
+- Conservatively submits only while the task's total submission count is below five, avoiding Taskmarket's 0.001 USDC post-free-allowance charge. It makes no x402-paid call.
+- Sends the QA-passed Markdown deliverable with the required EIP-191 signature. An ambiguous network result is marked for reconciliation and is never automatically retried.
+- Retries stored QA-passed drafts on the five-minute schedule once the signer is available. There is no per-task approval gate after QA; the global feature flag and signer provisioning are one-time operator setup.
+
+The feature flag defaults to false. No signer binding, signer token, worker address or wallet key is committed. Until an isolated signer is deployed and its address is pinned, candidates remain private drafts. The Taskmarket API documents the EIP-191 submission message and first-five-free allowance; see [Taskmarket API](https://docs.taskmarket.dev/api/reference) and [submission rules](https://docs.taskmarket.dev/tasks/earning/submitting).
+
+No live task has been claimed or submitted by this code change. A successful API response must still be checked against the worker's submission list and on-chain payout records. Internal QA is not buyer acceptance or payment.
 
 ## Validation
 
