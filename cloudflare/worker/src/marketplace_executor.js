@@ -21,6 +21,8 @@ const BLOCK_PATTERNS = [
   /\b(post|publish|promote|advertise|marketing campaign|social media)\b/i,
   /\b(medical diagnosis|legal advice|financial advice|investment advice)\b/i,
   /\b(malware|credential theft|phishing|exploit|attack|bypass security)\b/i,
+  /\b(Robinhood|bull\.family|cross[- ]chain|bridge transaction|settlement attempt|controlled amount|authorized (?:Base )?test account)\b/i,
+  /\b(FLAPJAX|workerAddress|BNB funder|first[- ]timers? only)\b/i,
   /\b(write from personal experience|your personal experience|pretend you are a human)\b/i,
 ];
 
@@ -32,7 +34,7 @@ export function assessTask(task, source = "unknown") {
   if (!combined) reasons.push("empty_task");
   if (combined.length > MAX_TASK_BYTES) reasons.push("task_too_large");
   if (!title || /^(?:#+\s*)?(?:title|task|untitled|unknown|n\/?a|none|null|undefined|new task)[.!:_ -]*$/i.test(title) || /^#+\s*(?:title|task)\s*$/i.test(title)) reasons.push("malformed_task_title");
-  if (/\b(final video|video production|full video|voiceover recording|recorded voice|ship (?:the )?(?:product|item)|physical delivery|live production deployment)\b/i.test(combined)) reasons.push("unsupported_deliverable");
+  if (/\b(final video|video production|full video|voiceover recording|recorded voice|ship (?:the )?(?:product|item)|physical delivery|live production deployment)\b/i.test(combined) || /(?:视频|配音|旁白|剪辑|音效|字幕|分镜|制作一部|制作一段|最终导出)/i.test(combined)) reasons.push("unsupported_deliverable");
   const runtimeRequired = /\b(?:run (?:the )?(?:tests?|test suite|code|script|program)|execute (?:the )?(?:code|script|program)|compile (?:the )?(?:code|project|program)|test (?:the )?(?:app|application|code|script|software)|run unit tests|debug (?:the )?(?:code|app|application)|reproduce (?:the )?(?:bug|issue)|build and test)\b/i.test(combined);
   if (runtimeRequired) reasons.push("runtime_verification_unavailable");
   const requestedOutput = [textField(task?.outputFormat ?? task?.output_format, 300), ...safeList(task?.requiredDeliverables ?? task?.required_deliverables)].join(" ");
