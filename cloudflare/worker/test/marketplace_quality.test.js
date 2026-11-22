@@ -4,7 +4,7 @@ import { qualityCheckDraft } from "../src/marketplace_quality.js";
 
 const passingReview = {
   pass: true, issues: [], failedCriteria: [],
-  criteria: [{ criterion: "Include limitations", passed: true, evidence: "A limitations section is present." }],
+  criteria: [{ criterion: "Include limitations", passed: true, evidence: "Limitations are explained." }],
 };
 
 test("draft passes only with independent review and evidence for each acceptance criterion", () => {
@@ -56,4 +56,31 @@ test("source URL extraction is repeatable across calls", () => {
   const second = qualityCheckDraft({title:"Task"}, draft, review);
   assert.deepEqual(first.sourceUrls, second.sourceUrls);
   assert.equal(first.sourceUrls.length, 2);
+});
+
+test("research and comparison drafts require a syntactically valid source URL", () => {
+  const review = {pass:true,issues:[],failedCriteria:[],criteria:[]};
+  const missing = qualityCheckDraft(
+    {title:"Research a software market",description:"Investigate the market and compare current offerings"},
+    "A substantive research draft with analysis and limitations. Self-check: assumptions are stated.",
+    review,
+  );
+  assert.ok(missing.blockers.includes("research_sources_missing"));
+  const invalid = qualityCheckDraft(
+    {title:"Research a software market",description:"Investigate the market and compare current offerings"},
+    "A substantive research draft with analysis and limitations. Self-check: assumptions are stated. Source: https://not-a-valid-host",
+    review,
+  );
+  assert.ok(invalid.blockers.includes("invalid_source_urls"));
+});
+
+test("review evidence must be an exact excerpt from the draft", () => {
+  const task = {title:"Task",acceptanceCriteria:["Include limitations"]};
+  const review = {pass:true,issues:[],failedCriteria:[],criteria:[
+    {criterion:"Include limitations",passed:true,evidence:"A paraphrase, not an exact quote."},
+  ]};
+  const result = qualityCheckDraft(task,
+    "A sufficiently detailed draft. Limitations: this is based only on supplied information. Self-check: assumptions stated. Source: https://example.com",
+    review);
+  assert.ok(result.blockers.includes("acceptance_criteria_not_verified"));
 });
