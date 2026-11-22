@@ -1,7 +1,7 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
 import { ensureHostedSwarmMemoIdentity, getStoredSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 import { pollTaskmarket, listTaskmarketWork } from "./taskmarket.js";
-import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "./marketplace_queue.js";
+import { enqueueMarketplaceTasks, processOneMarketplaceDraft, submitOneMarketplaceDraft } from "./marketplace_queue.js";
 import { syncExternalBountyFeed } from "./external_bounty_feed.js";
 import { syncJobbiFeed } from "./jobbi_feed.js";
 import { syncElgoraList } from "./elgora_feed.js";
@@ -768,6 +768,7 @@ export default {
       await Promise.allSettled([pollSwarmMemo(env), pollTaskmarket(env), syncExternalBountyFeed(env), syncJobbiFeed(env), syncFranticFeed(env), syncElgoraList(env)]);
       await enqueueMarketplaceTasks(env);
       await processOneMarketplaceDraft(env);
+      await submitOneMarketplaceDraft(env);
       await processOne(env);
     })());
   },
