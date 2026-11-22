@@ -5,6 +5,7 @@ workers_dev = true
 
 [vars]
 INDEPENDENT_REVIEW_ENABLED = "false"
+TASKMARKET_SUBMISSION_ENABLED = "false"
 
 [[services]]
 binding = "SOURCE_VERIFIER"
