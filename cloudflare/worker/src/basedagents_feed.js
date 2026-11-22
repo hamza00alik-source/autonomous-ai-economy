@@ -54,6 +54,13 @@ export function normalizeBasedAgentsTask(row, now = Date.now()) {
   if (status !== "open") reasons.push("not_open");
   if (!bounty || rewardAtomic == null || BigInt(rewardAtomic) < 100000n) reasons.push("missing_or_below_minimum_bounty_0_10_usdc");
   if (row.claimable !== true) reasons.push("bounty_not_verified_claimable");
+  const escrow = row.escrow && typeof row.escrow === "object" ? row.escrow : null;
+  if (
+    escrow?.status !== "funded" ||
+    typeof escrow.deposit_tx_hash !== "string" ||
+    !/^0x[a-fA-F0-9]{64}$/.test(escrow.deposit_tx_hash) ||
+    safeText(row.payment_status, 30).toLowerCase() !== "pending"
+  ) reasons.push("bounty_not_escrow_funded");
   if (!CASH_TOKENS.has(token)) reasons.push("not_usdc");
   if (!BASE_NETWORKS.has(network)) reasons.push("not_base_mainnet");
   if (SOCIAL_PATTERN.test(title + "\\n" + description)) reasons.push("social_or_engagement_task");
