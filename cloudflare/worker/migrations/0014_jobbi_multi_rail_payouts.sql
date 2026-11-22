@@ -1,4 +1,4 @@
-ALTER TABLE aae_jobbi_discoveries ADD COLUMN reward_amount REAL;
+ALTER TABLE aae_jobbi_discoveries ADD COLUMN reward_amount TEXT;
 ALTER TABLE aae_jobbi_discoveries ADD COLUMN reward_usd_estimate REAL;
 ALTER TABLE aae_jobbi_discoveries ADD COLUMN payout_network TEXT;
 ALTER TABLE aae_jobbi_discoveries ADD COLUMN payout_region_status TEXT;
