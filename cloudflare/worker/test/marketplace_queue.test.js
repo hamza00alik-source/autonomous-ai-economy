@@ -2,13 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "../src/marketplace_queue.js";
 
-function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.", reviewerOutput = '{"pass":true,"issues":[],"reason":"The work meets the stated requirements.","criteria":[]}' } = {}) {
+function fakeEnv({ swarm = [], taskmarket = [], independentReviewEnabled = true, aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.", reviewerOutput = '{"pass":true,"issues":[],"reason":"The work meets the stated requirements.","criteria":[]}' } = {}) {
   const jobs = [];
-  let aiCall = 0;
+  const budget = { reserved: 0 };
+  const counters = { aiCalls: 0 };
   const env = {
-    AI: { run: async () => ({ response: aiCall++ % 2 === 0 ? aiOutput : reviewerOutput }) },
+    AI: { run: async () => ({ response: counters.aiCalls++ % 2 === 0 ? aiOutput : reviewerOutput }) },
     INDEPENDENT_REVIEW_TOKEN: "test-independent-token",
-    INDEPENDENT_REVIEW_ENABLED: "true",
+    INDEPENDENT_REVIEW_ENABLED: independentReviewEnabled ? "true" : "false",
     INDEPENDENT_REVIEWER: { fetch: async (url) => new Response(JSON.stringify(String(url).endsWith("/healthz") ? { ok: true, provider: "google" } : {
       protocolVersion: 1, provider: "google", model: "gemini-3.8-flash",
       independent: true, sameProvider: false,
@@ -30,7 +31,11 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft:
           },
           async run() {
             if (sql.startsWith("INSERT OR IGNORE INTO ai_daily_budget")) return { meta: { changes: 1 } };
-            if (sql.startsWith("UPDATE ai_daily_budget")) return { meta: { changes: 1 } };
+            if (sql.startsWith("UPDATE ai_daily_budget")) {
+              if (sql.includes("reserved_neurons=reserved_neurons+?")) budget.reserved += values[0];
+              else if (sql.includes("reserved_neurons=CASE")) budget.reserved = Math.max(0, budget.reserved - values[0]);
+              return { meta: { changes: 1 } };
+            }
             if (sql.startsWith("INSERT OR IGNORE INTO aae_execution_jobs")) {
               const [job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at] = values;
               if (!jobs.some(x => x.source === source && x.external_task_id === external_task_id)) {
@@ -57,7 +62,7 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft:
       },
     },
   };
-  return { env, jobs };
+  return { env, jobs, budget, counters };
 }
 
 test("eligible marketplace work is queued once per source task", async () => {
@@ -177,4 +182,19 @@ test("buyer criteria sections are preserved in the queued task snapshot", async 
   assert.deepEqual(snapshot.acceptanceCriteria, ["Cite every factual claim", "Include a limitations section"]);
   assert.deepEqual(snapshot.requiredDeliverables, ["Markdown report"]);
   assert.deepEqual(snapshot.constraints, ["No paid APIs"]);
+});
+
+
+test("fail-closed reviewer preflight spends no model budget and releases the reservation",async()=>{
+  const {env,jobs,budget,counters}=fakeEnv({independentReviewEnabled:false,taskmarket:[{
+    task_id:"0xdisabled",title:"Prepare documentation",
+    description:"Prepare a concise offline documentation draft about the supplied public software feature. Explain the steps, assumptions, expected results, and limitations, then provide a short checklist.",
+    eligible:1,net_reward_usdc:"1.00",stake_required:0,
+  }]});
+  await enqueueMarketplaceTasks(env);
+  const result=await processOneMarketplaceDraft(env);
+  assert.equal(result.status,"blocked");
+  assert.equal(jobs[0].status,"blocked");
+  assert.equal(counters.aiCalls,0);
+  assert.equal(budget.reserved,0);
 });
