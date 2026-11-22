@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { qualityCheckDraft } from "../src/marketplace_quality.js";
 
-const passingReview = {pass:true,issues:[],failedCriteria:[],provider:"google",independent:true,sameProvider:false,criteria:[{criterion:"Include limitations",passed:true,evidence:"Limitations are explained."}]};
+const passingReview = {pass:true,issues:[],failedCriteria:[],provider:"google",independent:true,sameProvider:false,criteria:[{kind:"acceptance_criterion",criterion:"Include limitations",passed:true,evidence:"Limitations are explained."}]};
 
 test("draft passes only with review and exact evidence for each acceptance criterion",()=>{
   const task={title:"Write a concise product summary",acceptanceCriteria:["Include limitations"]};
