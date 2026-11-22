@@ -19,14 +19,19 @@ const passingReview = JSON.stringify({
   pass: true, issues: [], reason: "The deliverable meets the task.",
   criteria: [
     { kind: "acceptance_criterion", criterion, passed: true, evidence: "Limitations: only supplied facts are covered." },
-    { kind: "required_deliverable", criterion: "Markdown guide", passed: true, evidence: "A complete guide." },
   ],
 });
 
 test("specialist receives buyer criteria and independent reviewer verifies each one", async () => {
   const env = fakeEnv([
     "A complete guide. Limitations: only supplied facts are covered.",
-    passingReview,
+    JSON.stringify({
+      pass: true, issues: [], reason: "The deliverable meets the task.",
+      criteria: [
+        { kind: "acceptance_criterion", criterion, passed: true, evidence: "Limitations: only supplied facts are covered." },
+        { kind: "required_deliverable", criterion: "Markdown guide", passed: true, evidence: "A complete guide." },
+      ],
+    }),
   ]);
   const result = await executeAgentTeam(env, {
     title: "Write a guide", description: "Write a concise guide.",
@@ -75,7 +80,7 @@ test("missing criterion assessment fails closed", async () => {
   ]);
   await assert.rejects(
     () => executeAgentTeam(env, { title: "Write a guide", description: "Use supplied facts.", acceptanceCriteria: [criterion] }, "test"),
-    /did not assess every acceptance criterion/,
+    /did not assess every required item exactly/,
   );
 });
 
