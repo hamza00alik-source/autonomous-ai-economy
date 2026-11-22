@@ -38,7 +38,7 @@ async function apiJson(path, init = {}, fetchImpl = fetch) {
 /**
  * Automatic, no-owner-approval submission for a QA-passed Taskmarket Base bounty.
  * The signing key never enters this Worker: WALLET_SIGNER is an isolated signer
- * service binding. Only the first five total task submissions are considered,
+ * service binding. Only tasks below 50 total submissions are considered; each
  * conservatively avoiding Taskmarket's 0.001 USDC post-free-allowance fee.
  */
 export async function submitTaskmarketDeliverable(env, task, deliverable, fetchImpl = fetch) {
