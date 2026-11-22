@@ -49,7 +49,7 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft:
             if (!job) return { meta: { changes: 0 } };
             if (sql.includes("SET status=?")) { job.status = values[0]; job.result_text = values[1]; job.error = values[3] ?? null; }
             else if (sql.includes("status='failed'")) { job.status = "failed"; job.error = values[0]; }
-            else if (sql.includes("status='blocked'")) job.status = "blocked";
+            else if (sql.includes("status='blocked'")) { job.status = "blocked"; if (sql.includes("result_text")) { job.result_text = values[0]; job.error = values[2]; } }
             return { meta: { changes: 1 } };
           },
         };
