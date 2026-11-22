@@ -1,4 +1,5 @@
 import { pollSwarmMemo, listSwarmMemoWork, approveSwarmMemoTask } from "./swarmmemo.js";
+import { browserMarkdown } from "./browser.js";
 import { ensureHostedSwarmMemoIdentity, getStoredSwarmMemoIdentity, listSwarmMemoTools } from "./swarmmemo_mcp.js";
 import { pollTaskmarket, listTaskmarketWork } from "./taskmarket.js";
 import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "./marketplace_queue.js";
@@ -701,6 +702,7 @@ export default {
       return new Response(page.body, { status: page.status, statusText: page.statusText, headers });
     }
     if (!await authorized(request, env)) return json({ error: "unauthorized" }, 401);
+    if (url.pathname === "/v1/browser/markdown" && request.method === "GET") return browserMarkdown(request, env);
     if (url.pathname === "/v1/swarmmemo/identity/status" && request.method === "GET") {
       const identity = await env.DB.prepare("SELECT state,fingerprint,handle,created_at,updated_at,credentials_ciphertext,last_error FROM swarmmemo_identity_state WHERE id=1").first();
       return json({ state: identity?.state || "not_created", fingerprint: identity?.fingerprint || null, handle: identity?.handle || null, created_at: identity?.created_at || null, encrypted_credentials_available: !!identity?.credentials_ciphertext, last_error: identity?.last_error || null });
