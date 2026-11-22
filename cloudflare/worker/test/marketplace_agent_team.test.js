@@ -83,3 +83,20 @@ test("malformed reviewer output fails closed", async () => {
     /reviewer returned invalid JSON/,
   );
 });
+
+test("reviewer evidence that is not copied from the draft is rejected", async () => {
+  const env = fakeEnv([
+    "A complete guide. Limitations: only supplied facts are covered.",
+    JSON.stringify({
+      pass: true, issues: [], reason: "Looks good.",
+      criteria: [{ criterion, passed: true, evidence: "A limitations section is present." }],
+    }),
+  ]);
+  await assert.rejects(
+    () => executeAgentTeam(env, {
+      title: "Write a guide", description: "Write a concise guide.",
+      acceptanceCriteria: [criterion],
+    }, "test"),
+    /evidence must be an exact excerpt/,
+  );
+});
