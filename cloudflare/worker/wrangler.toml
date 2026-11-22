@@ -3,6 +3,9 @@ main = "src/index.js"
 compatibility_date = "2026-11-17"
 workers_dev = true
 
+[vars]
+INDEPENDENT_REVIEW_ENABLED = "false"
+
 [[services]]
 binding = "SOURCE_VERIFIER"
 service = "aae-source-verifier"
