@@ -4,7 +4,7 @@ import { assessTask, executePrivateDraft } from "../src/marketplace_executor.js"
 
 const goodDraft="Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.";
 const reviewerPass=JSON.stringify({pass:true,issues:[],reason:"The deliverable directly addresses the task and avoids unsupported claims.",criteria:[]});
-function independentService(review=JSON.parse(reviewerPass)){return {fetch:async(url)=>new Response(JSON.stringify(String(url).endsWith("/healthz")?{ok:true}:{protocolVersion:1,provider:"google",model:"gemini-3.8-flash",independent:true,sameProvider:false,review}),{status:200,headers:{"content-type":"application/json"}})};}
+function independentService(review=JSON.parse(reviewerPass)){return {fetch:async(url)=>new Response(JSON.stringify(String(url).endsWith("/healthz")?{ok:true,provider:"google"}:{protocolVersion:1,provider:"google",model:"gemini-3.8-flash",independent:true,sameProvider:false,review}),{status:200,headers:{"content-type":"application/json"}})};}
 function independentEnv(AI,review=JSON.parse(reviewerPass)){return {AI,INDEPENDENT_REVIEWER:independentService(review),INDEPENDENT_REVIEW_TOKEN:"review-token",INDEPENDENT_REVIEW_ENABLED:"true"};}
 
 test("screens eligible tasks into private draft lane",()=>{
