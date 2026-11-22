@@ -96,11 +96,17 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
   checks.push({ id: "independent_provider_review", passed: reviewPassed, note: reviewPassed ? "Google reviewer from a separate provider passed the exact draft" : "Missing, failed, or unverified independent-provider review" });
   if (!reviewPassed) blockers.push("independent_provider_review_not_passed");
 
-  const requiredCriteria = Array.isArray(task?.acceptanceCriteria) ? task.acceptanceCriteria : [];
+  const requiredCriteria = [
+    ...(Array.isArray(task?.acceptanceCriteria) ? task.acceptanceCriteria.map(text => ({ kind: "acceptance_criterion", text })) : []),
+    ...(Array.isArray(task?.requiredDeliverables) ? task.requiredDeliverables.map(text => ({ kind: "required_deliverable", text })) : []),
+    ...(Array.isArray(task?.constraints) ? task.constraints.map(text => ({ kind: "constraint", text })) : []),
+    ...(typeof task?.outputFormat === "string" && task.outputFormat ? [{ kind: "output_format", text: task.outputFormat }] : []),
+  ];
   const reviewedCriteria = Array.isArray(independentReview?.criteria) ? independentReview.criteria : [];
   const criteriaCovered = requiredCriteria.every(required =>
-    reviewedCriteria.some(item => item?.criterion === required && item?.passed === true &&
-      typeof item?.evidence === "string" && item.evidence.trim() && body.includes(item.evidence))
+    reviewedCriteria.some(item => item?.kind === required.kind && item?.criterion === required.text &&
+      item?.passed === true && typeof item?.evidence === "string" &&
+      item.evidence.trim() && body.includes(item.evidence))
   ) && reviewedCriteria.length === requiredCriteria.length;
   checks.push({ id: "acceptance_criteria", passed: criteriaCovered && reviewPassed, note: criteriaCovered ? "Every supplied acceptance criterion has an exact evidence excerpt" : "Acceptance criteria are missing, failed, or lack exact evidence excerpts" });
   if (!criteriaCovered) blockers.push("acceptance_criteria_not_verified");
