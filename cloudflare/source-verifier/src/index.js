@@ -148,8 +148,8 @@ export default {
     const declaredLength = Number(request.headers.get("content-length") || 0);
     if (declaredLength > MAX_REQUEST_BYTES) return json({ error: "request too large" }, 413);
     let raw;
-    try { raw = await request.text(); } catch { return json({ error: "invalid request body" }, 400); }
-    if (new TextEncoder().encode(raw).length > MAX_REQUEST_BYTES) return json({ error: "request too large" }, 413);
+    try { raw = new TextDecoder().decode(await readBounded(request, MAX_REQUEST_BYTES)); }
+    catch (error) { return json({ error: String(error.message || "request body too large").slice(0, 120) }, 413); }
     let payload;
     try { payload = JSON.parse(raw); } catch { return json({ error: "invalid JSON" }, 400); }
     if (payload?.protocolVersion !== 1 || !Array.isArray(payload.urls) ||
