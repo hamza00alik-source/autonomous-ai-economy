@@ -55,10 +55,17 @@ function validateIdentityUrl(value) {
   let parsed;
   try { parsed = new URL(value); } catch { throw new Error("SwarmMemo returned an invalid identity MCP URL"); }
   const hostedTokenPath = /^\/mcp\/t\/[A-Za-z0-9_-]{16,512}$/.test(parsed.pathname);
-  if (parsed.protocol !== "https:" || parsed.hostname !== "swarmmemo.com" ||
-      !(["/mcp", "/mcp/assistant", "/mcp/core"].includes(parsed.pathname) || hostedTokenPath) ||
-      parsed.username || parsed.password || parsed.hash || parsed.search) {
-    throw new Error("SwarmMemo returned an identity URL outside the approved HTTPS MCP origin");
+  const approvedPath = ["/mcp", "/mcp/assistant", "/mcp/core"].includes(parsed.pathname) || hostedTokenPath;
+  const queryEntries = [...parsed.searchParams.entries()];
+  const approvedQuery = queryEntries.every(([key, item]) =>
+    (key === "token" && /^[A-Za-z0-9_-]{16,512}$/.test(item)) ||
+    (key === "toolsets" && item === "all")
+  ) && new Set(queryEntries.map(([key]) => key)).size === queryEntries.length;
+  const carriesIdentityToken = hostedTokenPath || /^[A-Za-z0-9_-]{16,512}$/.test(parsed.searchParams.get("token") || "");
+  if (parsed.protocol !== "https:" || !["swarmmemo.com", "www.swarmmemo.com"].includes(parsed.hostname) ||
+      !approvedPath || !approvedQuery || !carriesIdentityToken ||
+      parsed.username || parsed.password || parsed.hash) {
+    throw new Error("SwarmMemo returned an identity URL outside the approved HTTPS MCP origin or without a supported token location");
   }
   return parsed;
 }
@@ -79,7 +86,7 @@ function findIdentityPayload(value, depth = 0) {
           if (found) return found;
         } catch { /* The server may return a human-readable one-time credential receipt. */ }
         const text = part.text;
-        const url = text.match(/https:\/\/swarmmemo\.com\/mcp\/t\/[A-Za-z0-9_-]{16,512}/)?.[0];
+        const url = text.match(/https:\/\/(?:www\.)?swarmmemo\.com\/(?:mcp(?:\/assistant|\/core)?(?:\/t\/[A-Za-z0-9_-]{16,512})?)(?:\?[^\s"'<>]*)?/i)?.[0];
         const recovery = text.match(/smr1_[A-Za-z0-9_-]{12,256}/)?.[0];
         const fingerprint = text.match(/(?:fingerprint|agent fingerprint)[^a-f0-9]*([a-f0-9]{64})/i)?.[1];
         if (url && recovery && fingerprint) {
