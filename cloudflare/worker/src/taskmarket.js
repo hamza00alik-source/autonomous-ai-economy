@@ -1,5 +1,5 @@
 const API = "https://api.taskmarket.dev";
-const RPC = "https://mainnet.base.org";
+const RPCS = ["https://mainnet.base.org", "https://base-rpc.publicnode.com"];
 const CHAIN_ID = 8453;
 const DIAMOND = "0xddc6cc3e4d11c1f3527b867c7dad4ed9869c33f7";
 const TASK_CREATED_TOPIC = "0xe0dc4072f8420c56e984e9c6eec7bad2e5616825f0d1ca581bd96ff3e8eec948";
@@ -30,7 +30,7 @@ async function readJson(response, label) {
 }
 async function fetchJson(url, init = {}, fetchImpl = fetch) {
   const parsed = new URL(url);
-  if (parsed.protocol !== "https:" || !["api.taskmarket.dev", "mainnet.base.org"].includes(parsed.hostname)) {
+  if (parsed.protocol !== "https:" || !["api.taskmarket.dev", "mainnet.base.org", "base-rpc.publicnode.com"].includes(parsed.hostname)) {
     throw new Error("external host rejected");
   }
   const response = await fetchImpl(url, {
@@ -40,6 +40,15 @@ async function fetchJson(url, init = {}, fetchImpl = fetch) {
   });
   if (response.status >= 300 && response.status < 400) throw new Error("redirect rejected");
   return readJson(response, parsed.hostname);
+}
+
+async function fetchRpcJson(init, fetchImpl = fetch) {
+  const failures = [];
+  for (const endpoint of RPCS) {
+    try { return await fetchJson(endpoint, init, fetchImpl); }
+    catch (error) { failures.push(endpoint + ": " + String(error?.message || error).slice(0, 120)); }
+  }
+  throw new Error("all Base RPC providers failed: " + failures.join("; "));
 }
 export function normalizeTaskmarketTask(row, now = Date.now()) {
   if (!row || typeof row !== "object" || Array.isArray(row) || !TASK_ID.test(row.id || "")) return null;
@@ -104,7 +113,7 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
 }
 export async function verifyTaskmarketEscrow(task, fetchImpl = fetch) {
   if (!task.escrow_tx_hash) return { verified: false, status: "missing_escrow_transaction" };
-  const receiptPayload = await fetchJson(RPC, {
+  const receiptPayload = await fetchRpcJson({
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [task.escrow_tx_hash] }),
