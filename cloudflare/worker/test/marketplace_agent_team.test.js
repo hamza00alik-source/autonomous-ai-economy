@@ -22,7 +22,7 @@ const passingReview = JSON.stringify({
   ],
 });
 
-test("specialist receives buyer criteria and independent reviewer verifies each one", async () => {
+test("specialist receives buyer criteria and same-model reviewer verifies each one", async () => {
   const env = fakeEnv([
     "A complete guide. Limitations: only supplied facts are covered.",
     JSON.stringify({
@@ -46,7 +46,7 @@ test("specialist receives buyer criteria and independent reviewer verifies each 
   assert.match(result.deliverableSha256, /^[a-f0-9]{64}$/);
 });
 
-test("reviewer rejection triggers one revision and a second independent review", async () => {
+test("reviewer rejection triggers one revision and a second same-model review", async () => {
   const env = fakeEnv([
     "Initial draft missing limitations.",
     JSON.stringify({ pass: false, issues: ["Add a limitations section."], reason: "Required section missing.", criteria: [{ kind: "acceptance_criterion", criterion, passed: false, evidence: "Initial draft missing limitations." }] }),
