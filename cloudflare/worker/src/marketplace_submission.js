@@ -90,7 +90,7 @@ export async function submitTaskmarketDeliverable(env, task, deliverable, fetchI
   }
   const liveExpiry = Date.parse(live?.expiryTime || "");
   if (!live || String(live.id || "").toLowerCase() !== taskId ||
-      (live.chainId !== undefined && Number(live.chainId) !== 8453) || live.mode !== "bounty" || live.status !== "open" ||
+      Number(live.chainId) !== 8453 || live.mode !== "bounty" || live.status !== "open" || live.submissionWindowOpen !== true ||
       !Number.isFinite(liveExpiry) || liveExpiry <= Date.now() ||
       live.stakeRequired === true || Number(live.stakeBps || 0) !== 0 ||
       String(live.reward || "") !== String(task.reward_base_units) ||
@@ -171,6 +171,6 @@ export async function submitTaskmarketDeliverable(env, task, deliverable, fetchI
     workerAddress: expectedAddress,
     chainId: 8453,
     externalActionsTaken: true,
-    feePolicy: "only when total task submissions are below five; no paid x402 action",
+    feePolicy: "worker has no prior submission to this task and task total is below 50; no paid x402 action",
   };
 }
