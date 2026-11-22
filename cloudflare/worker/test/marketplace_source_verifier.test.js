@@ -57,6 +57,26 @@ test("malformed, unsupported, or mismatched evidence is rejected", async()=>{
   }
 });
 
+test("unsafe, non-public, malformed and non-default-port URLs are rejected before fetch", async()=>{
+  for (const badUrl of [
+    "https://localhost/reference",
+    "https://foo.local/reference",
+    "https://foo.internal/reference",
+    "https://foo.onion/reference",
+    "https://127.0.0.1/reference",
+    "https://2130706433/reference",
+    "https://[::1]/reference",
+    "https://example.com:8443/reference",
+    "http://example.com/reference",
+  ]) {
+    let called=false;
+    const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>{called=true;}}},{title:"Research a software market"},draft+" "+badUrl);
+    assert.equal(result.verified,false,badUrl);
+    assert.equal(called,false,badUrl);
+    assert.ok(result.blockers.includes("invalid_source_urls"),badUrl);
+  }
+});
+
 test("oversized source lists are rejected before calling the binding", async()=>{
   let called=false;
   const urls=Array.from({length:9},(_,i)=>"https://example.com/"+i).join(" ");
