@@ -125,8 +125,8 @@ export async function processOneMarketplaceDraft(env) {
   if (reserved.meta?.changes !== 1) return { processed: false, raced: true };
   try {
     const task = JSON.parse(row.task_snapshot_json);
-    // Reserve worst-case specialist + reviewer + one revision + final review usage
-    // against the same daily cap used by the product-copy lane.
+    // Reserve worst-case Cloudflare Workers AI specialist + same-model review + one revision + final review usage.
+    // The Google independent-provider call is a separate, explicitly disabled/cost-gated service and is not covered by this neuron budget.
     const utcDay = new Date().toISOString().slice(0, 10);
     const estimatedNeurons = 550;
     await env.DB.prepare(
