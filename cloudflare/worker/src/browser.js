@@ -9,7 +9,7 @@ export function validateBrowserTarget(value) {
   const host = target.hostname.toLowerCase();
   const blockedHost = host === "localhost" || host.endsWith(".localhost") ||
     host.endsWith(".local") || host.endsWith(".internal") ||
-    host === "metadata.google.internal" || /^169\\.254\\./.test(host) ||
+    host === "metadata.google.internal" || /^169\.254\./.test(host) ||
     /^127\./.test(host) || /^10\./.test(host) ||
     /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
     host === "0.0.0.0" || host === "::1" || host === "[::1]" || host.startsWith("[fc") || host.startsWith("[fd");
