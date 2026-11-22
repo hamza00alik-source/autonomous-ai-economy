@@ -26,7 +26,15 @@ function validateUrlList(urls) {
     const value = canonicalUrl(raw);
     if (!value) throw new Error('invalid source URL');
     const parsed = new URL(value);
-    if (parsed.protocol !== 'https:' || /^(localhost|.*\\.localhost|.*\\.local|.*\\.internal)$/i.test(parsed.hostname) || /^[0-9.]+$/.test(parsed.hostname) || parsed.hostname.startsWith('[') || parsed.hostname.endsWith('.onion')) throw new Error('source URL host is not allowed');
+    const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
+    const labelsValid = hostname.split(".").every(label =>
+      label.length > 0 && label.length <= 63 &&
+      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
+    const blockedSuffix = /(?:^|\.)(localhost|local|internal|onion)$/i.test(hostname);
+    const ipLiteral = hostname.startsWith("[") || /^\d+(?:\.\d+)*$/.test(hostname);
+    if (parsed.protocol !== "https:" || parsed.port || !labelsValid || blockedSuffix || ipLiteral) {
+      throw new Error('source URL host is not allowed');
+    }
     normalized.push(value);
   }
   return [...new Set(normalized)];
