@@ -20,6 +20,17 @@ function canonicalUrl(value) {
   }
 }
 
+function validateUrlList(urls) {
+  const normalized = [];
+  for (const raw of urls) {
+    const value = canonicalUrl(raw);
+    if (!value) throw new Error('invalid source URL');
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:' || /^(localhost|.*\\.localhost|.*\\.local|.*\\.internal)$/i.test(parsed.hostname) || /^[0-9.]+$/.test(parsed.hostname) || parsed.hostname.startsWith('[') || parsed.hostname.endsWith('.onion')) throw new Error('source URL host is not allowed');
+    normalized.push(value);
+  }
+  return [...new Set(normalized)];
+}
 function validEvidence(item, draft, requestedUrl) {
   if (!item || typeof item !== "object" || item.requestedUrl !== requestedUrl ||
       item.httpStatus !== 200 || item.supportsClaims !== true ||
@@ -41,7 +52,7 @@ export async function verifyResearchSources(env, task, draft) {
   const brief = [task?.title, task?.description].filter(value => typeof value === "string").join("\n");
   if (!RESEARCH_PATTERN.test(brief)) return { status: "not_required", verified: false, results: [], blockers: [] };
 
-  const urls = extractUrls(draft).map(canonicalUrl).filter(Boolean);
+  let urls;\n  try { urls = validateUrlList(extractUrls(draft)); } catch (error) {\n    return { status: 'failed', verified: false, results: [], blockers: ['invalid_source_urls'], error: String(error.message).slice(0, 160) };\n  }
   if (!urls.length) return { status: "failed", verified: false, results: [], blockers: ["research_sources_missing"] };
   if (urls.length > MAX_URLS) return { status: "failed", verified: false, results: [], blockers: ["too_many_research_sources"] };
   if (!env?.SOURCE_VERIFIER || typeof env.SOURCE_VERIFIER.fetch !== "function") {
