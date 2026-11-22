@@ -8,6 +8,7 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft:
   const env = {
     AI: { run: async () => ({ response: aiCall++ % 2 === 0 ? aiOutput : reviewerOutput }) },
     INDEPENDENT_REVIEW_TOKEN: "test-independent-token",
+    INDEPENDENT_REVIEW_ENABLED: "true",
     INDEPENDENT_REVIEWER: { fetch: async () => new Response(JSON.stringify({
       protocolVersion: 1, provider: "google", model: "gemini-3.8-flash",
       independent: true, sameProvider: false,
