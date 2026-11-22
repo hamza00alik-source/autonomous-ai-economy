@@ -36,13 +36,23 @@ jobs:
           AAE_QUEUE_TOKEN: ${{ secrets.AAE_QUEUE_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$CLOUDFLARE_ACCOUNT_ID"
-          test -n "$CLOUDFLARE_API_TOKEN"
-          test -n "$CLOUDFLARE_D1_DATABASE_ID"
-          test -n "$AAE_QUEUE_TOKEN"
-          test "${#AAE_QUEUE_TOKEN}" -ge 32
+          missing=0
+          for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_D1_DATABASE_ID AAE_QUEUE_TOKEN; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required configuration: $name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          if [ "${#AAE_QUEUE_TOKEN}" -lt 32 ]; then
+            echo "::error::AAE_QUEUE_TOKEN must be at least 32 characters"
+            exit 1
+          fi
           # This private-runtime deployment must never enable customer checkout.
-          echo "$CLOUDFLARE_D1_DATABASE_ID" | grep -Eq '^[0-9a-fA-F-]{36}$'
+          if ! echo "$CLOUDFLARE_D1_DATABASE_ID" | grep -Eq "^[0-9a-fA-F-]{36}$"; then
+            echo "::error::CLOUDFLARE_D1_DATABASE_ID is malformed"
+            exit 1
+          fi
           sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$CLOUDFLARE_D1_DATABASE_ID/" wrangler.toml
       - name: Set up Python
         uses: actions/setup-python@v5
