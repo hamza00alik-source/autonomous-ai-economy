@@ -159,7 +159,7 @@ test("buyer criteria sections are preserved in the queued task snapshot", async 
     "",
     "Constraints:",
     "- No paid APIs",
-  ].join("\\n");
+  ].join("\n");
   const { env, jobs } = fakeEnv({ taskmarket: [{
     task_id: "0xcriteria", title: "Prepare technical report", description,
     eligible: 1, net_reward_usdc: "1.00", stake_required: 0,
