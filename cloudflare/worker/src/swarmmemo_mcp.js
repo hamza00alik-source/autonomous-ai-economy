@@ -57,11 +57,16 @@ function validateIdentityUrl(value) {
   const hostedTokenPath = /^\/mcp\/t\/[A-Za-z0-9_-]{16,512}$/.test(parsed.pathname);
   const approvedPath = ["/mcp", "/mcp/assistant", "/mcp/core"].includes(parsed.pathname) || hostedTokenPath;
   const queryEntries = [...parsed.searchParams.entries()];
+  // SwarmMemo currently issues hosted identities using the "identity" query key.
+  // Keep this limited to the fixed HTTPS origin and MCP paths; never accept arbitrary query keys.
   const approvedQuery = queryEntries.every(([key, item]) =>
     (key === "token" && /^[A-Za-z0-9_-]{16,512}$/.test(item)) ||
+    (key === "identity" && /^[A-Za-z0-9_-]{1,512}$/.test(item)) ||
     (key === "toolsets" && item === "all")
   ) && new Set(queryEntries.map(([key]) => key)).size === queryEntries.length;
-  const carriesIdentityToken = hostedTokenPath || /^[A-Za-z0-9_-]{16,512}$/.test(parsed.searchParams.get("token") || "");
+  const carriesIdentityToken = hostedTokenPath ||
+    /^[A-Za-z0-9_-]{16,512}$/.test(parsed.searchParams.get("token") || "") ||
+    /^[A-Za-z0-9_-]{1,512}$/.test(parsed.searchParams.get("identity") || "");
   if (parsed.protocol !== "https:" || !["swarmmemo.com", "www.swarmmemo.com"].includes(parsed.hostname) ||
       !approvedPath || !approvedQuery || !carriesIdentityToken ||
       parsed.username || parsed.password || parsed.hash) {
