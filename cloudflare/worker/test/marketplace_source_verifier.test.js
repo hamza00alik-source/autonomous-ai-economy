@@ -14,7 +14,6 @@ function validPayload() {
     contentSha256:"a".repeat(64),fetchedAt:"2026-11-22T10:00:00.000Z",
     sourceExcerpt:"This source describes the product and its documented capabilities in detail.",
     draftExcerpt:"This source describes the product and its documented capabilities in detail.",
-    supportsClaims:true,
   }]};
 }
 
@@ -33,7 +32,7 @@ test("non-research task does not call the verifier", async()=>{
 
 test("valid trusted verifier response is accepted", async()=>{
   let sent;
-  const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async(_url,init)=>{
+  const result=await verifyResearchSources({SOURCE_VERIFIER_TOKEN:"source-token",SOURCE_VERIFIER:{fetch:async(_url,init)=>{
     sent=JSON.parse(init.body); return response(validPayload());
   }}},{title:"Research a software market",description:"Compare current products"},draft+" "+url);
   assert.equal(result.verified,false);
