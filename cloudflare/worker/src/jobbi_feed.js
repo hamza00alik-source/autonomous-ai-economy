@@ -88,7 +88,7 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
     if (meta?.claims_open !== true) reasons.push("claims_not_open");
     if (meta?.payment_state !== "escrowed") reasons.push("reward_not_reported_escrowed");
     if (!TRUSTED_GRADES.has(grade)) reasons.push("payout_confidence_below_B");
-    if (!/^(?:0|[1-9]\\d*)(?:\\.\\d+)?$/.test(rewardText) || !Number.isFinite(reward) || reward <= 0) reasons.push("invalid_reward_amount");
+    if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(rewardText) || !Number.isFinite(reward) || reward <= 0) reasons.push("invalid_reward_amount");
     if (!Number.isFinite(modified) || modified > now + 5 * 60_000 || now - modified > 7 * 24 * 60 * 60_000) reasons.push("stale_or_invalid_listing");
     if (!Number.isFinite(expires) || expires <= now) reasons.push("deadline_missing_or_expired");
     if (criteria.length < 45 || !meta?.acceptance) reasons.push("acceptance_criteria_missing");
