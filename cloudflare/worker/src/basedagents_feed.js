@@ -6,7 +6,7 @@ const SOCIAL_PATTERN = /\b(tweet|twitter|\bx\b|threads?|comments?|replies|likes|
 const HUMAN_PATTERN = /\b(human[- ]only|in[- ]person|physical delivery|record (?:a|your) voice|video production|live production|personal experience|must be human|manual labor)\b/i;
 const RISK_PATTERN = /\b(stake|deposit|buy[- ]in|pay to enter|purchase required|wallet connect|connect wallet|sign (?:a|the)? transaction|transfer funds|send crypto|private key|seed phrase|medical diagnosis|legal advice|financial advice|investment advice|malware|credential theft|phishing|exploit|attack|bypass security|cold outreach|spam|pretend you are (?:a )?human)\b/i;
 const BASE_NETWORKS = new Set(["eip155:8453", "base", "base mainnet"]);
-const CASH_TOKENS = new Set(["usdc"]);
+const CASH_TOKENS = new Set(["USDC"]);
 
 function safeText(value, limit = 12000) {
   return typeof value === "string" ? value.trim().slice(0, limit) : "";
