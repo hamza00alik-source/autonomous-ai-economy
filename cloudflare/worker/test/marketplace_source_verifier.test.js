@@ -53,7 +53,7 @@ test("malformed, unsupported, or mismatched evidence is rejected", async()=>{
     p=>{p.results[0].httpStatus=404;},
   ]) {
     const payload=validPayload(); mutate(payload);
-    const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>response(payload)}},{title:"Research a software market"},draft+" "+url);
+    const result=await verifyResearchSources({SOURCE_VERIFIER_TOKEN:"source-token",SOURCE_VERIFIER:{fetch:async()=>response(payload)}},{title:"Research a software market"},draft+" "+url);
     assert.equal(result.verified,false);
     assert.ok(result.blockers.includes("source_verification_failed"));
   }
@@ -72,7 +72,7 @@ test("unsafe, non-public, malformed and non-default-port URLs are rejected befor
     "http://example.com/reference",
   ]) {
     let called=false;
-    const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>{called=true;}}},{title:"Research a software market"},draft+" "+badUrl);
+    const result=await verifyResearchSources({SOURCE_VERIFIER_TOKEN:"source-token",SOURCE_VERIFIER:{fetch:async()=>{called=true;}}},{title:"Research a software market"},draft+" "+badUrl);
     assert.equal(result.verified,false,badUrl);
     assert.equal(called,false,badUrl);
     assert.ok(result.blockers.includes("invalid_source_urls"),badUrl);
@@ -87,7 +87,7 @@ test("unsafe verifier redirect destinations are rejected", async()=>{
     "https://example.com:8443/reference",
   ]) {
     const payload=validPayload(); payload.results[0].finalUrl=finalUrl;
-    const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>response(payload)}},{title:"Research a software market"},draft+" "+url);
+    const result=await verifyResearchSources({SOURCE_VERIFIER_TOKEN:"source-token",SOURCE_VERIFIER:{fetch:async()=>response(payload)}},{title:"Research a software market"},draft+" "+url);
     assert.equal(result.verified,false,finalUrl);
     assert.ok(result.blockers.includes("source_verification_failed"),finalUrl);
   }
@@ -96,7 +96,7 @@ test("unsafe verifier redirect destinations are rejected", async()=>{
 test("oversized source lists are rejected before calling the binding", async()=>{
   let called=false;
   const urls=Array.from({length:9},(_,i)=>"https://example.com/"+i).join(" ");
-  const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>{called=true;}}},{title:"Research sources"},draft+" "+urls);
+  const result=await verifyResearchSources({SOURCE_VERIFIER_TOKEN:"source-token",SOURCE_VERIFIER:{fetch:async()=>{called=true;}}},{title:"Research sources"},draft+" "+urls);
   assert.equal(result.verified,false);
   assert.equal(called,false);
   assert.ok(result.blockers.includes("too_many_research_sources"));
@@ -104,7 +104,7 @@ test("oversized source lists are rejected before calling the binding", async()=>
 
 test("service errors fail closed without consuming error response body", async()=>{
   const errorResponse=new Response("service error body",{status:503});
-  const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>errorResponse}},{title:"Research a software market"},draft+" "+url);
+  const result=await verifyResearchSources({SOURCE_VERIFIER_TOKEN:"source-token",SOURCE_VERIFIER:{fetch:async()=>errorResponse}},{title:"Research a software market"},draft+" "+url);
   assert.equal(result.verified,false);
   assert.ok(result.blockers.includes("source_verification_failed"));
   assert.equal(errorResponse.bodyUsed,false);
@@ -118,7 +118,7 @@ test("oversized verifier response is rejected while streaming without content-le
       controller.close();
     },
   }), {status:200, headers:{"content-type":"application/json"}});
-  const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>oversizedResponse}},{title:"Research a software market"},draft+" "+url);
+  const result=await verifyResearchSources({SOURCE_VERIFIER_TOKEN:"source-token",SOURCE_VERIFIER:{fetch:async()=>oversizedResponse}},{title:"Research a software market"},draft+" "+url);
   assert.equal(result.verified,false);
   assert.ok(result.blockers.includes("source_verification_failed"));
   assert.match(result.error,/too large/i);
