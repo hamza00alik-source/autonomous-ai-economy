@@ -99,3 +99,15 @@ test("blocks unsuitable Base listings that disguise production or non-USDC work"
   assert.equal(token.eligible,false);
   assert.ok(token.reasons.some(reason=>reason.startsWith("blocked_risk_pattern:")));
 });
+
+
+test("independent reviewer is a hard preflight gate before any specialist inference",async()=>{
+  let aiCalls=0;
+  const result=await executePrivateDraft({AI:{run:async()=>{aiCalls++;return {response:goodDraft};}}},{
+    id:"no-reviewer",title:"Prepare a concise software guide",description:"Summarize supplied documentation.",
+    eligible:true,reward_usdc:"1.00",
+  });
+  assert.equal(result.status,"blocked");
+  assert.equal(aiCalls,0);
+  assert.ok(result.assessment.reasons.includes("independent_provider_unavailable"));
+});
