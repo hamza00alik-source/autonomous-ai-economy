@@ -76,3 +76,19 @@ test("rejects redirects, HTTP failures, malformed schemas, and oversized respons
   await assert.rejects(discoverBasedAgentsTasks(async () => ({ ok: true, status: 200, headers: { get: () => "0" }, text: async () => "[]" }), now), /schema changed/);
   await assert.rejects(discoverBasedAgentsTasks(async () => ({ ok: true, status: 200, headers: { get: () => "600000" }, text: async () => "{}" }), now), /too large/);
 });
+
+test("fails closed for tasks requiring an external runtime or ongoing paid deployment", () => {
+  const externalRuntime = normalizeBasedAgentsTask({
+    ...base,
+    description: base.description + " Install this software in a genuine external runtime and provide timestamped deployment evidence.",
+  }, now);
+  assert.equal(externalRuntime.eligible, false);
+  assert.ok(externalRuntime.reasons.includes("human_or_physical_deliverable"));
+
+  const ongoingSpend = normalizeBasedAgentsTask({
+    ...base,
+    description: base.description + " Keep the container running with a daily spend cap and prove settled revenue from paid cycles.",
+  }, now);
+  assert.equal(ongoingSpend.eligible, false);
+  assert.ok(ongoingSpend.reasons.includes("human_or_physical_deliverable"));
+});
