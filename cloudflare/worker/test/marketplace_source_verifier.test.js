@@ -100,10 +100,12 @@ test("oversized source lists are rejected before calling the binding", async()=>
   assert.ok(result.blockers.includes("too_many_research_sources"));
 });
 
-test("service errors fail closed", async()=>{
-  const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>response({},503)}},{title:"Research a software market"},draft+" "+url);
+test("service errors fail closed without consuming error response body", async()=>{
+  const errorResponse=new Response("service error body",{status:503});
+  const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>errorResponse}},{title:"Research a software market"},draft+" "+url);
   assert.equal(result.verified,false);
   assert.ok(result.blockers.includes("source_verification_failed"));
+  assert.equal(errorResponse.bodyUsed,false);
 });
 
 test("oversized verifier response is rejected while streaming without content-length", async()=>{
