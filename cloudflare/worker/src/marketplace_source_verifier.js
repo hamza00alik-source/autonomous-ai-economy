@@ -64,7 +64,7 @@ export async function verifyResearchSources(env, task, draft) {
     const declaredLength = Number(response.headers.get("content-length") || 0);
     if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("verifier response too large");
     const raw = await response.text();
-    if (raw.length > MAX_RESPONSE_BYTES) throw new Error("verifier response too large");
+    if (new TextEncoder().encode(raw).byteLength > MAX_RESPONSE_BYTES) throw new Error("verifier response too large");
     if (!response.ok) throw new Error("verifier service returned " + response.status);
     const payload = JSON.parse(raw);
     if (payload?.protocolVersion !== 1 || payload?.status !== "verified" ||
