@@ -208,7 +208,7 @@ export async function processOneMarketplaceDraft(env) {
 export async function submitOneMarketplaceDraft(env) {
   if (env?.TASKMARKET_SUBMISSION_ENABLED !== "true") return { processed: false, reason: "submission_disabled" };
   const row = await env.DB.prepare(
-    "SELECT job_id,task_snapshot_json,result_text,eligibility_json FROM aae_execution_jobs WHERE status='draft_ready' AND source='taskmarket' AND eligibility_json LIKE '%\\\"submissionReady\\\":true%' ORDER BY updated_at ASC LIMIT 1"
+    "SELECT job_id,task_snapshot_json,result_text,eligibility_json FROM aae_execution_jobs WHERE status='draft_ready' AND source='taskmarket' AND eligibility_json LIKE '%submissionReady%' ORDER BY updated_at ASC LIMIT 1"
   ).first();
   if (!row) return { processed: false };
   const reserved = await env.DB.prepare(
