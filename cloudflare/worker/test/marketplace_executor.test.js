@@ -4,6 +4,8 @@ import { assessTask, executePrivateDraft } from "../src/marketplace_executor.js"
 
 const goodDraft="Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.";
 const reviewerPass=JSON.stringify({pass:true,issues:[],reason:"The deliverable directly addresses the task and avoids unsupported claims.",criteria:[]});
+function independentService(review=JSON.parse(reviewerPass)){return {fetch:async()=>new Response(JSON.stringify({protocolVersion:1,provider:"google",model:"gemini-3.8-flash",independent:true,sameProvider:false,review}),{status:200,headers:{"content-type":"application/json"}})};}
+function independentEnv(AI,review=JSON.parse(reviewerPass)){return {AI,INDEPENDENT_REVIEWER:independentService(review),INDEPENDENT_REVIEW_TOKEN:"review-token"};}
 
 test("screens eligible tasks into private draft lane",()=>{
   assert.equal(assessTask({id:"t1",title:"Review open source docs",description:"Review docs and suggest improvements",eligible:true,reward_usdc:"1.00"}).eligible,true);
@@ -39,27 +41,29 @@ test("requires a positive USDC reward",()=>{
 });
 test("private execution requires review and takes no external action",async()=>{
   const outputs=[goodDraft,reviewerPass];
-  const env={AI:{run:async()=>({response:outputs.shift()})}};
+  const env=independentEnv({run:async()=>({response:outputs.shift()})});
   const result=await executePrivateDraft(env,{id:"t",title:"Prepare a concise software guide",description:"Summarize the supplied material",eligible:true,reward_usdc:"0.1"});
   assert.equal(result.status,"draft_ready");
   assert.equal(result.externalActionsTaken,false);
-  assert.equal(result.agentTeam.length,2);
+  assert.equal(result.agentTeam.length,3);
   assert.equal(result.submissionReady,true);
   assert.match(result.deliverableSha256,/^[a-f0-9]{64}$/);
-  assert.ok(result.qa.checks.some(check=>check.id==="same_model_review"&&check.passed));
+  assert.ok(result.qa.checks.some(check=>check.id==="independent_provider_review"&&check.passed));
   assert.equal(result.qa.same_model_review.pass, true);
-  assert.equal(Object.hasOwn(result.qa, "independent_review"), false);
+  assert.equal(Object.hasOwn(result.qa, "independent_review"), true);
+  assert.equal(result.qa.independent_review.provider,"google");
+  assert.equal(result.qa.independent_review.independent,true);
 });
 test("criterion failure blocks readiness after bounded revision",async()=>{
   const criterion="Include limitations";
   const outputs=[goodDraft,JSON.stringify({pass:false,issues:["Add limitations"],reason:"Missing section",criteria:[{kind:"acceptance_criterion",criterion,passed:false,evidence:"Documentation draft"}]}),goodDraft,JSON.stringify({pass:false,issues:["Still missing limitations"],reason:"Revision did not fix the gap",criteria:[{kind:"acceptance_criterion",criterion,passed:false,evidence:"Documentation draft"}]})];
-  const result=await executePrivateDraft({AI:{run:async()=>({response:outputs.shift()})}},{id:"t",title:"Draft supplied documentation summary",description:"Summarize the provided documentation content",eligible:true,reward_usdc:"0.1",acceptance_criteria:[criterion]});
+  const result=await executePrivateDraft(independentEnv({run:async()=>({response:outputs.shift()})},{pass:false,issues:["Still missing limitations"],reason:"Revision did not fix the gap",criteria:[{kind:"acceptance_criterion",criterion,passed:false,evidence:"Documentation draft"}]}),{id:"t",title:"Draft supplied documentation summary",description:"Summarize the provided documentation content",eligible:true,reward_usdc:"0.1",acceptance_criteria:[criterion]});
   assert.equal(result.submissionReady,false);
-  assert.ok(result.qa.blockers.includes("same_model_review_not_passed"));
+  assert.ok(result.qa.blockers.includes("independent_provider_review_not_passed"));
   assert.ok(result.qa.blockers.includes("acceptance_criteria_not_verified"));
 });
 test("rejects empty specialist output",async()=>{
-  await assert.rejects(()=>executePrivateDraft({AI:{run:async()=>({})}},{title:"Draft a concise note",description:"Write a concise note using provided material",eligible:true,reward_usdc:"1.00"}),/specialist agent returned no usable output/);
+  await assert.rejects(()=>executePrivateDraft(independentEnv({run:async()=>({})}),{title:"Draft a concise note",description:"Write a concise note using provided material",eligible:true,reward_usdc:"1.00"}),/specialist agent returned no usable output/);
 });
 test("blocks code execution requirements without sandbox",()=>{
   const result=assessTask({title:"Test the submitted Python script",description:"Run the script and execute the unit tests before delivery.",reward_usdc:"1.00"});
@@ -75,7 +79,7 @@ test("blocks unsupported file formats",()=>{
 });
 test("research tasks without verifier are blocked before model inference",async()=>{
   let aiCalls=0;
-  const result=await executePrivateDraft({AI:{run:async()=>{aiCalls++;return {response:goodDraft};}}},{id:"research",title:"Research software documentation",description:"Compare documented features",eligible:true,reward_usdc:"0.1"});
+  const result=await executePrivateDraft(independentEnv({run:async()=>{aiCalls++;return {response:goodDraft};}}),{id:"research",title:"Research software documentation",description:"Compare documented features",eligible:true,reward_usdc:"0.1"});
   assert.equal(result.status,"blocked");
   assert.equal(result.submissionReady,undefined);
   assert.equal(aiCalls,0);
