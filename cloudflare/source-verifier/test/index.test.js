@@ -52,7 +52,7 @@ test("rejects private, malformed, non-HTTPS and unlisted URLs before egress",asy
   }
 });
 test("rejects redirects and never follows Location",async()=>{
-  const e=env({EGRESS:{fetch:async()=>new Response(null,{status:302,headers:{location:"https://attacker.example/"}})}});
+  const e=env(); e.EGRESS.fetch=async(url,options)=>{e.calls.push({url,options});return new Response(null,{status:302,headers:{location:"https://attacker.example/"}});};
   assert.equal((await verifier.fetch(request(),e)).status,502); assert.equal(e.calls.length,1);
 });
 test("rejects oversized source bodies",async()=>{
