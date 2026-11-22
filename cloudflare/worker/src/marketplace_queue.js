@@ -93,7 +93,7 @@ export async function enqueueBasedAgentsTasks(env, discover = discoverBasedAgent
     task: {
       task_id: item.task_id,
       title: item.title,
-      description: [item.description, item.expected_output ? "Expected output: " + item.expected_output : "", item.required_capabilities?.length ? "Required capabilities: " + item.required_capabilities.join(", ") : ""].filter(Boolean).join("\\n\\n"),
+      description: [item.description, item.expected_output ? "Expected output: " + item.expected_output : "", item.required_capabilities?.length ? "Required capabilities: " + item.required_capabilities.join(", ") : ""].filter(Boolean).join("\n\n"),
       eligible: item.eligible === true,
       simulated: false,
       reward: item.reward_usdc,
