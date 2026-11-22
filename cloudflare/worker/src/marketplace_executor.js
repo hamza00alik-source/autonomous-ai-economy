@@ -36,6 +36,16 @@ export function assessTask(task, source = "unknown") {
   if (/\b(final video|video production|full video|voiceover recording|recorded voice|ship (?:the )?(?:product|item)|physical delivery|live production deployment)\b/i.test(combined)) {
     reasons.push("unsupported_deliverable");
   }
+  const runtimeRequired = /\b(?:run (?:the )?(?:tests?|test suite|code|script|program)|execute (?:the )?(?:code|script|program)|compile (?:the )?(?:code|project|program)|test (?:the )?(?:app|application|code|script|software)|run unit tests|debug (?:the )?(?:code|app|application)|reproduce (?:the )?(?:bug|issue)|build and test)\b/i.test(combined);
+  if (runtimeRequired) reasons.push("runtime_verification_unavailable");
+  const requestedOutput = [
+    textField(task?.outputFormat ?? task?.output_format, 300),
+    ...safeList(task?.requiredDeliverables ?? task?.required_deliverables),
+  ].join(" ");
+  if (/\.(?:pdf|docx|xlsx|pptx|zip|png|jpe?g|webp|glb|gltf|blend|mp4|wav|mp3)\b/i.test(requestedOutput) ||
+      /\b(?:deliver|provide|attach|export) (?:a |an )?(?:pdf|docx|xlsx|pptx|zip|image|3d model|video|audio file)\b/i.test(requestedOutput)) {
+    reasons.push("unsupported_artifact_format");
+  }
   for (const pattern of BLOCK_PATTERNS) if (pattern.test(combined)) reasons.push("blocked_risk_pattern:" + pattern.source);
   if (task?.eligible === false) reasons.push("marketplace_ineligible");
   if (task?.simulated === true) reasons.push("simulated_task");
