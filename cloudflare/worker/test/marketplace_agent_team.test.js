@@ -156,7 +156,7 @@ test("independent reviewer accepts only a separate Google provider identity", as
       evidence: "Limitations: only supplied facts are covered." }],
   };
   const env = {
-    INDEPENDENT_REVIEW_TOKEN: "secret",
+    INDEPENDENT_REVIEW_TOKEN: "secret", INDEPENDENT_REVIEW_ENABLED: "true",
     INDEPENDENT_REVIEWER: { fetch: async (_url, init) => {
       assert.equal(init.headers["x-aae-independent-review-token"], "secret");
       const sent = JSON.parse(init.body);
