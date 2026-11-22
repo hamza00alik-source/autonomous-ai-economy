@@ -46,14 +46,14 @@ test("private execution requires review and takes no external action",async()=>{
   assert.equal(result.agentTeam.length,2);
   assert.equal(result.submissionReady,true);
   assert.match(result.deliverableSha256,/^[a-f0-9]{64}$/);
-  assert.ok(result.qa.checks.some(check=>check.id==="independent_review"&&check.passed));
+  assert.ok(result.qa.checks.some(check=>check.id==="same_model_review"&&check.passed));
 });
 test("criterion failure blocks readiness after bounded revision",async()=>{
   const criterion="Include limitations";
   const outputs=[goodDraft,JSON.stringify({pass:false,issues:["Add limitations"],reason:"Missing section",criteria:[{kind:"acceptance_criterion",criterion,passed:false,evidence:"Documentation draft"}]}),goodDraft,JSON.stringify({pass:false,issues:["Still missing limitations"],reason:"Revision did not fix the gap",criteria:[{kind:"acceptance_criterion",criterion,passed:false,evidence:"Documentation draft"}]})];
   const result=await executePrivateDraft({AI:{run:async()=>({response:outputs.shift()})}},{id:"t",title:"Draft supplied documentation summary",description:"Summarize the provided documentation content",eligible:true,reward_usdc:"0.1",acceptance_criteria:[criterion]});
   assert.equal(result.submissionReady,false);
-  assert.ok(result.qa.blockers.includes("independent_review_not_passed"));
+  assert.ok(result.qa.blockers.includes("same_model_review_not_passed"));
   assert.ok(result.qa.blockers.includes("acceptance_criteria_not_verified"));
 });
 test("rejects empty specialist output",async()=>{
