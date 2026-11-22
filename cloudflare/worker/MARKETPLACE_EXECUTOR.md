@@ -9,16 +9,16 @@ This Cloudflare Worker lane connects the existing read-only SwarmMemo and Taskma
 4. Eligible jobs enter the private execution queue and are processed within the configured shared daily AI budget. There is no per-task owner approval gate after QA; the operator controls the global service and cost settings.
 6. Drafts and errors are persisted in `aae_execution_jobs` and can be inspected through the authenticated queue endpoint.
 
-## Approval and cost boundary
+## Automation and cost boundary
 - The queue inspection route is `GET /v1/marketplace/execution-jobs`.
-- Per-job approval route is `POST /v1/marketplace/execution-jobs/{job_id}/approve`.
-- Both routes use the Worker’s existing bearer-token authorization.
-- Approval authorizes private AI draft generation only. It does not authorize a marketplace claim, external submission, publication, messaging, signature, transfer, or spending.
-- This gate prevents unattended metered model calls. Approve only after reviewing the task and its reward/terms.
+- The legacy `POST /v1/marketplace/execution-jobs/{job_id}/approve` route remains for compatibility, but it is not a gate in the current unattended queue processor.
+- No per-task owner approval is required after deterministic QA and independent review pass. Global service flags and daily inference budgets remain the operator-controlled gates.
+- Taskmarket external submission additionally requires `TASKMARKET_SUBMISSION_ENABLED=true`, a separately deployed authenticated `WALLET_SIGNER`, and a pinned Base wallet address. All are disabled/unconfigured in the current branch/deployment.
+- No x402-paid action, task claim, deposit, stake, purchase, transfer, or owner account action is enabled.
 
 ## Safety boundary
 - Marketplace discovery remains read-only.
-- The executor never claims tasks, posts, publishes, messages, promotes, spends or transfers funds. A separate guarded Taskmarket adapter may submit a QA-passed bounty deliverable using an isolated signer service.
+- The executor never claims tasks, posts publicly, messages, promotes, spends or transfers funds. The separate guarded Taskmarket adapter can submit a QA-passed bounty deliverable using an isolated signer service when explicitly enabled.
 - Risk screening blocks stakes/deposits, wallet/transaction signing, marketing/publication, medical/legal/financial advice, malware/exploits, human-experience claims, simulated work, and credit-only rewards.
 - Screening is heuristic, not a guarantee that a task is safe or that a draft will be accepted. Every deliverable requires review.
 
@@ -30,7 +30,7 @@ This Cloudflare Worker lane connects the existing read-only SwarmMemo and Taskma
 - `test/marketplace_executor.test.js` and `test/marketplace_queue.test.js`: unit and integration coverage.
 
 ## Deployment status
-The earlier private-draft implementation was merged into `main` via PR #41. Production D1 schema is provisioned. Worker version `15` (`35da2e85-7f35-4dc8-bae4-4434a8683b84`) is deployed at 100% through deployment `79105284-e4bf-4d45-8fdb-03a9d928e80c`; existing secret bindings, AI, D1, rate limit, static assets, and the `*/5 * * * *` cron schedule were verified after deployment. The deployed script source was read back and confirmed to include the queue import, approval route, cron intake, and owner-approval gate. At the last D1 check, the execution queue still had zero rows; no AI draft generation, task claim, or submission has occurred.
+PR #62 is open and unmerged; its new QA gates and automatic Taskmarket adapter are branch-only and are not deployed. The earlier private-draft implementation was merged into `main` via PR #41. Production D1 schema is provisioned. Worker version `15` (`35da2e85-7f35-4dc8-bae4-4434a8683b84`) is deployed at 100% through deployment `79105284-e4bf-4d45-8fdb-03a9d928e80c`; existing secret bindings, AI, D1, rate limit, static assets, and the `*/5 * * * *` cron schedule were verified after deployment. The deployed script source was read back and confirmed to include the earlier queue import, approval route, and cron intake; it does not include the PR #62 QA-gated automatic submission adapter. At the last D1 check, the execution queue still had zero rows; no AI draft generation, task claim, or submission has occurred.
 
 
 ## External cash-bounty discovery
@@ -94,10 +94,10 @@ The earlier private-draft implementation was merged into `main` via PR #41. Prod
 - The previous observed direct scan found bounty #3 only (36 USDC escrow, 7 submissions, estimated 3 remaining slots); the two other open Elgora bounties were full at 10/10. The next scheduled scan after version 21 is required to verify the namespace fix in live D1 data.
 
 
-## Automatic Taskmarket delivery (current proposal)
+## Automatic Taskmarket delivery (implemented in PR #62)
 
 The newer QA-gated pipeline supports unattended submission of Taskmarket Base bounty deliverables after the independent reviewer and deterministic QA pass. No per-task owner approval is required. The submission switch defaults off and the signing key must remain outside this Worker.
 
-The Taskmarket adapter requires a separately operated signer service binding (`WALLET_SIGNER`) with authenticated health and EIP-191 signing endpoints. It rechecks task status, escrow hash, expiry, reward, stake and description; checks for an existing worker submission; and only submits while total task submissions are below 50; each worker's first five submissions are free until the task reaches 50 total submissions. Ambiguous writes are not retried automatically.
+The Taskmarket adapter requires a separately operated signer service binding (`WALLET_SIGNER`) with authenticated health and EIP-191 signing endpoints. It rechecks task status, escrow hash, expiry, reward, stake and description; checks for an existing worker submission; and only submits if this worker has no existing submission for the task and the task has fewer than 50 submissions overall. That guarantees this attempt is within the free allowance; it never pays the 0.001 USDC x402 fee. The adapter also requires the live API to confirm the submission window is open. Ambiguous writes are not retried automatically.
 
 This adapter is code-only until a signer service, matching token, pinned Base worker address and global enable flag are configured. See [marketplace delivery quality gates](../../docs/marketplace-delivery-quality-gates.md).
