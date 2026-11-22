@@ -74,7 +74,7 @@ async function readBoundedBody(response, limit) {
 
 function validEvidence(item, draft, requestedUrl) {
   if (!item || typeof item !== "object" || item.requestedUrl !== requestedUrl ||
-      item.httpStatus !== 200 || item.supportsClaims !== false || item.excerptMatched !== true || item.verificationStatus !== "retrieved_unverified" ||
+      item.httpStatus !== 200 || !["text/html", "application/xhtml+xml", "text/plain"].includes(item.contentType) || item.supportsClaims !== false || item.excerptMatched !== true || item.verificationStatus !== "retrieved_unverified" ||
       typeof item.title !== "string" || !item.title.trim() || item.title.length > 300 ||
       typeof item.finalUrl !== "string" || item.finalUrl !== requestedUrl || !canonicalUrl(item.finalUrl) ||
       (() => { const finalUrl = new URL(item.finalUrl); return finalUrl.protocol !== "https:" || Boolean(finalUrl.port) || !isPublicHostname(finalUrl.hostname); })() ||
