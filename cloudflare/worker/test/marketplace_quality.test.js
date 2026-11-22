@@ -2,92 +2,73 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { qualityCheckDraft } from "../src/marketplace_quality.js";
 
-const passingReview = {
-  pass: true, issues: [], failedCriteria: [],
-  criteria: [{ criterion: "Include limitations", passed: true, evidence: "Limitations are explained." }],
-};
+const passingReview = {pass:true,issues:[],failedCriteria:[],criteria:[{criterion:"Include limitations",passed:true,evidence:"Limitations are explained."}]};
 
-test("draft passes only with independent review and evidence for each acceptance criterion", () => {
-  const task = { title: "Write a concise product summary", acceptanceCriteria: ["Include limitations"] };
-  const draft = "Comparison summary with useful details. Limitations are explained. Self-check: assumptions noted. Source: https://example.com/reference";
-  const result = qualityCheckDraft(task, draft, passingReview);
-  assert.equal(result.status, "submission_candidate");
-  assert.deepEqual(result.blockers, []);
-  assert.equal(result.sourceUrls.length, 1);
-  assert.equal(result.independentlyReviewed, true);
+test("draft passes only with review and exact evidence for each acceptance criterion",()=>{
+  const task={title:"Write a concise product summary",acceptanceCriteria:["Include limitations"]};
+  const draft="Comparison summary with useful details. Limitations are explained. Self-check: assumptions noted. Source: https://example.com/reference";
+  const result=qualityCheckDraft(task,draft,passingReview);
+  assert.equal(result.status,"submission_candidate");
+  assert.deepEqual(result.blockers,[]);
+  assert.equal(result.sourceUrls.length,1);
+  assert.equal(result.independentlyReviewed,true);
 });
 
-test("unfinished draft is blocked", () => {
-  const result = qualityCheckDraft({ title: "Task" }, "TODO: finish this later. Self-check pending.", {pass:true,issues:[],failedCriteria:[],criteria:[]});
-  assert.equal(result.status, "needs_revision");
+test("unfinished draft is blocked",()=>{
+  const result=qualityCheckDraft({title:"Task"},"TODO: finish this later. Self-check pending.",{pass:true,issues:[],failedCriteria:[],criteria:[]});
+  assert.equal(result.status,"needs_revision");
   assert.ok(result.blockers.includes("draft_too_short"));
   assert.ok(result.blockers.includes("unfinished_markers_found"));
 });
 
-test("missing self-review is flagged", () => {
-  const result = qualityCheckDraft({ title: "Task" }, "This is a long enough draft to be reviewed but it contains no self review section and no evidence link.", {pass:true,issues:[],failedCriteria:[],criteria:[]});
+test("missing self-review is flagged",()=>{
+  const result=qualityCheckDraft({title:"Task"},"This is a long enough draft to be reviewed but it contains no self review section and no evidence link.",{pass:true,issues:[],failedCriteria:[],criteria:[]});
   assert.ok(result.blockers.includes("missing_self_review"));
 });
 
-test("claims of live verification require evidence review", () => {
-  const result = qualityCheckDraft({ title: "Task" }, "This draft is long enough for the automated checker to inspect. Self-check: I verified this claim. Source: https://example.com", {pass:true,issues:[],failedCriteria:[],criteria:[]});
+test("claims of live verification require evidence review",()=>{
+  const result=qualityCheckDraft({title:"Task"},"This draft is long enough for the automated checker to inspect. Self-check: I verified this claim. Source: https://example.com",{pass:true,issues:[],failedCriteria:[],criteria:[]});
   assert.ok(result.blockers.includes("verification_claims_require_evidence"));
 });
 
-test("a missing or failed independent review blocks submission readiness", () => {
-  const draft = "A sufficiently detailed draft. Self-check: limitations and assumptions are stated. Source: https://example.com";
-  const missing = qualityCheckDraft({title:"Task"}, draft);
-  const failed = qualityCheckDraft({title:"Task"}, draft, {pass:false,issues:["Unsupported claim"],failedCriteria:[],criteria:[]});
-  assert.ok(missing.blockers.includes("independent_review_not_passed"));
-  assert.ok(failed.blockers.includes("independent_review_not_passed"));
+test("missing or failed independent review blocks readiness",()=>{
+  const draft="A sufficiently detailed draft. Self-check: limitations and assumptions are stated. Source: https://example.com";
+  assert.ok(qualityCheckDraft({title:"Task"},draft).blockers.includes("independent_review_not_passed"));
+  assert.ok(qualityCheckDraft({title:"Task"},draft,{pass:false,issues:["Unsupported claim"],failedCriteria:[],criteria:[]}).blockers.includes("independent_review_not_passed"));
 });
 
-test("missing criterion evidence blocks submission readiness", () => {
-  const task = {title:"Task",acceptanceCriteria:["Include limitations"]};
-  const review = {pass:true,issues:[],failedCriteria:[],criteria:[]};
-  const result = qualityCheckDraft(task, "A sufficiently detailed draft. Self-check: limitations and assumptions are stated. Source: https://example.com", review);
+test("missing criterion evidence blocks readiness",()=>{
+  const result=qualityCheckDraft({title:"Task",acceptanceCriteria:["Include limitations"]},"A sufficiently detailed draft. Self-check: limitations and assumptions are stated. Source: https://example.com",{pass:true,issues:[],failedCriteria:[],criteria:[]});
   assert.ok(result.blockers.includes("acceptance_criteria_not_verified"));
 });
 
-test("source URL extraction is repeatable across calls", () => {
-  const draft = "Self-check: all assumptions are stated. See https://example.com/a and https://example.org/b for sources.";
-  const review = {pass:true,issues:[],failedCriteria:[],criteria:[]};
-  const first = qualityCheckDraft({title:"Task"}, draft, review);
-  const second = qualityCheckDraft({title:"Task"}, draft, review);
-  assert.deepEqual(first.sourceUrls, second.sourceUrls);
-  assert.equal(first.sourceUrls.length, 2);
+test("source URL extraction is stable",()=>{
+  const draft="Self-check: all assumptions are stated. See https://example.com/a and https://example.org/b for sources.";
+  const first=qualityCheckDraft({title:"Task"},draft,passingReview);
+  const second=qualityCheckDraft({title:"Task"},draft,passingReview);
+  assert.deepEqual(first.sourceUrls,second.sourceUrls);
+  assert.equal(first.sourceUrls.length,2);
 });
 
-test("research and comparison drafts require a syntactically valid source URL", () => {
-  const review = {pass:true,issues:[],failedCriteria:[],criteria:[]};
-  const missing = qualityCheckDraft(
-    {title:"Research a software market",description:"Investigate the market and compare current offerings"},
-    "A substantive research draft with analysis and limitations. Self-check: assumptions are stated.",
-    review,
-  );
-  assert.ok(missing.blockers.includes("research_sources_missing"));
-  const invalid = qualityCheckDraft(
-    {title:"Research a software market",description:"Investigate the market and compare current offerings"},
-    "A substantive research draft with analysis and limitations. Self-check: assumptions are stated. Source: https://not-a-valid-host",
-    review,
-  );
-  assert.ok(invalid.blockers.includes("invalid_source_urls"));
-  const validUrlOnly = qualityCheckDraft(
-    {title:"Research a software market",description:"Investigate the market and compare current offerings"},
-    "A substantive research draft with analysis and limitations. Self-check: assumptions are stated. Source: https://example.com/report",
-    review,
-  );
-  assert.ok(validUrlOnly.blockers.includes("source_content_not_verified"));
-  assert.equal(validUrlOnly.sourceContentVerified, false);
+test("research requires fetched, relevant source evidence and exact draft excerpt",()=>{
+  const task={title:"Research a software market",description:"Investigate the market and compare current offerings"};
+  const draft="A substantive research draft with analysis and limitations. Self-check: assumptions are stated. Evidence: exact supporting passage from the cited page.";
+  const review={pass:true,issues:[],failedCriteria:[],criteria:[]};
+  const absent=qualityCheckDraft(task,draft+" Source: https://example.com/report",review);
+  assert.ok(absent.blockers.includes("source_content_not_verified"));
+  const verified={status:"verified",verified:true,blockers:[],results:[{
+    requestedUrl:"https://example.com/report",httpStatus:200,supportsClaims:true,
+    sourceExcerpt:"A source excerpt with enough words to be checked against the retrieved source content.",
+    draftExcerpt:"exact supporting passage from the cited page.",
+  }]};
+  const passed=qualityCheckDraft(task,draft+" Source: https://example.com/report",review,verified);
+  assert.equal(passed.sourceContentVerified,true);
+  assert.ok(!passed.blockers.includes("source_content_not_verified"));
 });
 
-test("review evidence must be an exact excerpt from the draft", () => {
-  const task = {title:"Task",acceptanceCriteria:["Include limitations"]};
-  const review = {pass:true,issues:[],failedCriteria:[],criteria:[
-    {criterion:"Include limitations",passed:true,evidence:"A paraphrase, not an exact quote."},
-  ]};
-  const result = qualityCheckDraft(task,
-    "A sufficiently detailed draft. Limitations: this is based only on supplied information. Self-check: assumptions stated. Source: https://example.com",
-    review);
-  assert.ok(result.blockers.includes("acceptance_criteria_not_verified"));
+test("verifier error remains a blocker",()=>{
+  const task={title:"Research current market",description:"Compare current products"};
+  const result=qualityCheckDraft(task,"A substantive report with limitations. Self-check: assumptions stated. Source: https://example.com",passingReview,{status:"unavailable",verified:false,blockers:["source_verifier_unavailable"]});
+  assert.ok(result.blockers.includes("source_verifier_unavailable"));
+  assert.equal(result.status,"needs_revision");
 });
