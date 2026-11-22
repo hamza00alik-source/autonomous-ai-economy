@@ -36,9 +36,13 @@ test("accepts other explicitly identified stablecoin, crypto and Payoneer rails"
     make("usdt","USDT","usdt-tron",10),
     make("eth","ETH","eth-mainnet",0.02),
     make("payoneer","USD","payoneer",25),
+    make("wise","EUR","wise",25),
+    {...make("arb","ARB","arb-arbitrum",12),_jobbi:{...baseGig._jobbi,reward:{amount:12,currency:"ARB",rail:"arb-arbitrum",usd_estimate:6}}},
   ]},now);
-  assert.deepEqual(result.items.map(x=>x.payment_rail),["usdt-tron","eth-mainnet","payoneer"]);
-  assert.equal(result.items[2].payout_region_status,"supported_in_pakistan");
+  assert.deepEqual(result.items.map(x=>x.payment_rail),["usdt-tron","eth-mainnet","payoneer","wise","arb-arbitrum"].sort((a,b)=>({ "usdt-tron":1,"eth-mainnet":2,"payoneer":3,"wise":4,"arb-arbitrum":2 }[a]-{ "usdt-tron":1,"eth-mainnet":2,"payoneer":3,"wise":4,"arb-arbitrum":2 }[b])));
+  assert.equal(result.items.find(x=>x.payment_rail==="payoneer").payout_region_status,"supported_in_pakistan");
+  assert.equal(result.items.find(x=>x.payment_rail==="wise").payout_region_status,"account_confirmation_required");
+  assert.equal(result.items.find(x=>x.payment_rail==="arb-arbitrum").reward_usd_estimate,6);
 });
 
 test("rejects unknown, ambiguous and asset-mismatched payout rails", () => {
