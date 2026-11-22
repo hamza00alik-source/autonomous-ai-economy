@@ -113,11 +113,12 @@ export async function verifyResearchSources(env, task, draft) {
         urls,
         task: { title: String(task?.title || "").slice(0, 1000), description: String(task?.description || "").slice(0, 8000) },
         draft: String(draft).slice(0, MAX_DRAFT_CHARS),
-        limits: { maxUrls: MAX_URLS, maxResponseBytes: 1000000, timeoutMs: 8000, redirects: 3 },
+        limits: { maxUrls: MAX_URLS, maxResponseBytes: 1000000, timeoutMs: 8000, redirects: 0 },
       }),
       signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) throw new Error("verifier service returned " + response.status);
+    if (!(response.headers.get("content-type") || "").toLowerCase().startsWith("application/json")) throw new Error("verifier response content type mismatch");
     const declaredLength = Number(response.headers.get("content-length") || 0);
     if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("verifier response too large");
     const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES);
