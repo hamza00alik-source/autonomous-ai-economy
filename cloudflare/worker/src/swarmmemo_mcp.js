@@ -64,9 +64,9 @@ function validateIdentityUrl(value) {
 }
 
 function findIdentityPayload(value, depth = 0) {
-  if (!value || typeof value !== "object" || depth > 5) return null;
+  if (!value || typeof value !== "object" || depth > 6) return null;
   if (typeof value.mcp_url === "string" || typeof value.assistant_mcp_url === "string") return value;
-  for (const key of ["data", "result", "identity", "structuredContent", "output"]) {
+  for (const key of ["data", "result", "identity", "agent", "structuredContent", "output"]) {
     const found = findIdentityPayload(value[key], depth + 1);
     if (found) return found;
   }
@@ -77,7 +77,15 @@ function findIdentityPayload(value, depth = 0) {
           const parsed = JSON.parse(part.text);
           const found = findIdentityPayload(parsed, depth + 1);
           if (found) return found;
-        } catch { /* Continue through content blocks. */ }
+        } catch { /* The server may return a human-readable one-time credential receipt. */ }
+        const text = part.text;
+        const url = text.match(/https:\/\/swarmmemo\.com\/mcp\/t\/[A-Za-z0-9_-]{16,512}/)?.[0];
+        const recovery = text.match(/smr1_[A-Za-z0-9_-]{12,256}/)?.[0];
+        const fingerprint = text.match(/(?:fingerprint|agent fingerprint)[^a-f0-9]*([a-f0-9]{64})/i)?.[1];
+        if (url && recovery && fingerprint) {
+          const handle = text.match(/(?:handle|name)[^A-Za-z0-9_-]*([A-Za-z0-9_-]{1,32})/i)?.[1] || null;
+          return { mcp_url: url, recovery_code: recovery, fingerprint, handle };
+        }
       }
     }
   }
@@ -88,7 +96,7 @@ function identityResult(toolResult) {
   if (toolResult?.isError) throw new Error("SwarmMemo create_identity tool reported an error");
   const found = findIdentityPayload(toolResult?.structuredContent) || findIdentityPayload(toolResult);
   if (found) return found;
-  throw new Error("SwarmMemo create_identity returned no recognizable identity URL payload");
+  throw new Error("SwarmMemo create_identity returned no recognizable identity URL, recovery code, and fingerprint");
 }
 
 export async function callSwarmMemoTool(endpoint, name, args = {}, fetchImpl = fetch) {
