@@ -1,5 +1,5 @@
 import { qualityCheckDraft } from "./marketplace_quality.js";
-import { executeAgentTeam } from "./marketplace_agent_team.js";
+import { executeAgentTeam, reviewWithIndependentProvider } from "./marketplace_agent_team.js";
 import { verifyResearchSources } from "./marketplace_source_verifier.js";
 
 const MAX_TASK_BYTES = 12000;
@@ -61,7 +61,7 @@ export async function executePrivateDraft(env, task, source = "unknown") {
   const assessment = assessTask(task, source);
   if (!assessment.eligible) return { status: "blocked", assessment, externalActionsTaken: false };
   const researchTask = /\b(research|investigate|fact[- ]check|market analysis|compare|comparison|cite|citations|sources)\b/i.test(assessment.title + "\n" + assessment.description);
-  if (researchTask && (!env?.SOURCE_VERIFIER || typeof env.SOURCE_VERIFIER.fetch !== "function")) {
+  if (researchTask && (!env?.SOURCE_VERIFIER || typeof env.SOURCE_VERIFIER.fetch !== "function" || !env.SOURCE_VERIFIER_TOKEN)) {
     return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "source_verifier_unavailable"] }, externalActionsTaken: false };
   }
   const team = await executeAgentTeam(env, {
@@ -71,13 +71,14 @@ export async function executePrivateDraft(env, task, source = "unknown") {
     constraints: assessment.constraints, outputFormat: assessment.outputFormat,
   }, assessment.source);
   const sourceVerification = await verifyResearchSources(env, assessment, team.deliverable);
-  const qa = qualityCheckDraft(assessment, team.deliverable, team.review, sourceVerification);
-  const submissionReady = team.ready === true && qa.status === "submission_candidate";
+  const independentReview = await reviewWithIndependentProvider(env, assessment, team.deliverable, sourceVerification);
+  const qa = qualityCheckDraft(assessment, team.deliverable, independentReview, sourceVerification);
+  const submissionReady = team.ready === true && independentReview.independent === true && independentReview.pass === true && qa.status === "submission_candidate";
   return {
     status: "draft_ready", assessment, deliverable: team.deliverable,
     deliverableSha256: team.deliverableSha256,
-    qa: { ...qa, same_model_review: team.review },
-    agentTeam: team.agents, reviewRounds: team.reviewRounds, revised: team.revised,
+    qa: { ...qa, same_model_review: team.review, independent_review: independentReview },
+    agentTeam: [...team.agents, { role: "independent_provider_reviewer", provider: independentReview.provider || null, model: independentReview.model || null, status: independentReview.pass ? "passed" : independentReview.status || "unavailable" }], reviewRounds: team.reviewRounds, revised: team.revised,
     submissionReady, externalActionsTaken: false, createdAt: new Date().toISOString(),
   };
 }
