@@ -24,7 +24,7 @@ test("prioritizes explicit, escrowed USDC on Base", () => {
   const result = normalizeJobbiFeed({items:[baseGig]}, now);
   assert.equal(result.items.length,1);
   assert.equal(result.items[0].payout_priority,0);
-  assert.equal(result.items[0].reward_amount,2);
+  assert.equal(result.items[0].reward_amount,"2");
   assert.equal(result.items[0].reward_usd_estimate,2);
   assert.equal(result.items[0].payment_rail,"usdc-base");
   assert.equal(result.items[0].requirements.payout_network,"Base");
