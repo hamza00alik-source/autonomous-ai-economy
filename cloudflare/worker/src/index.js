@@ -712,7 +712,7 @@ export default {
     }
     if (url.pathname === "/v1/marketplace/jobbi-discoveries" && request.method === "GET") {
       const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 30)));
-      const rows = await env.DB.prepare("SELECT gig_id,board_source,title,source_url,reward_usd,reward_amount,reward_usd_estimate,currency,payment_rail,payment_state,payout_grade,payout_priority,payout_network,payout_region_status,acceptance_type,requirements_json,deadline,verified_at,feed_fetched_at,snapshot_json,first_seen_at,last_seen_at FROM aae_jobbi_discoveries ORDER BY payout_priority ASC,reward_usd DESC,last_seen_at DESC LIMIT ?").bind(limit).all();
+      const rows = await env.DB.prepare("SELECT gig_id,board_source,title,source_url,reward_usd,reward_amount,reward_usd_estimate,currency,payment_rail,payment_state,payout_grade,payout_priority,payout_network,payout_region_status,acceptance_type,requirements_json,deadline,verified_at,feed_fetched_at,snapshot_json,first_seen_at,last_seen_at FROM aae_jobbi_discoveries ORDER BY payout_priority ASC,COALESCE(reward_usd_estimate,0) DESC,last_seen_at DESC LIMIT ?").bind(limit).all();
       return json({ items: rows.results || [], notice: "Read-only Jobbi index. Prioritizes escrowed USDC on Base, then other explicitly named stablecoin/crypto networks and Pakistan-accessible digital payout rails. Jobbi is an index, not the payer; original-board status and payout eligibility must be rechecked. No account is registered, no task is claimed, and no work is submitted." });
     }
     if (url.pathname === "/v1/marketplace/bounty-feed-runs" && request.method === "GET") {
