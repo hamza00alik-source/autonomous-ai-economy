@@ -1,6 +1,13 @@
 name: Deploy private Cloudflare AI worker
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/worker/**"
+      - "src/**"
+      - "pyproject.toml"
+      - ".github/workflows/deploy-cloudflare-worker.yml"
   workflow_dispatch:
 
 permissions:
