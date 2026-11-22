@@ -50,12 +50,14 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
   const sourcesPass = !needsSources || sourceUrls.length > 0;
   const verifiedUrls = Array.isArray(sourceVerification?.results)
     ? sourceVerification.results.map(item => item?.requestedUrl).filter(value => typeof value === "string") : [];
-  const sourceContentVerified = needsSources && (
-    sourceVerification?.status === "verified" && sourceVerification?.verified === true &&
+  const sourceRetrievalVerified = needsSources && (
+    sourceVerification?.status === "retrieved_unverified" && sourceVerification?.retrievalVerified === true &&
     verifiedUrls.length === sourceUrls.length && sourceUrls.every(url => verifiedUrls.includes(url)) &&
     sourceVerification.results.every(item => typeof item?.sourceExcerpt === "string" &&
       typeof item?.draftExcerpt === "string" && body.includes(item.draftExcerpt) &&
-      item?.supportsClaims === true && item?.httpStatus === 200)
+      item?.sourceExcerpt === item?.draftExcerpt && item?.excerptMatched === true &&
+      item?.supportsClaims === false && item?.verificationStatus === "retrieved_unverified" &&
+      item?.httpStatus === 200)
   );
   checks.push({
     id: "source_links",
@@ -67,16 +69,16 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
   if (!sourcesPass) blockers.push("research_sources_missing");
   if (invalidSourceUrls.length) blockers.push("invalid_source_urls");
   checks.push({
-    id: "source_content",
-    passed: !needsSources || sourceContentVerified,
+    id: "source_retrieval",
+    passed: !needsSources || sourceRetrievalVerified,
     note: !needsSources ? "Not required for this task" :
-      sourceContentVerified ? "Trusted verifier returned matching source and draft evidence" :
-      "Source content, relevance, or evidence has not been verified",
+      sourceRetrievalVerified ? "Trusted service retrieved the source and matched an exact excerpt; claim support remains a separate review" :
+      "Source retrieval, integrity, or exact excerpt matching has not been verified",
   });
-  if (needsSources && !sourceContentVerified) {
+  if (needsSources && !sourceRetrievalVerified) {
     blockers.push(...(Array.isArray(sourceVerification?.blockers) && sourceVerification.blockers.length
-      ? sourceVerification.blockers : ["source_content_not_verified"]));
-    if (!blockers.includes("source_content_not_verified") && !sourceVerification?.blockers?.length) blockers.push("source_content_not_verified");
+      ? sourceVerification.blockers : ["source_retrieval_not_verified"]));
+    if (!blockers.includes("source_retrieval_not_verified") && !sourceVerification?.blockers?.length) blockers.push("source_retrieval_not_verified");
   }
 
   const hasSelfCheck = /\b(self[- ]?check|quality check|qa|checklist|limitations|assumptions)\b/i.test(body);
@@ -87,11 +89,12 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
   checks.push({ id: "verification_claims", passed: !hasVerificationClaims, note: hasVerificationClaims ? "Contains verification claims requiring evidence review" : "No obvious unsupported verification claims detected" });
   if (hasVerificationClaims) blockers.push("verification_claims_require_evidence");
 
-  const reviewPassed = independentReview?.pass === true &&
+  const reviewPassed = independentReview?.pass === true && independentReview?.provider === "google" &&
+    independentReview?.independent === true && independentReview?.sameProvider === false &&
     Array.isArray(independentReview?.issues) && independentReview.issues.length === 0 &&
     Array.isArray(independentReview?.failedCriteria) && independentReview.failedCriteria.length === 0;
-  checks.push({ id: "same_model_review", passed: reviewPassed, note: reviewPassed ? "A separate review call using the same model passed the exact draft; this is not independent verification" : "Missing, failed, or incomplete same-model review" });
-  if (!reviewPassed) blockers.push("same_model_review_not_passed");
+  checks.push({ id: "independent_provider_review", passed: reviewPassed, note: reviewPassed ? "Google reviewer from a separate provider passed the exact draft" : "Missing, failed, or unverified independent-provider review" });
+  if (!reviewPassed) blockers.push("independent_provider_review_not_passed");
 
   const requiredCriteria = Array.isArray(task?.acceptanceCriteria) ? task.acceptanceCriteria : [];
   const reviewedCriteria = Array.isArray(independentReview?.criteria) ? independentReview.criteria : [];
@@ -99,17 +102,18 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
     reviewedCriteria.some(item => item?.criterion === required && item?.passed === true &&
       typeof item?.evidence === "string" && item.evidence.trim() && body.includes(item.evidence))
   ) && reviewedCriteria.length === requiredCriteria.length;
-  checks.push({ id: "acceptance_criteria", passed: criteriaCovered, note: criteriaCovered ? "Every supplied acceptance criterion has an exact evidence excerpt" : "Acceptance criteria are missing, failed, or lack exact evidence excerpts" });
+  checks.push({ id: "acceptance_criteria", passed: criteriaCovered && reviewPassed, note: criteriaCovered ? "Every supplied acceptance criterion has an exact evidence excerpt" : "Acceptance criteria are missing, failed, or lack exact evidence excerpts" });
   if (!criteriaCovered) blockers.push("acceptance_criteria_not_verified");
 
   return {
     status: blockers.length === 0 ? "submission_candidate" : "needs_revision",
-    checks, blockers, sourceUrls, invalidSourceUrls, sourceContentVerified,
+    checks, blockers, sourceUrls, invalidSourceUrls, sourceRetrievalVerified,
+    sourceContentVerified: false,
     sourceVerificationStatus: sourceVerification?.status || (needsSources ? "not_run" : "not_required"),
-    sourceEvidence: sourceContentVerified && needsSources ? sourceVerification.results : [],
+    sourceEvidence: sourceRetrievalVerified && needsSources ? sourceVerification.results : [],
     acceptanceCriteriaCount: requiredCriteria.length,
-    independentlyReviewed: false, reviewMode: "same_model_second_call", reviewerCallPassed: reviewPassed,
+    independentlyReviewed: reviewPassed, reviewMode: reviewPassed ? "google_independent_provider" : "unavailable_or_failed", reviewerCallPassed: reviewPassed,
     assessedAt: new Date().toISOString(),
-    warning: "Automated QA is a screening aid. A trusted verifier attests source retrieval and claim relevance; this does not guarantee factual correctness, platform compliance, or buyer acceptance. Submission remains separately authorized."
+    warning: "Automated QA is a screening aid. The source verifier attests retrieval and exact excerpt matching only; the independent provider separately reviews claim support. This does not guarantee factual correctness, platform compliance, or buyer acceptance. Submission remains separately authorized."
   };
 }
