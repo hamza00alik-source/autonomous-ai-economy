@@ -772,8 +772,22 @@ export default {
   },
   async scheduled(_controller, env, ctx) {
     ctx.waitUntil((async () => {
-      await ensureHostedSwarmMemoIdentity(env);
-      await Promise.allSettled([pollSwarmMemo(env), pollTaskmarket(env), syncExternalBountyFeed(env), syncJobbiFeed(env), syncFranticFeed(env), syncElgoraList(env)]);
+      // Identity provisioning is optional for read-only discovery and private drafting.
+      // A missing encryption secret or identity-provider outage must not stop other agents.
+      const operations = await Promise.allSettled([
+        ensureHostedSwarmMemoIdentity(env),
+        pollSwarmMemo(env),
+        pollTaskmarket(env),
+        syncExternalBountyFeed(env),
+        syncJobbiFeed(env),
+        syncFranticFeed(env),
+        syncElgoraList(env),
+      ]);
+      for (let i = 0; i < operations.length; i++) {
+        if (operations[i].status === "rejected") {
+          console.error("AAE scheduled operation failed", { operation: i, error: String(operations[i].reason?.message || operations[i].reason).slice(0, 300) });
+        }
+      }
       await enqueueMarketplaceTasks(env);
       // Process up to two independent marketplace tasks per scheduled run.
       // Each job reserves the shared daily AI budget before any model inference.
