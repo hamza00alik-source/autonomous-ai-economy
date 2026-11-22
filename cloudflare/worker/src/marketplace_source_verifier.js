@@ -20,19 +20,23 @@ function canonicalUrl(value) {
   }
 }
 
+function isPublicHostname(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/\.$/, "");
+  const labelsValid = host.split(".").every(label =>
+    label.length > 0 && label.length <= 63 &&
+    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
+  const blockedSuffix = /(?:^|\.)(localhost|local|internal|onion)$/i.test(host);
+  const ipLiteral = host.startsWith("[") || /^\d+(?:\.\d+)*$/.test(host);
+  return labelsValid && !blockedSuffix && !ipLiteral;
+}
+
 function validateUrlList(urls) {
   const normalized = [];
   for (const raw of urls) {
     const value = canonicalUrl(raw);
     if (!value) throw new Error('invalid source URL');
     const parsed = new URL(value);
-    const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
-    const labelsValid = hostname.split(".").every(label =>
-      label.length > 0 && label.length <= 63 &&
-      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label));
-    const blockedSuffix = /(?:^|\.)(localhost|local|internal|onion)$/i.test(hostname);
-    const ipLiteral = hostname.startsWith("[") || /^\d+(?:\.\d+)*$/.test(hostname);
-    if (parsed.protocol !== "https:" || parsed.port || !labelsValid || blockedSuffix || ipLiteral) {
+    if (parsed.protocol !== "https:" || parsed.port || !isPublicHostname(parsed.hostname)) {
       throw new Error('source URL host is not allowed');
     }
     normalized.push(value);
@@ -44,6 +48,7 @@ function validEvidence(item, draft, requestedUrl) {
       item.httpStatus !== 200 || item.supportsClaims !== true ||
       typeof item.title !== "string" || !item.title.trim() || item.title.length > 300 ||
       typeof item.finalUrl !== "string" || !canonicalUrl(item.finalUrl) ||
+      (() => { const finalUrl = new URL(item.finalUrl); return finalUrl.protocol !== "https:" || Boolean(finalUrl.port) || !isPublicHostname(finalUrl.hostname); })() ||
       typeof item.contentSha256 !== "string" || !/^[a-f0-9]{64}$/i.test(item.contentSha256) ||
       typeof item.fetchedAt !== "string" || !Number.isFinite(Date.parse(item.fetchedAt)) ||
       typeof item.sourceExcerpt !== "string" || item.sourceExcerpt.trim().length < 30 || item.sourceExcerpt.length > 800 ||
