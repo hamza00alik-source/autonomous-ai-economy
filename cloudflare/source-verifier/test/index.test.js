@@ -68,3 +68,17 @@ test("limits methods and route surface",async()=>{
     headers:{"x-aae-source-verifier-token":TOKEN}}),e)).status,404);
   assert.equal(e.calls.length,0);
 });
+
+test("authenticated health check reports configuration without making outbound requests",async()=>{
+  const e=env();
+  const res=await verifier.fetch(new Request("https://internal/healthz",{headers:{"x-aae-source-verifier-token":TOKEN}}),e);
+  assert.equal(res.status,200);
+  assert.equal((await res.json()).ok,true);
+  assert.equal(e.calls.length,0);
+});
+test("health check remains unavailable until Gateway attestation is present",async()=>{
+  const e=env({EGRESS_POLICY_ATTESTATION:""});
+  const res=await verifier.fetch(new Request("https://internal/healthz",{headers:{"x-aae-source-verifier-token":TOKEN}}),e);
+  assert.equal(res.status,503);
+  assert.equal(e.calls.length,0);
+});
