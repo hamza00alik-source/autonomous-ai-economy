@@ -52,6 +52,9 @@ export function qualityCheckDraft(task, draft, independentReview = null) {
   const { valid: sourceUrls, invalid: invalidSourceUrls } = extractUrls(body);
   const needsSources = RESEARCH_PATTERN.test(title + "\n" + description);
   const sourcesPass = !needsSources || sourceUrls.length > 0;
+  // No trusted source-fetching adapter is wired into this worker yet.
+  // Do not let a syntactically valid URL masquerade as verified research evidence.
+  const sourceContentVerified = false;
   checks.push({
     id: "source_links",
     passed: sourcesPass && invalidSourceUrls.length === 0,
@@ -65,6 +68,7 @@ export function qualityCheckDraft(task, draft, independentReview = null) {
   });
   if (!sourcesPass) blockers.push("research_sources_missing");
   if (invalidSourceUrls.length) blockers.push("invalid_source_urls");
+  if (needsSources && !sourceContentVerified) blockers.push("source_content_not_verified");
 
   const hasSelfCheck = /\b(self[- ]?check|quality check|qa|checklist|limitations|assumptions)\b/i.test(body);
   checks.push({ id: "self_review", passed: hasSelfCheck, note: hasSelfCheck ? "Self-review/assumptions section detected" : "No explicit self-review detected" });
@@ -95,7 +99,7 @@ export function qualityCheckDraft(task, draft, independentReview = null) {
     blockers,
     sourceUrls,
     invalidSourceUrls,
-    sourceContentVerified: false,
+    sourceContentVerified,
     acceptanceCriteriaCount: requiredCriteria.length,
     independentlyReviewed: reviewPassed,
     assessedAt: new Date().toISOString(),
