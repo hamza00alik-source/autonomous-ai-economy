@@ -99,7 +99,20 @@ export async function executePrivateDraft(env, task, source = "unknown") {
   const sourceVerification = await verifyResearchSources(env, assessment, team.deliverable);
   const independentReview = await reviewWithIndependentProvider(env, assessment, team.deliverable, sourceVerification);
   const qa = qualityCheckDraft(assessment, team.deliverable, independentReview, sourceVerification);
-  const submissionReady = team.ready === true && independentReview.independent === true && independentReview.pass === true && qa.status === "submission_candidate";
+  const sameModelReviewPassed = team.ready === true && team.review?.pass === true;
+  qa.checks.push({
+    id: "same_model_review",
+    passed: sameModelReviewPassed,
+    note: sameModelReviewPassed
+      ? "Same-model second-pass review passed; this is not independent verification"
+      : "Same-model second-pass review failed or was incomplete",
+  });
+  if (!sameModelReviewPassed) {
+    qa.blockers.push("same_model_review_not_passed");
+    qa.status = "needs_revision";
+  }
+  const submissionReady = sameModelReviewPassed && independentReview.independent === true &&
+    independentReview.pass === true && qa.status === "submission_candidate";
   return {
     status: submissionReady ? "submission_candidate" : "draft_blocked", assessment, deliverable: team.deliverable,
     deliverableSha256: team.deliverableSha256,
