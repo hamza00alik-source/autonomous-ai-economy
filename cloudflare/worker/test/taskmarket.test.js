@@ -56,7 +56,7 @@ test("rejects deposits, low rewards, expired tasks and crowded tasks", () => {
   assert.ok(task.qualification_reasons.includes("gross_reward_below_1_usdc"));
   assert.ok(task.qualification_reasons.includes("deposit_or_stake_required"));
   assert.ok(task.qualification_reasons.includes("expired"));
-  assert.ok(task.qualification_reasons.includes("free_submission_allowance_not_confirmed"));
+  assert.ok(task.qualification_reasons.includes("task_submission_fee_threshold_reached"));
 });
 
 test("rejects tasks without a valid requester address", () => {
@@ -109,8 +109,9 @@ test("decodes the four-word TaskCreated event and verifies the escrow reward", a
   assert.deepEqual(result, { verified: true, status: "verified", amount_base_units: reward });
 });
 
-test("conservatively excludes tasks after the five-submission free allowance", () => {
-  const task = normalizeTaskmarketTask({ ...eligible, submissionCount: 5 });
+test("keeps tasks eligible below 50 total submissions and blocks at the fee threshold", () => {
+  assert.equal(normalizeTaskmarketTask({ ...eligible, submissionCount: 32 }).eligible, 1);
+  const task = normalizeTaskmarketTask({ ...eligible, submissionCount: 50 });
   assert.equal(task.eligible, 0);
-  assert.ok(task.qualification_reasons.includes("free_submission_allowance_not_confirmed"));
+  assert.ok(task.qualification_reasons.includes("task_submission_fee_threshold_reached"));
 });
