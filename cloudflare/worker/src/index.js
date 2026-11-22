@@ -652,7 +652,26 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") {
-      return json({ service: "autonomous-ai-economy", status: "ready", public_registration: false });
+      try {
+        const [counts, lastExecution] = await Promise.all([
+          env.DB.prepare("SELECT status,COUNT(*) AS total FROM aae_execution_jobs GROUP BY status").all(),
+          env.DB.prepare("SELECT MAX(updated_at) AS last_activity_at FROM aae_execution_jobs").first(),
+        ]);
+        return json({
+          service: "autonomous-ai-economy",
+          status: "ready",
+          public_registration: false,
+          scheduled_cron: "*/5 * * * *",
+          marketplace_execution: {
+            counts: counts.results || [],
+            last_activity_at: lastExecution?.last_activity_at || null,
+            external_submission_enabled: false,
+          },
+        });
+      } catch (error) {
+        return json({ service: "autonomous-ai-economy", status: "degraded", public_registration: false,
+          error: String(error?.message || "health check failed").slice(0, 200) }, 503);
+      }
     }
     if (url.pathname === "/v1/payments/nowpayments/ipn" && request.method === "POST") {
       return nowPaymentsIPN(request, env);
