@@ -179,8 +179,10 @@ export async function processOneMarketplaceDraft(env) {
     if (draft.submissionReady === true && row.source === "taskmarket") {
       submission = await submitTaskmarketDeliverable(env, task, draft.deliverable);
     }
+    const retryableSubmission = submission?.status === "not_configured" ||
+      ["secure_wallet_signer_unavailable", "wallet_signer_health_failed", "wallet_signing_failed"].includes(submission?.reason);
     const finalStatus = submission?.status === "submitted" ? "submitted" :
-      (submission?.status === "uncertain" || submission?.status === "blocked" ? "blocked" :
+      (submission?.status === "uncertain" || (submission?.status === "blocked" && !retryableSubmission) ? "blocked" :
         (draft.submissionReady === true ? "draft_ready" : "blocked"));
     const qaError = draft.submissionReady !== true
       ? "Independent QA or deterministic quality gate did not pass"
