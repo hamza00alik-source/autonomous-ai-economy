@@ -116,7 +116,12 @@ test("does not submit duplicate worker work", async () => {
   network.fetchImpl = async (url, init = {}) => {
     network.calls.push({ url: String(url), init });
     if (String(url).endsWith("/submissions")) return new Response(JSON.stringify([{ workerAddress: address }]), { status: 200 });
-    throw new Error("must not reach submission");
+    if (init.method === "POST") throw new Error("must not reach submission");
+    return new Response(JSON.stringify({
+      id: taskId, chainId: 8453, mode: "bounty", status: "open",
+      expiryTime: task.expiry_time, stakeRequired: false, stakeBps: 0,
+      reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 1,
+    }), { status: 200 });
   };
   const result = await submitTaskmarketDeliverable(e, task, "deliverable", network.fetchImpl);
   assert.equal(result.reason, "worker_already_has_submission_for_task");
