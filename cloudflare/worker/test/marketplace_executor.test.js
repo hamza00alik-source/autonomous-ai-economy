@@ -86,3 +86,16 @@ test("research tasks without verifier are blocked before model inference",async(
   assert.ok(result.assessment.reasons.includes("source_verifier_unavailable"));
   assert.equal(result.externalActionsTaken,false);
 });
+
+
+test("blocks unsuitable Base listings that disguise production or non-USDC work",()=>{
+  const video=assessTask({title:"制作一个约20分钟的《西游记》视频",description:"制作一个约20分钟、内容完整的视频，包含分镜、配音、字幕、音效和最终导出。",reward:"1.00"});
+  assert.equal(video.eligible,false);
+  assert.ok(video.reasons.includes("unsupported_deliverable"));
+  const settlement=assessTask({title:"Test Base-to-Robinhood settlement",description:"Test one authorized end-to-end settlement attempt using an authorized Base test account and Robinhood destination with controlled funds.",reward:"1.00"});
+  assert.equal(settlement.eligible,false);
+  assert.ok(settlement.reasons.some(reason=>reason.startsWith("blocked_risk_pattern:")));
+  const token=assessTask({title:"FlapJax Q103 first-timers only",description:"List treasury outflows and group recipients by first BNB funder. 100,000 FLAPJAX each, first-timers only.",reward:"1.00"});
+  assert.equal(token.eligible,false);
+  assert.ok(token.reasons.some(reason=>reason.startsWith("blocked_risk_pattern:")));
+});
