@@ -66,9 +66,9 @@ test("criterion failure blocks submission readiness even after one revision", as
   const criterion = "Include limitations";
   const outputs = [
     goodDraft,
-    JSON.stringify({pass:false,issues:["Add limitations"],reason:"Missing section",criteria:[{criterion,passed:false,evidence:"No limitations section."}]}),
+    JSON.stringify({pass:false,issues:["Add limitations"],reason:"Missing section",criteria:[{criterion,passed:false,evidence:"Documentation draft"}]}),
     goodDraft,
-    JSON.stringify({pass:false,issues:["Still missing limitations"],reason:"Revision did not fix the gap",criteria:[{criterion,passed:false,evidence:"Still absent."}]}),
+    JSON.stringify({pass:false,issues:["Still missing limitations"],reason:"Revision did not fix the gap",criteria:[{criterion,passed:false,evidence:"Documentation draft"}]}),
   ];
   const result=await executePrivateDraft({AI:{run:async()=>({response:outputs.shift()})}},{
     id:"t",title:"Research docs",description:"Summarize provided documentation",
