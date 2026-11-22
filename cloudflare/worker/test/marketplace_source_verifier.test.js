@@ -77,6 +77,20 @@ test("unsafe, non-public, malformed and non-default-port URLs are rejected befor
   }
 });
 
+test("unsafe verifier redirect destinations are rejected", async()=>{
+  for (const finalUrl of [
+    "http://example.com/reference",
+    "https://localhost/reference",
+    "https://127.0.0.1/reference",
+    "https://example.com:8443/reference",
+  ]) {
+    const payload=validPayload(); payload.results[0].finalUrl=finalUrl;
+    const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>response(payload)}},{title:"Research a software market"},draft+" "+url);
+    assert.equal(result.verified,false,finalUrl);
+    assert.ok(result.blockers.includes("source_verification_failed"),finalUrl);
+  }
+});
+
 test("oversized source lists are rejected before calling the binding", async()=>{
   let called=false;
   const urls=Array.from({length:9},(_,i)=>"https://example.com/"+i).join(" ");
