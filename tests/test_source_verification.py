@@ -167,5 +167,125 @@ class SourceVerificationTests(unittest.TestCase):
         self.assertTrue(FakeConnection.instances[0].closed)
 
 
+
+class PinnedConnectionIntegrationTests(unittest.TestCase):
+    """Exercise the real TLS and TCP stack while simulating a changed DNS answer."""
+
+    @classmethod
+    def setUpClass(cls):
+        import ssl
+        import subprocess
+        import tempfile
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        cls._tempdir = tempfile.TemporaryDirectory()
+        cls.cert_path = cls._tempdir.name + "/server.pem"
+        cls.key_path = cls._tempdir.name + "/server-key.pem"
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", cls.key_path, "-out", cls.cert_path, "-days", "1",
+            "-subj", "/CN=publisher.example",
+            "-addext", "subjectAltName=DNS:publisher.example",
+        ], check=True, capture_output=True)
+        cls.server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        cls.server_context.load_cert_chain(cls.cert_path, cls.key_path)
+        cls.client_context = ssl.create_default_context(cafile=cls.cert_path)
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"<html><h1>Connection-level source</h1><p>Evidence from the live TLS test server.</p></html>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        cls.server.socket = cls.server_context.wrap_socket(cls.server.socket, server_side=True)
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join(timeout=2)
+        cls._tempdir.cleanup()
+
+    def _run_fetch_with_pinned_local_endpoint(self, hostname):
+        import socket
+        from unittest.mock import patch
+
+        original_create_connection = socket.create_connection
+        original_getaddrinfo = socket.getaddrinfo
+        resolved_names = []
+
+        def simulate_dns_rebinding(host, port, *args, **kwargs):
+            resolved_names.append(str(host))
+            # If the fetcher resolves the hostname again after preflight, simulate
+            # an attacker changing DNS to a different loopback address.
+            if host == hostname:
+                return original_getaddrinfo("127.0.0.2", port, *args, **kwargs)
+            return original_getaddrinfo(host, port, *args, **kwargs)
+
+        dialed = []
+
+        def connect_to_test_listener(address, timeout=None, source_address=None, **kwargs):
+            dialed.append(address)
+            if address != ("127.0.0.1", 443):
+                raise AssertionError("connection did not use the prevalidated pinned IP")
+            return original_create_connection(
+                ("127.0.0.1", self.server.server_port),
+                timeout=timeout,
+                source_address=source_address,
+                **kwargs,
+            )
+
+        with patch("economy.source_verification._resolve_public_addresses", return_value=["127.0.0.1"]), \
+             patch("economy.source_verification.socket.getaddrinfo", side_effect=simulate_dns_rebinding), \
+             patch("economy.source_verification.socket.create_connection", side_effect=connect_to_test_listener), \
+             patch("economy.source_verification.ssl.create_default_context", return_value=self.client_context):
+            result = OriginalSourceFetcher().fetch(
+                "https://" + hostname + "/source",
+                allowed_hosts=["publisher.example", "other.example"],
+            )
+        return result, resolved_names, dialed
+
+    def test_live_tls_request_uses_pinned_ip_not_rebound_hostname(self):
+        result, resolved_names, dialed = self._run_fetch_with_pinned_local_endpoint("publisher.example")
+        self.assertEqual(result.status_code, 200)
+        self.assertIn("live TLS test server", result.extracted_text)
+        self.assertEqual(dialed, [("127.0.0.1", 443)])
+        self.assertNotIn("publisher.example", resolved_names)
+
+    def test_live_tls_certificate_hostname_mismatch_is_rejected(self):
+        import socket
+        from unittest.mock import patch
+
+        original_create_connection = socket.create_connection
+
+        def connect_to_test_listener(address, timeout=None, source_address=None, **kwargs):
+            self.assertEqual(address, ("127.0.0.1", 443))
+            return original_create_connection(
+                ("127.0.0.1", self.server.server_port),
+                timeout=timeout,
+                source_address=source_address,
+                **kwargs,
+            )
+
+        with patch("economy.source_verification._resolve_public_addresses", return_value=["127.0.0.1"]), \
+             patch("economy.source_verification.socket.create_connection", side_effect=connect_to_test_listener), \
+             patch("economy.source_verification.ssl.create_default_context", return_value=self.client_context):
+            with self.assertRaises(OSError):
+                OriginalSourceFetcher().fetch(
+                    "https://other.example/source",
+                    allowed_hosts=["other.example"],
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
