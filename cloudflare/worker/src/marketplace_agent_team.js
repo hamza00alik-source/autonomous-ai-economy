@@ -162,3 +162,82 @@ export async function executeAgentTeam(env, task, source = "unknown") {
     ready: review.pass,
   };
 }
+
+
+/**
+ * A separate Google-hosted reviewer. This is independent only when the
+ * separate service proves provider=google and sameProvider=false.
+ * Same-model review above remains useful for revision but never substitutes.
+ */
+export async function reviewWithIndependentProvider(env, task, deliverable, sourceVerification = null) {
+  const unavailable = {
+    status: "unavailable", provider: null, model: null, independent: false,
+    sameProvider: null, pass: false, issues: ["independent_provider_unavailable"],
+    reason: "A separately hosted Google reviewer is not configured.",
+    criteria: [], failedCriteria: [],
+  };
+  if (!env?.INDEPENDENT_REVIEWER || typeof env.INDEPENDENT_REVIEWER.fetch !== "function" ||
+      !env.INDEPENDENT_REVIEW_TOKEN) return unavailable;
+
+  const requirements = [
+    ...safeList(task?.acceptanceCriteria ?? task?.acceptance_criteria).map(text => ({ kind: "acceptance_criterion", text })),
+    ...safeList(task?.requiredDeliverables ?? task?.required_deliverables).map(text => ({ kind: "required_deliverable", text })),
+    ...safeList(task?.constraints).map(text => ({ kind: "constraint", text })),
+    ...(typeof (task?.outputFormat ?? task?.output_format) === "string" && (task.outputFormat ?? task.output_format).trim()
+      ? [{ kind: "output_format", text: String(task.outputFormat ?? task.output_format).slice(0, 300) }] : []),
+  ];
+  const safeTask = {
+    title: String(task?.title || "").slice(0, 1000),
+    description: String(task?.description || task?.task_text || "").slice(0, MAX_TASK_CHARS),
+  };
+  const sourceEvidence = Array.isArray(sourceVerification?.results)
+    ? sourceVerification.results.slice(0, 8).map(item => ({
+      requestedUrl: String(item?.requestedUrl || "").slice(0, 2048),
+      title: String(item?.title || "").slice(0, 300),
+      sourceExcerpt: String(item?.sourceExcerpt || "").slice(0, 800),
+      contentSha256: String(item?.contentSha256 || "").slice(0, 64),
+      verificationStatus: String(item?.verificationStatus || "").slice(0, 40),
+      excerptMatched: item?.excerptMatched === true,
+    })) : [];
+
+  try {
+    const response = await env.INDEPENDENT_REVIEWER.fetch("https://independent-reviewer.internal/v1/review", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "accept": "application/json",
+        "x-aae-independent-review-token": env.INDEPENDENT_REVIEW_TOKEN,
+      },
+      body: JSON.stringify({
+        protocolVersion: 1, task: safeTask, requirements,
+        deliverable: String(deliverable).slice(0, MAX_DELIVERABLE_CHARS),
+        sourceEvidence,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!response.ok) return {
+      ...unavailable, status: "failed", issues: ["independent_provider_http_" + response.status],
+      reason: "The independent provider service did not return a successful response.",
+    };
+    const raw = await response.text();
+    if (new TextEncoder().encode(raw).length > 32000) throw new Error("independent review response too large");
+    const payload = JSON.parse(raw);
+    if (payload?.protocolVersion !== 1 || payload?.provider !== "google" ||
+        payload?.independent !== true || payload?.sameProvider !== false ||
+        typeof payload?.model !== "string" || !payload.model.startsWith("gemini-") ||
+        !payload.review || typeof payload.review !== "object") {
+      throw new Error("independent provider identity could not be verified");
+    }
+    const review = parseReview(JSON.stringify(payload.review), requirements, deliverable);
+    return {
+      ...review, status: review.pass ? "passed" : "failed",
+      provider: "google", model: payload.model, independent: true, sameProvider: false,
+    };
+  } catch (error) {
+    return {
+      ...unavailable, status: "failed",
+      issues: [String(error?.message || "independent review failed").slice(0, 240)],
+      reason: "Independent provider review failed closed.",
+    };
+  }
+}
