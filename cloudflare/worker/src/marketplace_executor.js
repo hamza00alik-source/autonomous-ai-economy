@@ -72,7 +72,7 @@ export async function executePrivateDraft(env, task, source = "unknown") {
       method: "GET", headers: { "x-aae-independent-review-token": env.INDEPENDENT_REVIEW_TOKEN },
       signal: AbortSignal.timeout(3000),
     });
-    if (!reviewerHealth.ok) throw new Error("independent reviewer health check failed");
+    const reviewerStatus = await reviewerHealth.json();\n    if (!reviewerHealth.ok || reviewerStatus?.ok !== true || reviewerStatus?.provider !== "google") throw new Error("independent reviewer health check failed");
   } catch {
     return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "independent_provider_unavailable"] }, externalActionsTaken: false };
   }
@@ -85,7 +85,7 @@ export async function executePrivateDraft(env, task, source = "unknown") {
         method: "GET", headers: { "x-aae-source-verifier-token": env.SOURCE_VERIFIER_TOKEN },
         signal: AbortSignal.timeout(3000),
       });
-      if (!sourceHealth.ok) throw new Error("source verifier health check failed");
+      const sourceStatus = await sourceHealth.json();\n      if (!sourceHealth.ok || sourceStatus?.ok !== true || sourceStatus?.mode !== "vpc_gateway_egress_configured") throw new Error("source verifier health check failed");
     } catch {
       return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "source_verifier_unavailable"] }, externalActionsTaken: false };
     }
