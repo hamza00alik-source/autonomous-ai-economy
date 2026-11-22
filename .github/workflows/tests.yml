@@ -108,6 +108,8 @@ jobs:
           (cd cloudflare/worker && npx wrangler deploy --dry-run --outdir /tmp/aae-worker-dry-run)
           test -s /tmp/aae-worker-dry-run/index.js
           (cd cloudflare/worker && npx wrangler d1 migrations apply aae-private-ai-economy --local --persist-to /tmp/aae-d1-migration-test)
+          (cd cloudflare/source-verifier && ../worker/node_modules/.bin/wrangler deploy --dry-run --outdir /tmp/aae-source-verifier)
+          (cd cloudflare/independent-reviewer && ../worker/node_modules/.bin/wrangler deploy --dry-run --outdir /tmp/aae-independent-reviewer)
       - name: Verify official Gumroad CLI draft and upload dry-run
         run: |
           set -euo pipefail
