@@ -144,7 +144,7 @@ export async function executeAgentTeam(env, task, source = "unknown") {
     if (revision.length > MAX_DELIVERABLE_CHARS) throw new Error("revision deliverable exceeded the size limit");
     reviewed = revision;
     revised = true;
-    const revisedReviewUser = "Review this revised work independently.\nTASK JSON:\n" + taskJson + "\nDELIVERABLE:\n" + reviewed;
+    const revisedReviewUser = "Review this revised work independently.\nREQUIRED ITEMS JSON:\n" + JSON.stringify(requirements) + "\nTASK JSON:\n" + taskJson + "\nDELIVERABLE:\n" + reviewed;
     review = parseReview(await ask(env, "reviewer", reviewSystem, revisedReviewUser, 900), requirements, reviewed);
   }
 
