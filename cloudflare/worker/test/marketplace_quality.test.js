@@ -11,7 +11,9 @@ test("draft passes only with review and exact evidence for each acceptance crite
   assert.equal(result.status,"submission_candidate");
   assert.deepEqual(result.blockers,[]);
   assert.equal(result.sourceUrls.length,1);
-  assert.equal(result.independentlyReviewed,true);
+  assert.equal(result.independentlyReviewed,false);
+  assert.equal(result.reviewMode,"same_model_second_call");
+  assert.equal(result.reviewerCallPassed,true);
 });
 
 test("unfinished draft is blocked",()=>{
@@ -31,9 +33,9 @@ test("claims of live verification require evidence review",()=>{
   assert.ok(result.blockers.includes("verification_claims_require_evidence"));
 });
 
-test("missing or failed independent review blocks readiness",()=>{
+test("missing or failed same-model review blocks readiness",()=>{
   const draft="A sufficiently detailed draft. Self-check: limitations and assumptions are stated. Source: https://example.com";
-  assert.ok(qualityCheckDraft({title:"Task"},draft).blockers.includes("independent_review_not_passed"));
+  assert.ok(qualityCheckDraft({title:"Task"},draft).blockers.includes("same_model_review_not_passed"));
   assert.ok(qualityCheckDraft({title:"Task"},draft,{pass:false,issues:["Unsupported claim"],failedCriteria:[],criteria:[]}).blockers.includes("independent_review_not_passed"));
 });
 
