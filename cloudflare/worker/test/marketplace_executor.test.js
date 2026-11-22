@@ -50,7 +50,7 @@ test("private execution requires review and takes no external action",async()=>{
 });
 test("criterion failure blocks readiness after bounded revision",async()=>{
   const criterion="Include limitations";
-  const outputs=[goodDraft,JSON.stringify({pass:false,issues:["Add limitations"],reason:"Missing section",criteria:[{criterion,passed:false,evidence:"Documentation draft"}]}),goodDraft,JSON.stringify({pass:false,issues:["Still missing limitations"],reason:"Revision did not fix the gap",criteria:[{criterion,passed:false,evidence:"Documentation draft"}]})];
+  const outputs=[goodDraft,JSON.stringify({pass:false,issues:["Add limitations"],reason:"Missing section",criteria:[{kind:"acceptance_criterion",criterion,passed:false,evidence:"Documentation draft"}]}),goodDraft,JSON.stringify({pass:false,issues:["Still missing limitations"],reason:"Revision did not fix the gap",criteria:[{criterion,passed:false,evidence:"Documentation draft"}]})];
   const result=await executePrivateDraft({AI:{run:async()=>({response:outputs.shift()})}},{id:"t",title:"Draft supplied documentation summary",description:"Summarize the provided documentation content",eligible:true,reward_usdc:"0.1",acceptance_criteria:[criterion]});
   assert.equal(result.submissionReady,false);
   assert.ok(result.qa.blockers.includes("independent_review_not_passed"));
