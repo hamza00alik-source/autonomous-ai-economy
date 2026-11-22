@@ -10,3 +10,4 @@ remote = true
 
 [vars]
 GEMINI_MODEL = "gemini-3.8-flash"
+INDEPENDENT_REVIEW_ENABLED = "false"
