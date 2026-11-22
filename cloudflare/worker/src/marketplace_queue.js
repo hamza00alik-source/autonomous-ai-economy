@@ -1,4 +1,5 @@
 import { assessTask, executePrivateDraft } from "./marketplace_executor.js";
+import { discoverBasedAgentsTasks } from "./basedagents_feed.js";
 
 function parseJson(value) {
   if (!value) return null;
@@ -75,6 +76,55 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
     }
   }
   return { examined: candidates.length, queued, blocked };
+}
+
+
+/** Read-only BasedAgents discovery into the existing private execution queue. */
+export async function enqueueBasedAgentsTasks(env, discover = discoverBasedAgentsTasks, limitPerSource = 25) {
+  let discovery;
+  try {
+    discovery = await discover();
+  } catch (error) {
+    return { source: "based_agents", examined: 0, queued: 0, blocked: 0, error: String(error?.message || "discovery failed").slice(0, 300) };
+  }
+  const limit = Math.min(50, Math.max(1, Number(limitPerSource) || 25));
+  const candidates = (discovery.ranked || []).slice(0, limit).map(item => ({
+    source: "based_agents",
+    task: {
+      task_id: item.task_id,
+      title: item.title,
+      description: [item.description, item.expected_output ? "Expected output: " + item.expected_output : "", item.required_capabilities?.length ? "Required capabilities: " + item.required_capabilities.join(", ") : ""].filter(Boolean).join("\\n\\n"),
+      eligible: item.eligible === true,
+      simulated: false,
+      reward: item.reward_usdc,
+      reward_usdc: item.reward_usdc,
+      stake_required: false,
+      token: item.token,
+      network: item.network,
+      expected_output: item.expected_output,
+      output_format: item.output_format,
+      expires_at: item.expires_at,
+      snapshot: item.snapshot,
+    },
+  }));
+  let queued = 0;
+  let blocked = 0;
+  const now = new Date().toISOString();
+  for (const item of candidates) {
+    const assessment = assessTask(item.task, item.source);
+    const status = assessment.eligible ? "queued" : "blocked";
+    const result = await env.DB.prepare(
+      "INSERT OR IGNORE INTO aae_execution_jobs (job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ).bind(crypto.randomUUID(), item.source, assessment.taskId, assessment.title || "Untitled task",
+      JSON.stringify(item.task), item.task.reward == null ? null : String(item.task.reward),
+      JSON.stringify({ eligible: assessment.eligible, reasons: assessment.reasons, discovery_score: item.task.snapshot?.score ?? null }),
+      status, now, now).run();
+    if (result.meta?.changes === 1) {
+      if (assessment.eligible) queued++;
+      else blocked++;
+    }
+  }
+  return { source: "based_agents", examined: candidates.length, queued, blocked, error: null };
 }
 
 export async function processOneMarketplaceDraft(env) {
