@@ -52,7 +52,10 @@ export async function verifyResearchSources(env, task, draft) {
   const brief = [task?.title, task?.description].filter(value => typeof value === "string").join("\n");
   if (!RESEARCH_PATTERN.test(brief)) return { status: "not_required", verified: false, results: [], blockers: [] };
 
-  let urls;\n  try { urls = validateUrlList(extractUrls(draft)); } catch (error) {\n    return { status: 'failed', verified: false, results: [], blockers: ['invalid_source_urls'], error: String(error.message).slice(0, 160) };\n  }
+  let urls;
+  try { urls = validateUrlList(extractUrls(draft)); } catch (error) {
+    return { status: 'failed', verified: false, results: [], blockers: ['invalid_source_urls'], error: String(error.message).slice(0, 160) };
+  }
   if (!urls.length) return { status: "failed", verified: false, results: [], blockers: ["research_sources_missing"] };
   if (urls.length > MAX_URLS) return { status: "failed", verified: false, results: [], blockers: ["too_many_research_sources"] };
   if (!env?.SOURCE_VERIFIER || typeof env.SOURCE_VERIFIER.fetch !== "function") {
