@@ -34,7 +34,7 @@ function api(liveOverrides = {}, submissions = []) {
   const calls = [];
   const fetchImpl = async (url, init = {}) => {
     calls.push({ url: String(url), init });
-    if (String(url).endsWith("/submissions") && (init.method || "GET") === "GET") {
+    if (new URL(String(url)).pathname.endsWith("/submissions") && (init.method || "GET") === "GET") {
       return new Response(JSON.stringify(submissions), { status: 200 });
     }
     return new Response(JSON.stringify({
@@ -52,7 +52,7 @@ test("submits a QA-passed bounty automatically through the isolated signer", asy
   const network = api();
   network.fetchImpl = async (url, init = {}) => {
     network.calls.push({ url: String(url), init });
-    if (String(url).endsWith("/submissions") && (init.method || "GET") === "GET") {
+    if (new URL(String(url)).pathname.endsWith("/submissions") && (init.method || "GET") === "GET") {
       return new Response("[]", { status: 200 });
     }
     if (init.method === "POST") return new Response(JSON.stringify({ success: true, submissionId: "sub-1" }), { status: 200 });
@@ -115,7 +115,7 @@ test("does not submit duplicate worker work", async () => {
   const network = api();
   network.fetchImpl = async (url, init = {}) => {
     network.calls.push({ url: String(url), init });
-    if (String(url).endsWith("/submissions")) return new Response(JSON.stringify([{ workerAddress: address }]), { status: 200 });
+    if (new URL(String(url)).pathname.endsWith("/submissions")) return new Response(JSON.stringify([{ workerAddress: address }]), { status: 200 });
     if (init.method === "POST") throw new Error("must not reach submission");
     return new Response(JSON.stringify({
       id: taskId, chainId: 8453, mode: "bounty", status: "open",
@@ -133,7 +133,7 @@ test("does not auto-retry an ambiguous marketplace write", async () => {
   let writes = 0;
   const network = api();
   network.fetchImpl = async (url, init = {}) => {
-    if (String(url).endsWith("/submissions") && (init.method || "GET") === "GET") return new Response("[]", { status: 200 });
+    if (new URL(String(url)).pathname.endsWith("/submissions") && (init.method || "GET") === "GET") return new Response("[]", { status: 200 });
     if (init.method === "POST") { writes++; throw new Error("network lost after write"); }
     return new Response(JSON.stringify({
       id: taskId, chainId: 8453, mode: "bounty", status: "open",
