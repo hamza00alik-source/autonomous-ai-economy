@@ -74,15 +74,15 @@ async function readBoundedBody(response, limit) {
 
 function validEvidence(item, draft, requestedUrl) {
   if (!item || typeof item !== "object" || item.requestedUrl !== requestedUrl ||
-      item.httpStatus !== 200 || item.supportsClaims !== true ||
+      item.httpStatus !== 200 || item.supportsClaims !== false || item.excerptMatched !== true || item.verificationStatus !== "retrieved_unverified" ||
       typeof item.title !== "string" || !item.title.trim() || item.title.length > 300 ||
-      typeof item.finalUrl !== "string" || !canonicalUrl(item.finalUrl) ||
+      typeof item.finalUrl !== "string" || item.finalUrl !== requestedUrl || !canonicalUrl(item.finalUrl) ||
       (() => { const finalUrl = new URL(item.finalUrl); return finalUrl.protocol !== "https:" || Boolean(finalUrl.port) || !isPublicHostname(finalUrl.hostname); })() ||
       typeof item.contentSha256 !== "string" || !/^[a-f0-9]{64}$/i.test(item.contentSha256) ||
       typeof item.fetchedAt !== "string" || !Number.isFinite(Date.parse(item.fetchedAt)) ||
       typeof item.sourceExcerpt !== "string" || item.sourceExcerpt.trim().length < 30 || item.sourceExcerpt.length > 800 ||
       typeof item.draftExcerpt !== "string" || item.draftExcerpt.trim().length < 15 || item.draftExcerpt.length > 800) return false;
-  return draft.includes(item.draftExcerpt);
+  return item.sourceExcerpt === item.draftExcerpt && draft.includes(item.draftExcerpt);
 }
 
 /**
@@ -100,14 +100,14 @@ export async function verifyResearchSources(env, task, draft) {
   }
   if (!urls.length) return { status: "failed", verified: false, results: [], blockers: ["research_sources_missing"] };
   if (urls.length > MAX_URLS) return { status: "failed", verified: false, results: [], blockers: ["too_many_research_sources"] };
-  if (!env?.SOURCE_VERIFIER || typeof env.SOURCE_VERIFIER.fetch !== "function") {
+  if (!env?.SOURCE_VERIFIER || typeof env.SOURCE_VERIFIER.fetch !== "function" || !env.SOURCE_VERIFIER_TOKEN) {
     return { status: "unavailable", verified: false, results: [], blockers: ["source_verifier_unavailable"] };
   }
 
   try {
     const response = await env.SOURCE_VERIFIER.fetch("https://source-verifier.internal/v1/verify", {
       method: "POST",
-      headers: { "content-type": "application/json", "accept": "application/json" },
+      headers: { "content-type": "application/json", "accept": "application/json", "x-aae-source-verifier-token": env.SOURCE_VERIFIER_TOKEN },
       body: JSON.stringify({
         protocolVersion: 1,
         urls,
@@ -122,7 +122,7 @@ export async function verifyResearchSources(env, task, draft) {
     if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("verifier response too large");
     const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES);
     const payload = JSON.parse(raw);
-    if (payload?.protocolVersion !== 1 || payload?.status !== "verified" ||
+    if (payload?.protocolVersion !== 1 || payload?.status !== "retrieved_unverified" || payload?.retrievalVerified !== true ||
         !Array.isArray(payload.results) || payload.results.length !== urls.length) {
       throw new Error("verifier response schema mismatch");
     }
@@ -130,11 +130,12 @@ export async function verifyResearchSources(env, task, draft) {
     const results = urls.map(url => byUrl.get(url));
     if (results.some(item => !validEvidence(item, draft, item?.requestedUrl)) ||
         urls.some(url => !byUrl.has(url))) throw new Error("verifier evidence failed validation");
-    return { status: "verified", verified: true, results, blockers: [] };
+    return { status: "retrieved_unverified", verified: false, retrievalVerified: true, results, blockers: [] };
   } catch (error) {
     return {
       status: "failed",
       verified: false,
+      retrievalVerified: false,
       results: [],
       blockers: ["source_verification_failed"],
       error: String(error?.message || "source verification failed").slice(0, 240),
