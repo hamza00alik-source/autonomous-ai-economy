@@ -202,3 +202,44 @@ export async function processOneMarketplaceDraft(env) {
     return { processed: true, status: "failed", job_id: row.job_id };
   }
 }
+
+
+/** Retry submission of already-QA-passed Taskmarket drafts after signer setup. */
+export async function submitOneMarketplaceDraft(env) {
+  if (env?.TASKMARKET_SUBMISSION_ENABLED !== "true") return { processed: false, reason: "submission_disabled" };
+  const row = await env.DB.prepare(
+    "SELECT job_id,task_snapshot_json,result_text,eligibility_json FROM aae_execution_jobs WHERE status='draft_ready' AND source='taskmarket' AND eligibility_json LIKE '%\\\"submissionReady\\\":true%' ORDER BY updated_at ASC LIMIT 1"
+  ).first();
+  if (!row) return { processed: false };
+  const reserved = await env.DB.prepare(
+    "UPDATE aae_execution_jobs SET status='running',updated_at=? WHERE job_id=? AND status='draft_ready'"
+  ).bind(new Date().toISOString(), row.job_id).run();
+  if (reserved.meta?.changes !== 1) return { processed: false, raced: true };
+  let task;
+  let metadata;
+  try {
+    task = JSON.parse(row.task_snapshot_json);
+    metadata = JSON.parse(row.eligibility_json || "{}");
+    if (metadata.submissionReady !== true || typeof row.result_text !== "string" || !row.result_text.trim()) {
+      throw new Error("stored QA evidence or deliverable missing");
+    }
+    const submission = await submitTaskmarketDeliverable(env, task, row.result_text);
+    const retryable = submission.status === "not_configured" ||
+      ["secure_wallet_signer_unavailable", "wallet_signer_health_failed", "wallet_signing_failed"].includes(submission.reason);
+    const status = submission.status === "submitted" ? "submitted" :
+      retryable ? "draft_ready" : "blocked";
+    metadata.submission = submission;
+    await env.DB.prepare(
+      "UPDATE aae_execution_jobs SET status=?,eligibility_json=?,error=?,updated_at=? WHERE job_id=? AND status='running'"
+    ).bind(status, JSON.stringify(metadata), status === "submitted" ? null : submission.reason || "submission_not_completed",
+      new Date().toISOString(), row.job_id).run();
+    return { processed: true, status, job_id: row.job_id, submission,
+      externalActionsTaken: submission.externalActionsTaken === true };
+  } catch (error) {
+    await env.DB.prepare(
+      "UPDATE aae_execution_jobs SET status='blocked',error=?,updated_at=? WHERE job_id=? AND status='running'"
+    ).bind(String(error?.message || "submission processing failed").slice(0, 300),
+      new Date().toISOString(), row.job_id).run();
+    return { processed: true, status: "blocked", job_id: row.job_id };
+  }
+}
