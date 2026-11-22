@@ -1,6 +1,13 @@
 name: Deploy private Cloudflare AI worker
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/worker/**"
+      - "src/**"
+      - "pyproject.toml"
+      - ".github/workflows/deploy-cloudflare-worker.yml"
   workflow_dispatch:
 
 permissions:
@@ -33,6 +40,7 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_D1_DATABASE_ID"
           test -n "$AAE_QUEUE_TOKEN"
+          test "${#AAE_QUEUE_TOKEN}" -ge 32
           # This private-runtime deployment must never enable customer checkout.
           echo "$CLOUDFLARE_D1_DATABASE_ID" | grep -Eq '^[0-9a-fA-F-]{36}$'
           sed -i "s/REPLACE_WITH_D1_DATABASE_ID/$CLOUDFLARE_D1_DATABASE_ID/" wrangler.toml
