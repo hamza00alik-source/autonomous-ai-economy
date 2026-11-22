@@ -63,8 +63,32 @@ export async function executePrivateDraft(env, task, source = "unknown") {
   const assessment = assessTask(task, source);
   if (!assessment.eligible) return { status: "blocked", assessment, externalActionsTaken: false };
   const researchTask = /\b(research|investigate|fact[- ]check|market analysis|compare|comparison|cite|citations|sources)\b/i.test(assessment.title + "\n" + assessment.description);
+  if (env?.INDEPENDENT_REVIEW_ENABLED !== "true" || !env?.INDEPENDENT_REVIEWER ||
+      typeof env.INDEPENDENT_REVIEWER.fetch !== "function" || !env.INDEPENDENT_REVIEW_TOKEN) {
+    return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "independent_provider_unavailable"] }, externalActionsTaken: false };
+  }
+  try {
+    const reviewerHealth = await env.INDEPENDENT_REVIEWER.fetch("https://independent-reviewer.internal/healthz", {
+      method: "GET", headers: { "x-aae-independent-review-token": env.INDEPENDENT_REVIEW_TOKEN },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!reviewerHealth.ok) throw new Error("independent reviewer health check failed");
+  } catch {
+    return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "independent_provider_unavailable"] }, externalActionsTaken: false };
+  }
   if (researchTask && (!env?.SOURCE_VERIFIER || typeof env.SOURCE_VERIFIER.fetch !== "function" || !env.SOURCE_VERIFIER_TOKEN)) {
     return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "source_verifier_unavailable"] }, externalActionsTaken: false };
+  }
+  if (researchTask) {
+    try {
+      const sourceHealth = await env.SOURCE_VERIFIER.fetch("https://source-verifier.internal/healthz", {
+        method: "GET", headers: { "x-aae-source-verifier-token": env.SOURCE_VERIFIER_TOKEN },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!sourceHealth.ok) throw new Error("source verifier health check failed");
+    } catch {
+      return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "source_verifier_unavailable"] }, externalActionsTaken: false };
+    }
   }
   const team = await executeAgentTeam(env, {
     title: assessment.title, description: assessment.description,
