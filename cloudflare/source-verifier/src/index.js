@@ -79,13 +79,12 @@ function titleFrom(content) {
     .replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 300) || "Untitled source";
 }
 function exactExcerpt(sourceText, draft) {
-  const sentences = sourceText.split(/(?<=[.!?])\s+/);
-  for (const sentence of sentences) {
+  for (const sentence of sourceText.split(/(?<=[.!?])\\s+/)) {
     const candidate = sentence.trim();
     if (candidate.length >= 30 && candidate.length <= 800 && draft.includes(candidate)) return candidate;
   }
-  const words = sourceText.split(/\s+/);
-  for (let width = Math.min(100, words.length); width >= 6; width--) {
+  const words = sourceText.split(/\\s+/);
+  for (const width of [12, 8, 6]) {
     for (let start = 0; start + width <= words.length; start++) {
       const candidate = words.slice(start, start + width).join(" ");
       if (candidate.length >= 30 && candidate.length <= 800 && draft.includes(candidate)) return candidate;
