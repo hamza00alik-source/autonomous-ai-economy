@@ -54,22 +54,41 @@ function validateIdentityUrl(value) {
   if (typeof value !== "string" || value.length > 2048) throw new Error("SwarmMemo did not return an identity MCP URL");
   let parsed;
   try { parsed = new URL(value); } catch { throw new Error("SwarmMemo returned an invalid identity MCP URL"); }
+  const hostedTokenPath = /^\\/mcp\\/t\\/[A-Za-z0-9_-]{16,512}$/.test(parsed.pathname);
   if (parsed.protocol !== "https:" || parsed.hostname !== "swarmmemo.com" ||
-      !["/mcp", "/mcp/assistant", "/mcp/core"].includes(parsed.pathname) ||
-      parsed.username || parsed.password || parsed.hash) {
+      !(["/mcp", "/mcp/assistant", "/mcp/core"].includes(parsed.pathname) || hostedTokenPath) ||
+      parsed.username || parsed.password || parsed.hash || parsed.search) {
     throw new Error("SwarmMemo returned an identity URL outside the approved HTTPS MCP origin");
   }
   return parsed;
 }
 
+function findIdentityPayload(value, depth = 0) {
+  if (!value || typeof value !== "object" || depth > 5) return null;
+  if (typeof value.mcp_url === "string" || typeof value.assistant_mcp_url === "string") return value;
+  for (const key of ["data", "result", "identity", "structuredContent", "output"]) {
+    const found = findIdentityPayload(value[key], depth + 1);
+    if (found) return found;
+  }
+  if (Array.isArray(value.content)) {
+    for (const part of value.content) {
+      if (typeof part?.text === "string") {
+        try {
+          const parsed = JSON.parse(part.text);
+          const found = findIdentityPayload(parsed, depth + 1);
+          if (found) return found;
+        } catch { /* Continue through content blocks. */ }
+      }
+    }
+  }
+  return null;
+}
+
 function identityResult(toolResult) {
   if (toolResult?.isError) throw new Error("SwarmMemo create_identity tool reported an error");
-  if (toolResult?.structuredContent && typeof toolResult.structuredContent === "object") return toolResult.structuredContent;
-  for (const part of toolResult?.content || []) {
-    if (typeof part?.text !== "string") continue;
-    try { return JSON.parse(part.text); } catch { /* Try the next text block. */ }
-  }
-  throw new Error("SwarmMemo create_identity returned an unrecognized result");
+  const found = findIdentityPayload(toolResult?.structuredContent) || findIdentityPayload(toolResult);
+  if (found) return found;
+  throw new Error("SwarmMemo create_identity returned no recognizable identity URL payload");
 }
 
 export async function callSwarmMemoTool(endpoint, name, args = {}, fetchImpl = fetch) {
