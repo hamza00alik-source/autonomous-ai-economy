@@ -21,6 +21,8 @@ async function jsonResponse(response, label, limit = 100000) {
 async function apiJson(path, init = {}, fetchImpl = fetch) {
   const url = new URL(path, API);
   if (url.origin !== API) throw new Error("taskmarket_host_rejected");
+  // Taskmarket serves multiple chains from one API host; name Base explicitly.
+  url.searchParams.set("chainId", "8453");
   const response = await fetchImpl(url.toString(), {
     ...init,
     redirect: "manual",
@@ -90,7 +92,7 @@ export async function submitTaskmarketDeliverable(env, task, deliverable, fetchI
   }
   const liveExpiry = Date.parse(live?.expiryTime || "");
   if (!live || String(live.id || "").toLowerCase() !== taskId ||
-      Number(live.chainId) !== 8453 || live.mode !== "bounty" || live.status !== "open" ||
+      (live.chainId !== undefined && Number(live.chainId) !== 8453) || live.mode !== "bounty" || live.status !== "open" ||
       !Number.isFinite(liveExpiry) || liveExpiry <= Date.now() ||
       live.stakeRequired === true || Number(live.stakeBps || 0) !== 0 ||
       String(live.reward || "") !== String(task.reward_base_units) ||
