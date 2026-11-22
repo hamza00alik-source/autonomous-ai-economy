@@ -60,7 +60,7 @@ export function assessTask(task, source = "unknown") {
 export async function executePrivateDraft(env, task, source = "unknown") {
   const assessment = assessTask(task, source);
   if (!assessment.eligible) return { status: "blocked", assessment, externalActionsTaken: false };
-  const researchTask = /\\b(research|investigate|fact[- ]check|market analysis|compare|comparison|cite|citations|sources)\\b/i.test(assessment.title + "\\n" + assessment.description);
+  const researchTask = /\b(research|investigate|fact[- ]check|market analysis|compare|comparison|cite|citations|sources)\b/i.test(assessment.title + "\n" + assessment.description);
   if (researchTask && (!env?.SOURCE_VERIFIER || typeof env.SOURCE_VERIFIER.fetch !== "function")) {
     return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "source_verifier_unavailable"] }, externalActionsTaken: false };
   }
