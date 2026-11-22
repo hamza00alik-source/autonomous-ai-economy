@@ -245,18 +245,23 @@ export async function ensureHostedSwarmMemoIdentity(env, fetchImpl = fetch) {
     return { ready: false, state: "missing_or_weak_encryption_secret" };
   }
   const current = await env.DB.prepare(
-    "SELECT state,fingerprint,handle,credentials_ciphertext,credentials_salt,credentials_iv FROM swarmmemo_identity_state WHERE id=1"
+    "SELECT state,fingerprint,handle,credentials_ciphertext,credentials_salt,credentials_iv,last_error FROM swarmmemo_identity_state WHERE id=1"
   ).first();
   if (current?.state === "created") {
     if (!current.credentials_ciphertext) return { ready: false, state: "created_without_encrypted_credentials" };
     const credentials = await decryptIdentityCredentials(env.AAE_IDENTITY_ENCRYPTION_KEY, current);
     return { ready: true, state: "created", fingerprint: current.fingerprint, handle: current.handle, mcp_url: credentials.mcp_url };
   }
-  if (current && current.state !== "failed") return { ready: false, state: current.state || "unknown" };
-  const reserved = current?.state === "failed"
+  const recoverableLostResponse = current?.state === "uncertain" &&
+    current.last_error === "SwarmMemo did not return an identity MCP URL" &&
+    !current.fingerprint && !current.credentials_ciphertext;
+  if (current && current.state !== "failed" && !recoverableLostResponse) {
+    return { ready: false, state: current.state || "unknown" };
+  }
+  const reserved = current?.state === "failed" || recoverableLostResponse
     ? await env.DB.prepare(
-        "UPDATE swarmmemo_identity_state SET state='creating',last_error=NULL,updated_at=? WHERE id=1 AND state='failed' AND fingerprint IS NULL AND credentials_ciphertext IS NULL"
-      ).bind(now).run()
+        "UPDATE swarmmemo_identity_state SET state='creating',last_error=NULL,updated_at=? WHERE id=1 AND state=? AND fingerprint IS NULL AND credentials_ciphertext IS NULL"
+      ).bind(now, current.state).run()
     : await env.DB.prepare(
         "INSERT OR IGNORE INTO swarmmemo_identity_state (id,state,updated_at) VALUES (1,'creating',?)"
       ).bind(now).run();
