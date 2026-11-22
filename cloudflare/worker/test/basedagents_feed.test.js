@@ -30,7 +30,7 @@ test("normalizes funded Base USDC tasks into eligible read-only discovery candid
 test("rejects unpaid, wrong-network, claimed, social, and expired tasks", () => {
   const cases = [
     [{ ...base, bounty: null }, "missing_or_below_minimum_bounty_0_10_usdc"],
-    [{ ...base, claimable: false }, "bounty_not_verified_claimable"],
+    [{ ...base, claimable: false }, "bounty_not_verified_claimable"],\n    [{ ...base, escrow: null }, "bounty_not_escrow_funded"],\n    [{ ...base, escrow: { status: "funding", deposit_tx_hash: "0x" + "a".repeat(64) } }, "bounty_not_escrow_funded"],\n    [{ ...base, escrow: { status: "funded", deposit_tx_hash: null } }, "bounty_not_escrow_funded"],\n    [{ ...base, payment_status: "failed" }, "bounty_not_escrow_funded"],
     [{ ...base, bounty: { amount_atomic: "1000000", amount_display: "1", token: "USDC", network: "eip155:137" } }, "not_base_mainnet"],
     [{ ...base, claimed_by_agent_id: "ag_someone" }, "already_claimed"],
     [{ ...base, title: "Post a thread on X" }, "social_or_engagement_task"],
