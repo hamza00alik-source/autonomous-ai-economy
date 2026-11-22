@@ -84,6 +84,7 @@ function normalizeTaskmarket(row) {
     board_state: row.board_state,
     reward_base_units: row.reward_base_units,
     net_reward_base_units: row.net_reward_base_units,
+    platform_fee_bps: Number(row.platform_fee_bps || 0),
     escrow_tx_hash: row.escrow_tx_hash,
     escrow_verified: Number(row.escrow_verified || 0),
     submission_count: Number(row.submission_count || 0),
@@ -100,7 +101,7 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
   const limit = Math.min(50, Math.max(1, Number(limitPerSource) || 25));
   const [swarm, taskmarket] = await Promise.all([
     env.DB.prepare("SELECT task_id,title,task_text,reward_json,simulated,eligible FROM swarmmemo_work_items WHERE board_state='open' AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='swarmmemo' AND j.external_task_id=swarmmemo_work_items.task_id) ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
-    env.DB.prepare("SELECT task_id,title,description,chain_id,mode,board_state,reward_base_units,net_reward_base_units,net_reward_usdc,escrow_tx_hash,escrow_verified,submission_count,stake_required,stake_bps,expiry_time,requester,submission_window_open,eligible FROM taskmarket_work_items WHERE board_state='open' AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='taskmarket' AND j.external_task_id=taskmarket_work_items.task_id) ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
+    env.DB.prepare("SELECT task_id,title,description,chain_id,mode,board_state,reward_base_units,net_reward_base_units,net_reward_usdc,platform_fee_bps,escrow_tx_hash,escrow_verified,submission_count,stake_required,stake_bps,expiry_time,requester,submission_window_open,eligible FROM taskmarket_work_items WHERE board_state='open' AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='taskmarket' AND j.external_task_id=taskmarket_work_items.task_id) ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
   ]);
   const candidates = [
     ...(swarm.results || []).map(row => ({ source: "swarmmemo", task: normalizeSwarmMemo(row) })),
