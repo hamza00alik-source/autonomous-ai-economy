@@ -110,19 +110,23 @@ export async function enqueueBasedAgentsTasks(env, discover = discoverBasedAgent
   let queued = 0;
   let blocked = 0;
   const now = new Date().toISOString();
-  for (const item of candidates) {
-    const assessment = assessTask(item.task, item.source);
-    const status = assessment.eligible ? "queued" : "blocked";
-    const result = await env.DB.prepare(
-      "INSERT OR IGNORE INTO aae_execution_jobs (job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
-    ).bind(crypto.randomUUID(), item.source, assessment.taskId, assessment.title || "Untitled task",
-      JSON.stringify(item.task), item.task.reward == null ? null : String(item.task.reward),
-      JSON.stringify({ eligible: assessment.eligible, reasons: assessment.reasons, discovery_score: item.task.snapshot?.score ?? null }),
-      status, now, now).run();
-    if (result.meta?.changes === 1) {
-      if (assessment.eligible) queued++;
-      else blocked++;
+  try {
+    for (const item of candidates) {
+      const assessment = assessTask(item.task, item.source);
+      const status = assessment.eligible ? "queued" : "blocked";
+      const result = await env.DB.prepare(
+        "INSERT OR IGNORE INTO aae_execution_jobs (job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+      ).bind(crypto.randomUUID(), item.source, assessment.taskId, assessment.title || "Untitled task",
+        JSON.stringify(item.task), item.task.reward == null ? null : String(item.task.reward),
+        JSON.stringify({ eligible: assessment.eligible, reasons: assessment.reasons, discovery_score: item.task.snapshot?.score ?? null }),
+        status, now, now).run();
+      if (result.meta?.changes === 1) {
+        if (assessment.eligible) queued++;
+        else blocked++;
+      }
     }
+  } catch (error) {
+    return { source: "based_agents", examined: candidates.length, queued, blocked, error: String(error?.message || "queue insertion failed").slice(0, 300) };
   }
   return { source: "based_agents", examined: candidates.length, queued, blocked, error: null };
 }
