@@ -10,7 +10,7 @@ function response(payload, status=200) {
 }
 function validPayload() {
   return {protocolVersion:1,status:"retrieved_unverified",retrievalVerified:true,results:[{
-    requestedUrl:url,httpStatus:200,title:"Reference",finalUrl:url,supportsClaims:false,excerptMatched:true,verificationStatus:"retrieved_unverified",
+    requestedUrl:url,httpStatus:200,title:"Reference",finalUrl:url,contentType:"text/html",supportsClaims:false,excerptMatched:true,verificationStatus:"retrieved_unverified",
     contentSha256:"a".repeat(64),fetchedAt:"2026-11-22T10:00:00.000Z",
     sourceExcerpt:"This source describes the product and its documented capabilities in detail.",
     draftExcerpt:"This source describes the product and its documented capabilities in detail.",
