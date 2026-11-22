@@ -17,7 +17,7 @@ function fakeEnv(outputs) {
 const criterion = "Include a limitations section";
 const passingReview = JSON.stringify({
   pass: true, issues: [], reason: "The deliverable meets the task.",
-  criteria: [{ criterion, passed: true, evidence: "A clearly labelled limitations section is present." }],
+  criteria: [{ criterion, passed: true, evidence: "Limitations: only supplied facts are covered." }],
 });
 
 test("specialist receives buyer criteria and independent reviewer verifies each one", async () => {
@@ -41,7 +41,7 @@ test("specialist receives buyer criteria and independent reviewer verifies each 
 test("reviewer rejection triggers one revision and a second independent review", async () => {
   const env = fakeEnv([
     "Initial draft missing limitations.",
-    JSON.stringify({ pass: false, issues: ["Add a limitations section."], reason: "Required section missing.", criteria: [{ criterion, passed: false, evidence: "No limitations section found." }] }),
+    JSON.stringify({ pass: false, issues: ["Add a limitations section."], reason: "Required section missing.", criteria: [{ criterion, passed: false, evidence: "Initial draft missing limitations." }] }),
     "Revised draft. Limitations: only supplied facts are covered.",
     passingReview,
   ]);
