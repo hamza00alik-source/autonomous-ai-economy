@@ -5,6 +5,40 @@ function parseJson(value) {
   try { return JSON.parse(value); } catch { return null; }
 }
 
+function extractTaskSections(description) {
+  const result = { acceptanceCriteria: [], requiredDeliverables: [], constraints: [], outputFormat: "" };
+  if (typeof description !== "string") return result;
+  const lines = description.split(/\r?\n/).slice(0, 300);
+  const sectionMap = new Map([
+    ["acceptance criteria", "acceptanceCriteria"],
+    ["success criteria", "acceptanceCriteria"],
+    ["required deliverables", "requiredDeliverables"],
+    ["deliverables", "requiredDeliverables"],
+    ["constraints", "constraints"],
+  ]);
+  let active = null;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    const heading = line.match(/^#{0,6}\s*(acceptance criteria|success criteria|required deliverables|deliverables|constraints)\s*:?\s*(.*)$/i);
+    if (heading) {
+      active = sectionMap.get(heading[1].toLowerCase()) || null;
+      const inline = heading[2].replace(/^[-*•]\s*/, "").trim();
+      if (active && inline) result[active].push(inline.slice(0, 500));
+      continue;
+    }
+    if (/^#{1,6}\s+/.test(line)) { active = null; continue; }
+    if (!line) { active = null; continue; }
+    if (!active) continue;
+    const item = line.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/);
+    if (!item) { active = null; continue; }
+    result[active].push(item[1].trim().slice(0, 500));
+  }
+  for (const key of ["acceptanceCriteria", "requiredDeliverables", "constraints"]) {
+    result[key] = [...new Set(result[key])].slice(0, 20);
+  }
+  return result;
+}
+
 function normalizeSwarmMemo(row) {
   const reward = parseJson(row.reward_json);
   const standing = reward?.standing && typeof reward.standing === "object" ? reward.standing : null;
@@ -25,6 +59,7 @@ function normalizeSwarmMemo(row) {
     task_id: row.task_id,
     title: row.title,
     description: row.task_text,
+    ...extractTaskSections(row.task_text),
     eligible: row.eligible === 1 && (directValue != null || !!payableTier),
     simulated: row.simulated === 1,
     reward: rewardValue,
@@ -39,6 +74,7 @@ function normalizeTaskmarket(row) {
     task_id: row.task_id,
     title: row.title,
     description: row.description,
+    ...extractTaskSections(row.description),
     eligible: row.eligible === 1,
     simulated: false,
     reward: row.net_reward_usdc,
@@ -116,7 +152,11 @@ export async function processOneMarketplaceDraft(env) {
     const qaError = draft.submissionReady === true ? null : "Independent QA or deterministic quality gate did not pass";
     await env.DB.prepare(
       "UPDATE aae_execution_jobs SET status=?,result_text=?,eligibility_json=?,error=?,updated_at=? WHERE job_id=? AND status='running'"
-    ).bind(finalStatus, draft.deliverable, JSON.stringify({ eligible: true, reasons: [], qa: draft.qa, agentTeam: draft.agentTeam, revised: draft.revised, submissionReady: draft.submissionReady === true }), qaError, new Date().toISOString(), row.job_id).run();
+    ).bind(finalStatus, draft.deliverable, JSON.stringify({
+      eligible: true, reasons: [], qa: draft.qa, agentTeam: draft.agentTeam,
+      revised: draft.revised, reviewRounds: draft.reviewRounds,
+      deliverableSha256: draft.deliverableSha256, submissionReady: draft.submissionReady === true,
+    }), qaError, new Date().toISOString(), row.job_id).run();
     return { processed: true, status: finalStatus, job_id: row.job_id, externalActionsTaken: false };
   } catch (error) {
     await env.DB.prepare(
