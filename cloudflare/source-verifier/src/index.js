@@ -134,16 +134,19 @@ async function verifyOne(url, draft, env) {
 }
 export default {
   async fetch(request, env) {
-    if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
-    if (new URL(request.url).pathname !== "/v1/verify") return json({ error: "not found" }, 404);
+    const pathname = new URL(request.url).pathname;
+    if (pathname !== "/healthz" && pathname !== "/v1/verify") return json({ error: "not found" }, 404);
     if (!equalSecret(request.headers.get("x-aae-source-verifier-token"), env.INTERNAL_SERVICE_TOKEN)) {
       return json({ error: "unauthorized" }, 401);
     }
-    if (!env.EGRESS || typeof env.EGRESS.fetch !== "function" ||
-        env.EGRESS_POLICY_ATTESTATION !== POLICY_ATTESTATION ||
-        !env.INTERNAL_SERVICE_TOKEN || !env.ALLOWED_SOURCE_HOSTS) {
-      return json({ error: "source verifier egress is not configured; refusing outbound access" }, 503);
-    }
+    const configured = !!env.EGRESS && typeof env.EGRESS.fetch === "function" &&
+      env.EGRESS_POLICY_ATTESTATION === POLICY_ATTESTATION &&
+      !!env.INTERNAL_SERVICE_TOKEN && !!allowedHosts(env).size;
+    if (pathname === "/healthz") return configured
+      ? json({ ok: true, mode: "vpc_gateway_egress_configured" })
+      : json({ ok: false, error: "source verifier egress is not configured" }, 503);
+    if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+    if (!configured) return json({ error: "source verifier egress is not configured; refusing outbound access" }, 503);
     const declaredLength = Number(request.headers.get("content-length") || 0);
     if (declaredLength > MAX_REQUEST_BYTES) return json({ error: "request too large" }, 413);
     let raw;
