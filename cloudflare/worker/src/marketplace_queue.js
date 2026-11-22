@@ -78,8 +78,14 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
 }
 
 export async function processOneMarketplaceDraft(env) {
+  // Recover interrupted work after 20 minutes. The compare-and-set below prevents
+  // concurrent scheduled invocations from taking the same job.
+  const staleBefore = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+  await env.DB.prepare(
+    "UPDATE aae_execution_jobs SET status='queued',error='Recovered expired execution lease; retrying',updated_at=? WHERE status='running' AND updated_at<?"
+  ).bind(new Date().toISOString(), staleBefore).run();
   const row = await env.DB.prepare(
-    "SELECT job_id,source,external_task_id,task_snapshot_json FROM aae_execution_jobs WHERE status='queued' ORDER BY created_at ASC LIMIT 1"
+    "SELECT job_id,source,external_task_id,task_snapshot_json FROM aae_execution_jobs WHERE status='queued' ORDER BY CAST(COALESCE(reward_text,'0') AS REAL) DESC,created_at ASC LIMIT 1"
   ).first();
   if (!row) return { processed: false };
   const now = new Date().toISOString();
