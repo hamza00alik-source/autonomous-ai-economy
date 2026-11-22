@@ -117,10 +117,10 @@ export async function verifyResearchSources(env, task, draft) {
       }),
       signal: AbortSignal.timeout(10000),
     });
+    if (!response.ok) throw new Error("verifier service returned " + response.status);
     const declaredLength = Number(response.headers.get("content-length") || 0);
     if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("verifier response too large");
     const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES);
-    if (!response.ok) throw new Error("verifier service returned " + response.status);
     const payload = JSON.parse(raw);
     if (payload?.protocolVersion !== 1 || payload?.status !== "verified" ||
         !Array.isArray(payload.results) || payload.results.length !== urls.length) {
