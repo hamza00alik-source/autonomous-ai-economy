@@ -1,8 +1,8 @@
 const MAX_URLS = 8;
 const MAX_DRAFT_CHARS = 12000;
 const MAX_RESPONSE_BYTES = 64000;
-const RESEARCH_PATTERN = /\\b(research|investigate|fact[- ]check|market analysis|compare|comparison|cite|citations|sources)\\b/i;
-const URL_PATTERN = /https?:\\/\\/[^\\s)\\]}>,\"']+/gi;
+const RESEARCH_PATTERN = /\b(research|investigate|fact[- ]check|market analysis|compare|comparison|cite|citations|sources)\b/i;
+const URL_PATTERN = /https?:\/\/[^\s)\]}>,\"']+/gi;
 
 function extractUrls(text) {
   return [...new Set([...String(text || "").matchAll(new RegExp(URL_PATTERN.source, "gi"))]
@@ -38,7 +38,7 @@ function validEvidence(item, draft, requestedUrl) {
  * protections. No user-controlled URL is fetched by this worker.
  */
 export async function verifyResearchSources(env, task, draft) {
-  const brief = [task?.title, task?.description].filter(value => typeof value === "string").join("\\n");
+  const brief = [task?.title, task?.description].filter(value => typeof value === "string").join("\n");
   if (!RESEARCH_PATTERN.test(brief)) return { status: "not_required", verified: false, results: [], blockers: [] };
 
   const urls = extractUrls(draft).map(canonicalUrl).filter(Boolean);
