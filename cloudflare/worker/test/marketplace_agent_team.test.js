@@ -17,7 +17,10 @@ function fakeEnv(outputs) {
 const criterion = "Include a limitations section";
 const passingReview = JSON.stringify({
   pass: true, issues: [], reason: "The deliverable meets the task.",
-  criteria: [{ criterion, passed: true, evidence: "Limitations: only supplied facts are covered." }],
+  criteria: [
+    { kind: "acceptance_criterion", criterion, passed: true, evidence: "Limitations: only supplied facts are covered." },
+    { kind: "required_deliverable", criterion: "Markdown guide", passed: true, evidence: "A complete guide." },
+  ],
 });
 
 test("specialist receives buyer criteria and independent reviewer verifies each one", async () => {
@@ -41,7 +44,7 @@ test("specialist receives buyer criteria and independent reviewer verifies each 
 test("reviewer rejection triggers one revision and a second independent review", async () => {
   const env = fakeEnv([
     "Initial draft missing limitations.",
-    JSON.stringify({ pass: false, issues: ["Add a limitations section."], reason: "Required section missing.", criteria: [{ criterion, passed: false, evidence: "Initial draft missing limitations." }] }),
+    JSON.stringify({ pass: false, issues: ["Add a limitations section."], reason: "Required section missing.", criteria: [{ kind: "acceptance_criterion", criterion, passed: false, evidence: "Initial draft missing limitations." }] }),
     "Revised draft. Limitations: only supplied facts are covered.",
     passingReview,
   ]);
@@ -89,7 +92,7 @@ test("reviewer evidence that is not copied from the draft is rejected", async ()
     "A complete guide. Limitations: only supplied facts are covered.",
     JSON.stringify({
       pass: true, issues: [], reason: "Looks good.",
-      criteria: [{ criterion, passed: true, evidence: "A limitations section is present." }],
+      criteria: [{ kind: "acceptance_criterion", criterion, passed: true, evidence: "A limitations section is present." }],
     }),
   ]);
   await assert.rejects(
@@ -98,5 +101,44 @@ test("reviewer evidence that is not copied from the draft is rejected", async ()
       acceptanceCriteria: [criterion],
     }, "test"),
     /evidence must be an exact excerpt/,
+  );
+});
+
+
+test("missing required-deliverable assessment fails closed", async () => {
+  const env = fakeEnv([
+    "A complete guide. Limitations: only supplied facts are covered.",
+    JSON.stringify({
+      pass: true, issues: [], reason: "Looks good.",
+      criteria: [{ kind: "acceptance_criterion", criterion, passed: true, evidence: "Limitations: only supplied facts are covered." }],
+    }),
+  ]);
+  await assert.rejects(
+    () => executeAgentTeam(env, {
+      title: "Write a guide", description: "Write a concise guide.",
+      acceptanceCriteria: [criterion], requiredDeliverables: ["Markdown guide"],
+    }, "test"),
+    /did not assess every required item exactly/,
+  );
+});
+
+test("missing constraint or output-format assessment fails closed", async () => {
+  const env = fakeEnv([
+    "A complete guide. Limitations: only supplied facts are covered.",
+    JSON.stringify({
+      pass: true, issues: [], reason: "Looks good.",
+      criteria: [
+        { kind: "acceptance_criterion", criterion, passed: true, evidence: "Limitations: only supplied facts are covered." },
+        { kind: "required_deliverable", criterion: "Markdown guide", passed: true, evidence: "A complete guide." },
+      ],
+    }),
+  ]);
+  await assert.rejects(
+    () => executeAgentTeam(env, {
+      title: "Write a guide", description: "Write a concise guide.",
+      acceptanceCriteria: [criterion], requiredDeliverables: ["Markdown guide"],
+      constraints: ["Use plain language"], outputFormat: "Markdown",
+    }, "test"),
+    /did not assess every required item exactly/,
   );
 });
