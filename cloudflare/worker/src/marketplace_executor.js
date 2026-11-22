@@ -86,7 +86,8 @@ export async function executePrivateDraft(env, task, source = "unknown") {
         method: "GET", headers: { "x-aae-source-verifier-token": env.SOURCE_VERIFIER_TOKEN },
         signal: AbortSignal.timeout(3000),
       });
-      const sourceStatus = await sourceHealth.json();\n      if (!sourceHealth.ok || sourceStatus?.ok !== true || sourceStatus?.mode !== "vpc_gateway_egress_configured") throw new Error("source verifier health check failed");
+      const sourceStatus = await sourceHealth.json();
+      if (!sourceHealth.ok || sourceStatus?.ok !== true || sourceStatus?.mode !== "vpc_gateway_egress_configured") throw new Error("source verifier health check failed");
     } catch {
       return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "source_verifier_unavailable"] }, externalActionsTaken: false };
     }
