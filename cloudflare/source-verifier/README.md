@@ -49,3 +49,5 @@ ALLOWED_SOURCE_HOSTS is a comma-separated list of exact approved hostnames.
 A successful response is retrieved_unverified. It confirms a 200 response,
 SHA-256 integrity hash and (when possible) an exact excerpt also present in the
 draft. It does not establish source trust, semantic relevance or claim support.
+
+The parent Worker also needs a SOURCE_VERIFIER service binding and the SOURCE_VERIFIER_TOKEN secret. Set that secret to the same value as this Worker's INTERNAL_SERVICE_TOKEN. No token value belongs in source control.
