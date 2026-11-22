@@ -196,8 +196,8 @@ export async function reviewWithIndependentProvider(env, task, deliverable, sour
     reason: "A separately hosted Google reviewer is not configured.",
     criteria: [], failedCriteria: [],
   };
-  if (!env?.INDEPENDENT_REVIEWER || typeof env.INDEPENDENT_REVIEWER.fetch !== "function" ||
-      !env.INDEPENDENT_REVIEW_TOKEN) return unavailable;
+  if (env?.INDEPENDENT_REVIEW_ENABLED !== "true" || !env?.INDEPENDENT_REVIEWER ||
+      typeof env.INDEPENDENT_REVIEWER.fetch !== "function" || !env.INDEPENDENT_REVIEW_TOKEN) return unavailable;
 
   const requirements = [
     ...safeList(task?.acceptanceCriteria ?? task?.acceptance_criteria).map(text => ({ kind: "acceptance_criterion", text })),
