@@ -9,7 +9,7 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft:
     AI: { run: async () => ({ response: aiCall++ % 2 === 0 ? aiOutput : reviewerOutput }) },
     INDEPENDENT_REVIEW_TOKEN: "test-independent-token",
     INDEPENDENT_REVIEW_ENABLED: "true",
-    INDEPENDENT_REVIEWER: { fetch: async () => new Response(JSON.stringify({
+    INDEPENDENT_REVIEWER: { fetch: async (url) => new Response(JSON.stringify(String(url).endsWith("/healthz") ? { ok: true } : {
       protocolVersion: 1, provider: "google", model: "gemini-3.8-flash",
       independent: true, sameProvider: false,
       review: { pass: true, issues: [], reason: "Independent review passed.", criteria: [] },
