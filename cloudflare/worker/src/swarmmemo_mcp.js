@@ -268,7 +268,10 @@ export async function ensureHostedSwarmMemoIdentity(env, fetchImpl = fetch) {
     return { ready: true, state: "created", fingerprint: current.fingerprint, handle: current.handle, mcp_url: credentials.mcp_url };
   }
   const recoverableLostResponse = current?.state === "uncertain" &&
-    current.last_error === "SwarmMemo did not return an identity MCP URL" &&
+    [
+      "SwarmMemo did not return an identity MCP URL",
+      "SwarmMemo returned an identity URL outside the approved HTTPS MCP origin",
+    ].includes(current.last_error) &&
     !current.fingerprint && !current.credentials_ciphertext;
   if (current && current.state !== "failed" && !recoverableLostResponse) {
     return { ready: false, state: current.state || "unknown" };
