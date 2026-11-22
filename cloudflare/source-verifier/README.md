@@ -10,8 +10,8 @@ The service never uses global fetch for user-supplied source URLs. It uses only
 env.EGRESS.fetch through a Workers VPC Network binding (cf1:network). Cloudflare
 documents that public-Internet traffic from Workers VPC passes through Cloudflare
 Gateway and is subject to DNS, HTTP and Network policies and logging. Workers VPC
-is currently beta, free on Workers plans, and requires an active Tunnel, Mesh
-node or WAN on-ramp in the account.
+is currently beta and free on Workers plans. A Tunnel, Mesh node or WAN on-ramp
+is required only for private destinations, not public Internet egress.
 
 Before setting EGRESS_POLICY_ATTESTATION to aae-source-egress-v1, configure
 Gateway policies for this Worker/network:
