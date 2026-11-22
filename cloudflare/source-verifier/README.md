@@ -13,7 +13,7 @@ Gateway and is subject to DNS, HTTP and Network policies and logging. Workers VP
 is currently beta, free on Workers plans, and requires an active Tunnel, Mesh
 node or WAN on-ramp in the account.
 
-Before setting EGRESS_POLICY_ATTESTATION to aaae-source-egress-v1, configure
+Before setting EGRESS_POLICY_ATTESTATION to aae-source-egress-v1, configure
 Gateway policies for this Worker/network:
 
 1. DNS: allow only the exact approved source hostnames; deny other DNS lookups.
