@@ -96,7 +96,27 @@ function parseReview(raw, requiredRequirements = [], deliverable = "") {
   };
 }
 
-async function readBoundedResponse(response, limit) {\n  if (!response.body) return "";\n  const reader = response.body.getReader();\n  const chunks = [];\n  let total = 0;\n  try {\n    while (true) {\n      const { done, value } = await reader.read();\n      if (done) break;\n      total += value.byteLength;\n      if (total > limit) { await reader.cancel(); throw new Error("independent review response too large"); }\n      chunks.push(value);\n    }\n  } finally { reader.releaseLock(); }\n  const bytes = new Uint8Array(total);\n  let offset = 0;\n  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }\n  return new TextDecoder().decode(bytes);\n}\n\nasync function sha256(value) {
+async function readBoundedResponse(response, limit) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) { await reader.cancel(); throw new Error("independent review response too large"); }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return new TextDecoder().decode(bytes);
+}
+
+async function sha256(value) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
