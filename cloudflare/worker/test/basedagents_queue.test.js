@@ -72,3 +72,17 @@ test("risk-screened task candidate is blocked by downstream executor assessment"
   assert.equal(DB.jobs[0].status, "blocked");
   assert.match(DB.jobs[0].eligibility_json, /blocked_risk_pattern/);
 });
+
+test("BasedAgents queue insertion errors are reported without throwing", async () => {
+  const DB = {
+    prepare() {
+      const statement = { bind() { return statement; }, async run() { throw new Error("database unavailable"); } };
+      return statement;
+    },
+  };
+  const result = await enqueueBasedAgentsTasks({ DB }, async () => ({ ranked: [suitable] }));
+  assert.equal(result.examined, 1);
+  assert.equal(result.queued, 0);
+  assert.equal(result.blocked, 0);
+  assert.match(result.error, /database unavailable/);
+});
