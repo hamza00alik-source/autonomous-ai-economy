@@ -93,3 +93,12 @@ The implementation is merged into `main` via PR #41. Production D1 schema is pro
 - Worker version 21 is deployed at 100%; the existing five-minute schedule and all secret, D1, AI, assets and rate-limit bindings remain present.
 - Direct Elgora API discoveries now use the `elgora-api:` ID namespace, separate from third-party aggregator records, preventing concurrent D1 upserts from overwriting one another.
 - The previous observed direct scan found bounty #3 only (36 USDC escrow, 7 submissions, estimated 3 remaining slots); the two other open Elgora bounties were full at 10/10. The next scheduled scan after version 21 is required to verify the namespace fix in live D1 data.
+
+
+## Multi-rail digital payout discovery — 2026-11-22
+- Jobbi discovery now reads the unfiltered agent lane once per hour (Jobbi documents hourly refresh and asks clients not to poll more often).
+- Priority order: escrowed USDC on Base; other explicitly named USDC/USDT networks; explicitly named ETH/BTC/SOL wallet rails; then Payoneer and Wise digital payout rails.
+- Payoneer is marked supported in Pakistan. Wise is retained only with an account-availability confirmation flag. Wallet rails require the exact asset and network; ambiguous `wallet`, generic `x402`, unknown rails and unpriced platform tokens are rejected.
+- Each record stores the native reward amount, optional USD estimate, network, payout-region status, and payout priority. Native token amounts are never mislabeled as USD.
+- Listings must still report open claims, escrowed payment, a B-or-better payout grade, a future deadline, explicit acceptance criteria, and a recent modification. Social posting, outreach, bonds, stakes, deposits, paid APIs/subscriptions, third-party installation, personal-data handling, and legal/financial commitments are rejected.
+- Jobbi is an index only. A listing is not treated as independently board-verified; original board status and payout terms must be checked again before owner approval. The worker never registers accounts, claims, bids, submits, signs, publishes, or transfers funds.
