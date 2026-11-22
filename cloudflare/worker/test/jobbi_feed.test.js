@@ -77,9 +77,10 @@ test("rejects social promotion, bonds, installation, personal data and paid APIs
     {...baseGig,id:"install",content_text:"Install this agent on the customer's production server."},
     {...baseGig,id:"pii",content_text:"Collect customer personal data and process PII."},
     {...baseGig,id:"paid-api",content_text:"Use a paid API key and subscription."},
+    {...baseGig,id:"account",content_text:"Register on the external platform and log in to claim the task."},
   ]},now);
   assert.equal(result.items.length,0);
-  assert.equal(result.rejected,5);
+  assert.equal(result.rejected,6);
 });
 
 test("polls Jobbi at most hourly and does not fetch during the cooldown", async () => {
