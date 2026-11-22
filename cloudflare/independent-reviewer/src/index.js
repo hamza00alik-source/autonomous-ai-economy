@@ -1,4 +1,5 @@
 const POLICY_ATTESTATION = 'aae-review-egress-v1';
+const MODEL_DEFAULT = 'gemini-3.8-flash';
 function json(data,status=200){return new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});}
 function equalSecret(a,b){if(typeof a!=='string'||typeof b!=='string'||!a||!b)return false;let d=a.length^b.length;for(let i=0;i<Math.max(a.length,b.length);i++)d|=(a.charCodeAt(i%a.length)||0)^(b.charCodeAt(i%b.length)||0);return d===0;}
 async function bounded(response,limit){const reader=response.body.getReader(),chunks=[];let total=0;try{while(true){const x=await reader.read();if(x.done)break;total+=x.value.byteLength;if(total>limit){await reader.cancel();throw Error('response too large');}chunks.push(x.value);}}finally{reader.releaseLock();}const bytes=new Uint8Array(total);let p=0;for(const c of chunks){bytes.set(c,p);p+=c.length;}return new TextDecoder().decode(bytes);}
