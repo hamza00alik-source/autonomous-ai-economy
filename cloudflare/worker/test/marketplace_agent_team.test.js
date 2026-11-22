@@ -57,7 +57,7 @@ test("reviewer rejection triggers one revision and a second independent review",
 test("reviewer cannot pass while reporting a failed acceptance criterion", async () => {
   const env = fakeEnv([
     "A draft.",
-    JSON.stringify({ pass: true, issues: [], reason: "Looks good.", criteria: [{ criterion, passed: false, evidence: "Missing." }] }),
+    JSON.stringify({ pass: true, issues: [], reason: "Looks good.", criteria: [{ criterion, passed: false, evidence: "A draft." }] }),
   ]);
   await assert.rejects(
     () => executeAgentTeam(env, { title: "Write a guide", description: "Use supplied facts.", acceptanceCriteria: [criterion] }, "test"),
