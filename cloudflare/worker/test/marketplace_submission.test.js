@@ -59,12 +59,13 @@ test("submits a QA-passed bounty automatically through the isolated signer", asy
     return new Response(JSON.stringify({
       id: taskId, chainId: 8453, mode: "bounty", status: "open", submissionWindowOpen: true,
       expiryTime: task.expiry_time, stakeRequired: false, stakeBps: 0,
-      reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 32,
+      reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 49,
     }), { status: 200 });
   };
   const result = await submitTaskmarketDeliverable(e, task, "# Completed deliverable", network.fetchImpl);
   assert.equal(result.status, "submitted");
   assert.equal(result.submissionId, "sub-1");
+  assert.match(result.feePolicy, /no paid x402 action/);
   assert.equal(e.signerCalls.length, 2);
   const write = network.calls.find(x => x.init.method === "POST");
   const body = JSON.parse(write.init.body);
