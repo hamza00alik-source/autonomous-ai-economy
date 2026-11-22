@@ -39,7 +39,7 @@ test("accepts other explicitly identified stablecoin, crypto and Payoneer rails"
     make("wise","EUR","wise",25),
     {...make("arb","ARB","arb-arbitrum",12),_jobbi:{...baseGig._jobbi,reward:{amount:12,currency:"ARB",rail:"arb-arbitrum",usd_estimate:6}}},
   ]},now);
-  assert.deepEqual(result.items.map(x=>x.payment_rail),["usdt-tron","eth-mainnet","payoneer","wise","arb-arbitrum"].sort((a,b)=>({ "usdt-tron":1,"eth-mainnet":2,"payoneer":3,"wise":4,"arb-arbitrum":2 }[a]-{ "usdt-tron":1,"eth-mainnet":2,"payoneer":3,"wise":4,"arb-arbitrum":2 }[b])));
+  assert.deepEqual(result.items.map(x=>x.payment_rail),["usdt-tron","arb-arbitrum","eth-mainnet","payoneer","wise"]);
   assert.equal(result.items.find(x=>x.payment_rail==="payoneer").payout_region_status,"supported_in_pakistan");
   assert.equal(result.items.find(x=>x.payment_rail==="wise").payout_region_status,"account_confirmation_required");
   assert.equal(result.items.find(x=>x.payment_rail==="arb-arbitrum").reward_usd_estimate,6);
