@@ -9,10 +9,10 @@ export function validateBrowserTarget(value) {
   const host = target.hostname.toLowerCase();
   const blockedHost = host === "localhost" || host.endsWith(".localhost") ||
     host.endsWith(".local") || host.endsWith(".internal") ||
-    host === "metadata.google.internal" || host === "169.254.169.254" ||
+    host === "metadata.google.internal" || /^169\\.254\\./.test(host) ||
     /^127\./.test(host) || /^10\./.test(host) ||
     /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-    host === "0.0.0.0" || host === "::1" || host.startsWith("[fc") || host.startsWith("[fd");
+    host === "0.0.0.0" || host === "::1" || host === "[::1]" || host.startsWith("[fc") || host.startsWith("[fd");
   if (target.protocol !== "https:" || blockedHost || target.username || target.password ||
       target.port || target.hash) {
     throw new Error("Browser access is limited to public HTTPS URLs without credentials or custom ports");
