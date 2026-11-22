@@ -72,7 +72,8 @@ export async function executePrivateDraft(env, task, source = "unknown") {
       method: "GET", headers: { "x-aae-independent-review-token": env.INDEPENDENT_REVIEW_TOKEN },
       signal: AbortSignal.timeout(3000),
     });
-    const reviewerStatus = await reviewerHealth.json();\n    if (!reviewerHealth.ok || reviewerStatus?.ok !== true || reviewerStatus?.provider !== "google") throw new Error("independent reviewer health check failed");
+    const reviewerStatus = await reviewerHealth.json();
+    if (!reviewerHealth.ok || reviewerStatus?.ok !== true || reviewerStatus?.provider !== "google") throw new Error("independent reviewer health check failed");
   } catch {
     return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "independent_provider_unavailable"] }, externalActionsTaken: false };
   }
