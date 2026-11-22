@@ -145,3 +145,29 @@ test("failed independent QA is stored as blocked with its draft, not an invalid 
   assert.match(jobs[0].error, /quality gate did not pass/);
   assert.match(jobs[0].result_text, /Documentation draft/);
 });
+
+test("buyer criteria sections are preserved in the queued task snapshot", async () => {
+  const description = [
+    "Prepare a technical report about the supplied public software documentation.",
+    "",
+    "Acceptance criteria:",
+    "- Cite every factual claim",
+    "- Include a limitations section",
+    "",
+    "Required deliverables:",
+    "- Markdown report",
+    "",
+    "Constraints:",
+    "- No paid APIs",
+  ].join("\\n");
+  const { env, jobs } = fakeEnv({ taskmarket: [{
+    task_id: "0xcriteria", title: "Prepare technical report", description,
+    eligible: 1, net_reward_usdc: "1.00", stake_required: 0,
+  }] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 1);
+  const snapshot = JSON.parse(jobs[0].task_snapshot_json);
+  assert.deepEqual(snapshot.acceptanceCriteria, ["Cite every factual claim", "Include a limitations section"]);
+  assert.deepEqual(snapshot.requiredDeliverables, ["Markdown report"]);
+  assert.deepEqual(snapshot.constraints, ["No paid APIs"]);
+});
