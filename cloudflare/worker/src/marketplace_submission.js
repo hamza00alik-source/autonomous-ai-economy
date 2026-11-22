@@ -94,10 +94,16 @@ export async function submitTaskmarketDeliverable(env, task, deliverable, fetchI
       !Number.isFinite(liveExpiry) || liveExpiry <= Date.now() ||
       live.stakeRequired === true || Number(live.stakeBps || 0) !== 0 ||
       String(live.reward || "") !== String(task.reward_base_units) ||
+      Number(live.platformFeeBps || 0) !== Number(task.platform_fee_bps || 0) ||
+      String(live.requester || "").toLowerCase() !== String(task.requester || "").toLowerCase() ||
       String(live.escrowTxHash || "").toLowerCase() !== String(task.escrow_tx_hash).toLowerCase() ||
       String(live.description || "") !== String(task.description || "")) {
     return result("blocked", "live_task_terms_changed_or_closed");
   }
+  const feeBps = Number(live.platformFeeBps || 0);
+  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > 10000) return result("blocked", "invalid_live_platform_fee");
+  const liveNet = (BigInt(live.reward) * BigInt(10000 - feeBps) / 10000n).toString();
+  if (liveNet !== String(task.net_reward_base_units)) return result("blocked", "live_net_reward_changed");
   const submissionCount = Number(live.submissionCount);
   if (!Number.isInteger(submissionCount) || submissionCount < 0 || submissionCount >= FREE_SUBMISSION_LIMIT) {
     return result("blocked", "free_submission_allowance_not_confirmed");
