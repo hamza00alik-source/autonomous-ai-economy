@@ -41,7 +41,7 @@ function api(liveOverrides = {}, submissions = []) {
       id: taskId, chainId: 8453, mode: "bounty", status: "open",
       expiryTime: task.expiry_time, stakeRequired: false, stakeBps: 0,
       reward: "2000000", escrowTxHash: tx, description: task.description,
-      submissionCount: 1, ...liveOverrides,
+      submissionCount: 32, ...liveOverrides,
     }), { status: 200 });
   };
   return { fetchImpl, calls };
@@ -59,7 +59,7 @@ test("submits a QA-passed bounty automatically through the isolated signer", asy
     return new Response(JSON.stringify({
       id: taskId, chainId: 8453, mode: "bounty", status: "open",
       expiryTime: task.expiry_time, stakeRequired: false, stakeBps: 0,
-      reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 1,
+      reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 32,
     }), { status: 200 });
   };
   const result = await submitTaskmarketDeliverable(e, task, "# Completed deliverable", network.fetchImpl);
@@ -120,7 +120,7 @@ test("does not submit duplicate worker work", async () => {
     return new Response(JSON.stringify({
       id: taskId, chainId: 8453, mode: "bounty", status: "open",
       expiryTime: task.expiry_time, stakeRequired: false, stakeBps: 0,
-      reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 1,
+      reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 32,
     }), { status: 200 });
   };
   const result = await submitTaskmarketDeliverable(e, task, "deliverable", network.fetchImpl);
@@ -138,7 +138,7 @@ test("does not auto-retry an ambiguous marketplace write", async () => {
     return new Response(JSON.stringify({
       id: taskId, chainId: 8453, mode: "bounty", status: "open",
       expiryTime: task.expiry_time, stakeRequired: false, stakeBps: 0,
-      reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 1,
+      reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 32,
     }), { status: 200 });
   };
   const result = await submitTaskmarketDeliverable(e, task, "deliverable", network.fetchImpl);
