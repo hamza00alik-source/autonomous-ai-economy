@@ -43,7 +43,7 @@ test("private execution requires review and takes no external action",async()=>{
   const outputs=[goodDraft,reviewerPass];
   const env=independentEnv({run:async()=>({response:outputs.shift()})});
   const result=await executePrivateDraft(env,{id:"t",title:"Prepare a concise software guide",description:"Summarize the supplied material",eligible:true,reward_usdc:"0.1"});
-  assert.equal(result.status,"draft_ready");
+  assert.equal(result.status,"submission_candidate");
   assert.equal(result.externalActionsTaken,false);
   assert.equal(result.agentTeam.length,3);
   assert.equal(result.submissionReady,true);
