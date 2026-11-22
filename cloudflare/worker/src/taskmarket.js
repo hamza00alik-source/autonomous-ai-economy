@@ -160,7 +160,7 @@ export async function pollTaskmarket(env, fetchImpl = fetch) {
     for (const preview of candidates) {
       let task = preview;
       try {
-        const detail = await fetchJson(API + "/api/tasks/" + encodeURIComponent(preview.task_id) + "?chainId=8453", {}, fetchImpl);
+        const detail = await fetchJson(API + "/api/tasks/" + encodeURIComponent(preview.task_id), {}, fetchImpl);
         if (!detail || detail.id?.toLowerCase() !== preview.task_id) throw new Error("task detail ID mismatch");
         task = normalizeTaskmarketTask(detail) || preview;
         if (task.escrow_tracked !== 1 || task.escrow_booked_base_units !== task.reward_base_units) {
