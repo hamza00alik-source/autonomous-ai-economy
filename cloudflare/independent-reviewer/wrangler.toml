@@ -1,0 +1,12 @@
+name = "aae-independent-reviewer"
+main = "src/index.js"
+compatibility_date = "2026-11-22"
+workers_dev = false
+
+[[vpc_networks]]
+binding = "EGRESS"
+network_id = "cf1:network"
+remote = true
+
+[vars]
+GEMINI_MODEL = "gemini-3.8-flash"
