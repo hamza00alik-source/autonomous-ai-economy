@@ -24,7 +24,7 @@ This Cloudflare Worker lane connects the existing read-only SwarmMemo and Taskma
 
 ## Files
 - `src/marketplace_executor.js`: task screening and private draft generation.
-- `src/marketplace_queue.js`: D1 deduplication, queueing, owner approval gate, and draft persistence.
+- `src/marketplace_queue.js`: D1 deduplication, queueing, QA-gated draft persistence, and unattended submission retry.
 - `migrations/0007_marketplace_execution_jobs.sql`: execution job table.
 - `migrations/0008_marketplace_execution_approval.sql`: explicit owner approval column.
 - `test/marketplace_executor.test.js` and `test/marketplace_queue.test.js`: unit and integration coverage.
