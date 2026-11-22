@@ -137,7 +137,7 @@ export async function executeAgentTeam(env, task, source = "unknown") {
     const revision = await ask(
       env,
       "revision",
-      "You are a revision specialist. Fix only the concrete issues and failed acceptance criteria identified by the independent reviewer. Preserve correct content. Do not invent missing facts, sources, tests, or verification. If an issue cannot be resolved from supplied information, state the limitation clearly. Return the complete revised deliverable only.",
+      "You are a revision specialist. Fix only the concrete issues and failed acceptance criteria identified by the same-model reviewer. Preserve correct content. Do not invent missing facts, sources, tests, or verification. If an issue cannot be resolved from supplied information, state the limitation clearly. Return the complete revised deliverable only.",
       "TASK JSON:\n" + taskJson + "\nCURRENT DELIVERABLE:\n" + reviewed + "\nREVIEW ISSUES:\n" + JSON.stringify({ issues: review.issues, failedRequirements: review.failedCriteria }),
       1200,
     );
