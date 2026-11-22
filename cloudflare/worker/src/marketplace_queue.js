@@ -27,7 +27,7 @@ function extractTaskSections(description) {
       continue;
     }
     if (/^#{1,6}\s+/.test(line)) { active = null; continue; }
-    if (!line) { active = null; continue; }
+    if (!line) continue;
     if (!active) continue;
     const item = line.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/);
     if (!item) { active = null; continue; }
