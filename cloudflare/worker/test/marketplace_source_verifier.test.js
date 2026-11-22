@@ -9,8 +9,8 @@ function response(payload, status=200) {
   return new Response(JSON.stringify(payload), {status, headers:{"content-type":"application/json"}});
 }
 function validPayload() {
-  return {protocolVersion:1,status:"verified",results:[{
-    requestedUrl:url,httpStatus:200,title:"Reference",finalUrl:url,
+  return {protocolVersion:1,status:"retrieved_unverified",retrievalVerified:true,results:[{
+    requestedUrl:url,httpStatus:200,title:"Reference",finalUrl:url,supportsClaims:false,excerptMatched:true,verificationStatus:"retrieved_unverified",
     contentSha256:"a".repeat(64),fetchedAt:"2026-11-22T10:00:00.000Z",
     sourceExcerpt:"This source describes the product and its documented capabilities in detail.",
     draftExcerpt:"This source describes the product and its documented capabilities in detail.",
@@ -26,7 +26,7 @@ test("research verification fails closed when service binding is absent", async(
 
 test("non-research task does not call the verifier", async()=>{
   let called=false;
-  const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>{called=true;}}},{title:"Write a short product summary"},draft);
+  const result=await verifyResearchSources({SOURCE_VERIFIER_TOKEN:"source-token",SOURCE_VERIFIER:{fetch:async()=>{called=true;}}},{title:"Write a short product summary"},draft);
   assert.equal(result.status,"not_required");
   assert.equal(called,false);
 });
@@ -36,7 +36,9 @@ test("valid trusted verifier response is accepted", async()=>{
   const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async(_url,init)=>{
     sent=JSON.parse(init.body); return response(validPayload());
   }}},{title:"Research a software market",description:"Compare current products"},draft+" "+url);
-  assert.equal(result.verified,true);
+  assert.equal(result.verified,false);
+  assert.equal(result.retrievalVerified,true);
+  assert.equal(result.status,"retrieved_unverified");
   assert.equal(result.results.length,1);
   assert.equal(sent.protocolVersion,1);
   assert.deepEqual(sent.urls,[url]);
@@ -44,7 +46,8 @@ test("valid trusted verifier response is accepted", async()=>{
 
 test("malformed, unsupported, or mismatched evidence is rejected", async()=>{
   for (const mutate of [
-    p=>{p.results[0].supportsClaims=false;},
+    p=>{p.results[0].supportsClaims=true;},
+    p=>{p.results[0].excerptMatched=false;},
     p=>{p.results[0].requestedUrl="https://evil.example/";},
     p=>{p.results[0].draftExcerpt="not in draft";},
     p=>{p.results[0].contentSha256="invalid";},
