@@ -1,0 +1,12 @@
+name = "aae-source-verifier"
+main = "src/index.js"
+compatibility_date = "2026-11-22"
+workers_dev = false
+
+[[vpc_networks]]
+binding = "EGRESS"
+network_id = "cf1:network"
+remote = true
+
+[vars]
+ALLOWED_SOURCE_HOSTS = ""
