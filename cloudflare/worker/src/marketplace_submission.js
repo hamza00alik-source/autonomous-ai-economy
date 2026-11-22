@@ -21,8 +21,6 @@ async function jsonResponse(response, label, limit = 100000) {
 async function apiJson(path, init = {}, fetchImpl = fetch) {
   const url = new URL(path, API);
   if (url.origin !== API) throw new Error("taskmarket_host_rejected");
-  // Taskmarket serves multiple chains from one API host; name Base explicitly.
-  url.searchParams.set("chainId", "8453");
   const response = await fetchImpl(url.toString(), {
     ...init,
     redirect: "manual",
