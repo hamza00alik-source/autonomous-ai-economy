@@ -61,11 +61,11 @@ export function assessTask(task, source = "unknown") {
 
 export async function executePrivateDraft(env, task, source = "unknown") {
   const assessment = assessTask(task, source);
-  if (!assessment.eligible) return { status: "blocked", assessment, externalActionsTaken: false };
+  if (!assessment.eligible) return { status: "blocked", assessment, externalActionsTaken: false, inferenceStarted: false };
   const researchTask = /\b(research|investigate|fact[- ]check|market analysis|compare|comparison|cite|citations|sources)\b/i.test(assessment.title + "\n" + assessment.description);
   if (env?.INDEPENDENT_REVIEW_ENABLED !== "true" || !env?.INDEPENDENT_REVIEWER ||
       typeof env.INDEPENDENT_REVIEWER.fetch !== "function" || !env.INDEPENDENT_REVIEW_TOKEN) {
-    return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "independent_provider_unavailable"] }, externalActionsTaken: false };
+    return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "independent_provider_unavailable"] }, externalActionsTaken: false, inferenceStarted: false };
   }
   try {
     const reviewerHealth = await env.INDEPENDENT_REVIEWER.fetch("https://independent-reviewer.internal/healthz", {
@@ -75,10 +75,10 @@ export async function executePrivateDraft(env, task, source = "unknown") {
     const reviewerStatus = await reviewerHealth.json();
     if (!reviewerHealth.ok || reviewerStatus?.ok !== true || reviewerStatus?.provider !== "google") throw new Error("independent reviewer health check failed");
   } catch {
-    return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "independent_provider_unavailable"] }, externalActionsTaken: false };
+    return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "independent_provider_unavailable"] }, externalActionsTaken: false, inferenceStarted: false };
   }
   if (researchTask && (!env?.SOURCE_VERIFIER || typeof env.SOURCE_VERIFIER.fetch !== "function" || !env.SOURCE_VERIFIER_TOKEN)) {
-    return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "source_verifier_unavailable"] }, externalActionsTaken: false };
+    return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "source_verifier_unavailable"] }, externalActionsTaken: false, inferenceStarted: false };
   }
   if (researchTask) {
     try {
@@ -89,7 +89,7 @@ export async function executePrivateDraft(env, task, source = "unknown") {
       const sourceStatus = await sourceHealth.json();
       if (!sourceHealth.ok || sourceStatus?.ok !== true || sourceStatus?.mode !== "vpc_gateway_egress_configured") throw new Error("source verifier health check failed");
     } catch {
-      return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "source_verifier_unavailable"] }, externalActionsTaken: false };
+      return { status: "blocked", assessment: { ...assessment, eligible: false, reasons: [...assessment.reasons, "source_verifier_unavailable"] }, externalActionsTaken: false, inferenceStarted: false };
     }
   }
   const team = await executeAgentTeam(env, {
@@ -120,6 +120,6 @@ export async function executePrivateDraft(env, task, source = "unknown") {
     deliverableSha256: team.deliverableSha256,
     qa: { ...qa, same_model_review: team.review, independent_review: independentReview },
     agentTeam: [...team.agents, { role: "independent_provider_reviewer", provider: independentReview.provider || null, model: independentReview.model || null, status: independentReview.pass ? "passed" : independentReview.status || "unavailable" }], reviewRounds: team.reviewRounds, revised: team.revised,
-    submissionReady, externalActionsTaken: false, createdAt: new Date().toISOString(),
+    submissionReady, externalActionsTaken: false, inferenceStarted: true, createdAt: new Date().toISOString(),
   };
 }
