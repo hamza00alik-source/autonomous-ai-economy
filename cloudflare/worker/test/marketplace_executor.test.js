@@ -71,9 +71,12 @@ test("blocks unsupported file formats",()=>{
     assert.ok(result.reasons.includes("unsupported_artifact_format"),outputFormat);
   }
 });
-test("research draft cannot become ready without a configured verifier",async()=>{
-  const outputs=[goodDraft,reviewerPass];
-  const result=await executePrivateDraft({AI:{run:async()=>({response:outputs.shift()})}},{id:"research",title:"Research software documentation",description:"Compare documented features",eligible:true,reward_usdc:"0.1"});
-  assert.equal(result.submissionReady,false);
-  assert.ok(result.qa.blockers.includes("source_verifier_unavailable"));
+test("research tasks without verifier are blocked before model inference",async()=>{
+  let aiCalls=0;
+  const result=await executePrivateDraft({AI:{run:async()=>{aiCalls++;return {response:goodDraft};}}},{id:"research",title:"Research software documentation",description:"Compare documented features",eligible:true,reward_usdc:"0.1"});
+  assert.equal(result.status,"blocked");
+  assert.equal(result.submissionReady,undefined);
+  assert.equal(aiCalls,0);
+  assert.ok(result.assessment.reasons.includes("source_verifier_unavailable"));
+  assert.equal(result.externalActionsTaken,false);
 });
