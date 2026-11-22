@@ -76,7 +76,7 @@ export async function executePrivateDraft(env, task, source = "unknown") {
   return {
     status: "draft_ready", assessment, deliverable: team.deliverable,
     deliverableSha256: team.deliverableSha256,
-    qa: { ...qa, independent_review: team.review },
+    qa: { ...qa, same_model_review: team.review },
     agentTeam: team.agents, reviewRounds: team.reviewRounds, revised: team.revised,
     submissionReady, externalActionsTaken: false, createdAt: new Date().toISOString(),
   };
