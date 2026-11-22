@@ -38,7 +38,7 @@ function api(liveOverrides = {}, submissions = []) {
       return new Response(JSON.stringify(submissions), { status: 200 });
     }
     return new Response(JSON.stringify({
-      id: taskId, chainId: 8453, mode: "bounty", status: "open",
+      id: taskId, chainId: 8453, mode: "bounty", status: "open", submissionWindowOpen: true,
       expiryTime: task.expiry_time, stakeRequired: false, stakeBps: 0,
       reward: "2000000", escrowTxHash: tx, description: task.description,
       submissionCount: 32, ...liveOverrides,
@@ -57,7 +57,7 @@ test("submits a QA-passed bounty automatically through the isolated signer", asy
     }
     if (init.method === "POST") return new Response(JSON.stringify({ success: true, submissionId: "sub-1" }), { status: 200 });
     return new Response(JSON.stringify({
-      id: taskId, chainId: 8453, mode: "bounty", status: "open",
+      id: taskId, chainId: 8453, mode: "bounty", status: "open", submissionWindowOpen: true,
       expiryTime: task.expiry_time, stakeRequired: false, stakeBps: 0,
       reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 32,
     }), { status: 200 });
@@ -97,6 +97,8 @@ test("fails closed if signer identity does not match the pinned wallet", async (
 test("never submits if task terms changed, expired, staked, or allowance is not confirmed", async () => {
   for (const overrides of [
     { status: "closed" },
+    { submissionWindowOpen: false },
+    { chainId: undefined },
     { stakeRequired: true },
     { submissionCount: 50 },
     { reward: "9000000" },
@@ -118,7 +120,7 @@ test("does not submit duplicate worker work", async () => {
     if (new URL(String(url)).pathname.endsWith("/submissions")) return new Response(JSON.stringify([{ workerAddress: address }]), { status: 200 });
     if (init.method === "POST") throw new Error("must not reach submission");
     return new Response(JSON.stringify({
-      id: taskId, chainId: 8453, mode: "bounty", status: "open",
+      id: taskId, chainId: 8453, mode: "bounty", status: "open", submissionWindowOpen: true,
       expiryTime: task.expiry_time, stakeRequired: false, stakeBps: 0,
       reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 32,
     }), { status: 200 });
@@ -136,7 +138,7 @@ test("does not auto-retry an ambiguous marketplace write", async () => {
     if (new URL(String(url)).pathname.endsWith("/submissions") && (init.method || "GET") === "GET") return new Response("[]", { status: 200 });
     if (init.method === "POST") { writes++; throw new Error("network lost after write"); }
     return new Response(JSON.stringify({
-      id: taskId, chainId: 8453, mode: "bounty", status: "open",
+      id: taskId, chainId: 8453, mode: "bounty", status: "open", submissionWindowOpen: true,
       expiryTime: task.expiry_time, stakeRequired: false, stakeBps: 0,
       reward: "2000000", escrowTxHash: tx, description: task.description, submissionCount: 32,
     }), { status: 200 });
