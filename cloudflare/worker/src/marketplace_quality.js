@@ -50,7 +50,7 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
   const sourcesPass = !needsSources || sourceUrls.length > 0;
   const verifiedUrls = Array.isArray(sourceVerification?.results)
     ? sourceVerification.results.map(item => item?.requestedUrl).filter(value => typeof value === "string") : [];
-  const sourceContentVerified = !needsSources || (
+  const sourceContentVerified = needsSources && (
     sourceVerification?.status === "verified" && sourceVerification?.verified === true &&
     verifiedUrls.length === sourceUrls.length && sourceUrls.every(url => verifiedUrls.includes(url)) &&
     sourceVerification.results.every(item => typeof item?.sourceExcerpt === "string" &&
@@ -68,7 +68,7 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
   if (invalidSourceUrls.length) blockers.push("invalid_source_urls");
   checks.push({
     id: "source_content",
-    passed: sourceContentVerified,
+    passed: !needsSources || sourceContentVerified,
     note: !needsSources ? "Not required for this task" :
       sourceContentVerified ? "Trusted verifier returned matching source and draft evidence" :
       "Source content, relevance, or evidence has not been verified",
