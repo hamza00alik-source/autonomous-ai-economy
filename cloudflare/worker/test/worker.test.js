@@ -85,7 +85,8 @@ test("private API rejects absent or malformed bearer tokens before database acce
   }), env);
   assert.equal(malformed.status, 401);
   const health = await worker.fetch(new Request("https://example.workers.dev/health"), env);
-  assert.equal(health.status, 200);
+  assert.equal(health.status, 503);
+  assert.equal((await health.json()).status, "degraded");
 });
 
 
