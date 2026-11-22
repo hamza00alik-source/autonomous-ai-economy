@@ -98,6 +98,6 @@ The earlier private-draft implementation was merged into `main` via PR #41. Prod
 
 The newer QA-gated pipeline supports unattended submission of Taskmarket Base bounty deliverables after the independent reviewer and deterministic QA pass. No per-task owner approval is required. The submission switch defaults off and the signing key must remain outside this Worker.
 
-The Taskmarket adapter requires a separately operated signer service binding (`WALLET_SIGNER`) with authenticated health and EIP-191 signing endpoints. It rechecks task status, escrow hash, expiry, reward, stake and description; checks for an existing worker submission; and only submits while total task submissions are below five to avoid the documented 0.001 USDC fee after the free allowance. Ambiguous writes are not retried automatically.
+The Taskmarket adapter requires a separately operated signer service binding (`WALLET_SIGNER`) with authenticated health and EIP-191 signing endpoints. It rechecks task status, escrow hash, expiry, reward, stake and description; checks for an existing worker submission; and only submits while total task submissions are below 50; each worker's first five submissions are free until the task reaches 50 total submissions. Ambiguous writes are not retried automatically.
 
 This adapter is code-only until a signer service, matching token, pinned Base worker address and global enable flag are configured. See [marketplace delivery quality gates](../../docs/marketplace-delivery-quality-gates.md).
