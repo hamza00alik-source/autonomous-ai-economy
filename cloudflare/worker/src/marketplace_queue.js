@@ -142,7 +142,7 @@ export async function processOneMarketplaceDraft(env) {
       return { processed: true, status: "blocked_budget", job_id: row.job_id, estimated_neurons: estimatedNeurons };
     }
     const draft = await executePrivateDraft(env, task, row.source);
-    if (draft.status !== "draft_ready") {
+    if (draft.status !== "submission_candidate") {
       await env.DB.prepare(
         "UPDATE aae_execution_jobs SET status='blocked',eligibility_json=?,updated_at=? WHERE job_id=? AND status='running'"
       ).bind(JSON.stringify({ eligible: false, reasons: draft.assessment?.reasons || ["screened_out"] }), new Date().toISOString(), row.job_id).run();
