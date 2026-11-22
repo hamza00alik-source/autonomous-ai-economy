@@ -77,7 +77,7 @@ export async function executePrivateDraft(env, task, source = "unknown") {
   const qa = qualityCheckDraft(assessment, team.deliverable, independentReview, sourceVerification);
   const submissionReady = team.ready === true && independentReview.independent === true && independentReview.pass === true && qa.status === "submission_candidate";
   return {
-    status: "draft_ready", assessment, deliverable: team.deliverable,
+    status: submissionReady ? "submission_candidate" : "draft_blocked", assessment, deliverable: team.deliverable,
     deliverableSha256: team.deliverableSha256,
     qa: { ...qa, same_model_review: team.review, independent_review: independentReview },
     agentTeam: [...team.agents, { role: "independent_provider_reviewer", provider: independentReview.provider || null, model: independentReview.model || null, status: independentReview.pass ? "passed" : independentReview.status || "unavailable" }], reviewRounds: team.reviewRounds, revised: team.revised,
