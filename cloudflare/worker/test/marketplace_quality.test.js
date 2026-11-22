@@ -36,7 +36,7 @@ test("claims of live verification require evidence review",()=>{
 test("missing or failed same-model review blocks readiness",()=>{
   const draft="A sufficiently detailed draft. Self-check: limitations and assumptions are stated. Source: https://example.com";
   assert.ok(qualityCheckDraft({title:"Task"},draft).blockers.includes("same_model_review_not_passed"));
-  assert.ok(qualityCheckDraft({title:"Task"},draft,{pass:false,issues:["Unsupported claim"],failedCriteria:[],criteria:[]}).blockers.includes("independent_review_not_passed"));
+  assert.ok(qualityCheckDraft({title:"Task"},draft,{pass:false,issues:["Unsupported claim"],failedCriteria:[],criteria:[]}).blockers.includes("same_model_review_not_passed"));
 });
 
 test("missing criterion evidence blocks readiness",()=>{
