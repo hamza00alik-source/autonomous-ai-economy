@@ -569,12 +569,20 @@ async function status(env) {
   const day = new Date().toISOString().slice(0, 10);
   const budget = await env.DB.prepare("SELECT reserved_neurons FROM ai_daily_budget WHERE utc_day=?").bind(day).first();
   const counts = await env.DB.prepare("SELECT status,COUNT(*) AS total FROM ai_tasks GROUP BY status").all();
+  const executionCounts = await env.DB.prepare("SELECT status,COUNT(*) AS total FROM aae_execution_jobs GROUP BY status").all();
+  const lastExecution = await env.DB.prepare("SELECT MAX(updated_at) AS last_execution_at FROM aae_execution_jobs").first();
   return json({
     model: MODEL_ID,
     utc_day: day,
     estimated_neurons_reserved: budget?.reserved_neurons || 0,
     daily_safety_budget_neurons: DAILY_NEURON_BUDGET,
     tasks: counts.results || [],
+    marketplace_execution: {
+      counts: executionCounts.results || [],
+      last_activity_at: lastExecution?.last_execution_at || null,
+      execution_mode: "autonomous_private_execution_with_qa",
+      external_submission_enabled: false,
+    },
     public_payment_actions_enabled: publicCheckoutEnabled(env),
     private_invoice_api_configured: Boolean(env.NOWPAYMENTS_API_KEY && env.NOWPAYMENTS_IPN_SECRET),
     public_checkout_enabled: publicCheckoutEnabled(env),
@@ -767,7 +775,12 @@ export default {
       await ensureHostedSwarmMemoIdentity(env);
       await Promise.allSettled([pollSwarmMemo(env), pollTaskmarket(env), syncExternalBountyFeed(env), syncJobbiFeed(env), syncFranticFeed(env), syncElgoraList(env)]);
       await enqueueMarketplaceTasks(env);
-      await processOneMarketplaceDraft(env);
+      // Process up to two independent marketplace tasks per scheduled run.
+      // Each job reserves the shared daily AI budget before any model inference.
+      for (let i = 0; i < 2; i++) {
+        const result = await processOneMarketplaceDraft(env);
+        if (!result.processed) break;
+      }
       await processOne(env);
     })());
   },
