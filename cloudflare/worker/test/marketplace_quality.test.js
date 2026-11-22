@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { qualityCheckDraft } from "../src/marketplace_quality.js";
 
-const passingReview = {pass:true,issues:[],failedCriteria:[],criteria:[{criterion:"Include limitations",passed:true,evidence:"Limitations are explained."}]};
+const passingReview = {pass:true,issues:[],failedCriteria:[],provider:"google",independent:true,sameProvider:false,criteria:[{criterion:"Include limitations",passed:true,evidence:"Limitations are explained."}]};
 
 test("draft passes only with review and exact evidence for each acceptance criterion",()=>{
   const task={title:"Write a concise product summary",acceptanceCriteria:["Include limitations"]};
@@ -11,8 +11,8 @@ test("draft passes only with review and exact evidence for each acceptance crite
   assert.equal(result.status,"submission_candidate");
   assert.deepEqual(result.blockers,[]);
   assert.equal(result.sourceUrls.length,1);
-  assert.equal(result.independentlyReviewed,false);
-  assert.equal(result.reviewMode,"same_model_second_call");
+  assert.equal(result.independentlyReviewed,true);
+  assert.equal(result.reviewMode,"google_independent_provider");
   assert.equal(result.reviewerCallPassed,true);
 });
 
@@ -35,8 +35,8 @@ test("claims of live verification require evidence review",()=>{
 
 test("missing or failed same-model review blocks readiness",()=>{
   const draft="A sufficiently detailed draft. Self-check: limitations and assumptions are stated. Source: https://example.com";
-  assert.ok(qualityCheckDraft({title:"Task"},draft).blockers.includes("same_model_review_not_passed"));
-  assert.ok(qualityCheckDraft({title:"Task"},draft,{pass:false,issues:["Unsupported claim"],failedCriteria:[],criteria:[]}).blockers.includes("same_model_review_not_passed"));
+  assert.ok(qualityCheckDraft({title:"Task"},draft).blockers.includes("independent_provider_review_not_passed"));
+  assert.ok(qualityCheckDraft({title:"Task"},draft,{pass:false,issues:["Unsupported claim"],failedCriteria:[],criteria:[]}).blockers.includes("independent_provider_review_not_passed"));
 });
 
 test("missing criterion evidence blocks readiness",()=>{
@@ -57,15 +57,16 @@ test("research requires fetched, relevant source evidence and exact draft excerp
   const draft="A substantive research draft with analysis and limitations. Self-check: assumptions are stated. Evidence: exact supporting passage from the cited page.";
   const review={pass:true,issues:[],failedCriteria:[],criteria:[]};
   const absent=qualityCheckDraft(task,draft+" Source: https://example.com/report",review);
-  assert.ok(absent.blockers.includes("source_content_not_verified"));
-  const verified={status:"verified",verified:true,blockers:[],results:[{
-    requestedUrl:"https://example.com/report",httpStatus:200,supportsClaims:true,
-    sourceExcerpt:"A source excerpt with enough words to be checked against the retrieved source content.",
+  assert.ok(absent.blockers.includes("source_retrieval_not_verified"));
+  const verified={status:"retrieved_unverified",verified:false,retrievalVerified:true,blockers:[],results:[{
+    requestedUrl:"https://example.com/report",httpStatus:200,supportsClaims:false,excerptMatched:true,verificationStatus:"retrieved_unverified",
+    sourceExcerpt:"exact supporting passage from the cited page.",
     draftExcerpt:"exact supporting passage from the cited page.",
   }]};
   const passed=qualityCheckDraft(task,draft+" Source: https://example.com/report",review,verified);
-  assert.equal(passed.sourceContentVerified,true);
-  assert.ok(!passed.blockers.includes("source_content_not_verified"));
+  assert.equal(passed.sourceRetrievalVerified,true);
+  assert.equal(passed.sourceContentVerified,false);
+  assert.ok(!passed.blockers.includes("source_retrieval_not_verified"));
 });
 
 test("verifier error remains a blocker",()=>{
