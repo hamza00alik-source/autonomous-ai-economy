@@ -45,7 +45,7 @@ test("reviewer rejection triggers one revision and a second independent review",
   const env = fakeEnv([
     "Initial draft missing limitations.",
     JSON.stringify({ pass: false, issues: ["Add a limitations section."], reason: "Required section missing.", criteria: [{ kind: "acceptance_criterion", criterion, passed: false, evidence: "Initial draft missing limitations." }] }),
-    "Revised draft. Limitations: only supplied facts are covered.",
+    "A complete guide. Revised draft. Limitations: only supplied facts are covered.",
     passingReview,
   ]);
   const result = await executeAgentTeam(env, { title: "Write a guide", description: "Include limitations.", acceptanceCriteria: [criterion] }, "test");
@@ -60,7 +60,7 @@ test("reviewer rejection triggers one revision and a second independent review",
 test("reviewer cannot pass while reporting a failed acceptance criterion", async () => {
   const env = fakeEnv([
     "A draft.",
-    JSON.stringify({ pass: true, issues: [], reason: "Looks good.", criteria: [{ criterion, passed: false, evidence: "A draft." }] }),
+    JSON.stringify({ pass: true, issues: [], reason: "Looks good.", criteria: [{ kind: "acceptance_criterion", criterion, passed: false, evidence: "A draft." }] }),
   ]);
   await assert.rejects(
     () => executeAgentTeam(env, { title: "Write a guide", description: "Use supplied facts.", acceptanceCriteria: [criterion] }, "test"),
