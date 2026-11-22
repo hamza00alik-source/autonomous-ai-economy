@@ -20,7 +20,7 @@ const base = {
 
 test("normalizes funded Base USDC tasks into eligible read-only discovery candidates", () => {
   const task = normalizeBasedAgentsTask(base, now);
-  assert.equal(task.eligible, true);
+  assert.equal(task.eligible, true, task.reasons.join(", "));
   assert.equal(task.reward_usdc, "1.500000");
   assert.equal(task.reward_atomic, "1500000");
   assert.equal(task.source, "based_agents");
