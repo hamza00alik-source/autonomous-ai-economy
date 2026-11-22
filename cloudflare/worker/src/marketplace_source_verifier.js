@@ -43,6 +43,35 @@ function validateUrlList(urls) {
   }
   return [...new Set(normalized)];
 }
+
+async function readBoundedBody(response, limit) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) {
+        await reader.cancel();
+        throw new Error("verifier response too large");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 function validEvidence(item, draft, requestedUrl) {
   if (!item || typeof item !== "object" || item.requestedUrl !== requestedUrl ||
       item.httpStatus !== 200 || item.supportsClaims !== true ||
@@ -90,8 +119,7 @@ export async function verifyResearchSources(env, task, draft) {
     });
     const declaredLength = Number(response.headers.get("content-length") || 0);
     if (declaredLength > MAX_RESPONSE_BYTES) throw new Error("verifier response too large");
-    const raw = await response.text();
-    if (new TextEncoder().encode(raw).byteLength > MAX_RESPONSE_BYTES) throw new Error("verifier response too large");
+    const raw = await readBoundedBody(response, MAX_RESPONSE_BYTES);
     if (!response.ok) throw new Error("verifier service returned " + response.status);
     const payload = JSON.parse(raw);
     if (payload?.protocolVersion !== 1 || payload?.status !== "verified" ||
