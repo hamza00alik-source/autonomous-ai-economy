@@ -143,6 +143,11 @@ export async function processOneMarketplaceDraft(env) {
     }
     const draft = await executePrivateDraft(env, task, row.source);
     if (draft.status !== "submission_candidate") {
+      if (draft.inferenceStarted === false) {
+        await env.DB.prepare(
+          "UPDATE ai_daily_budget SET reserved_neurons=CASE WHEN reserved_neurons>=? THEN reserved_neurons-? ELSE 0 END WHERE utc_day=?"
+        ).bind(estimatedNeurons, estimatedNeurons, utcDay).run();
+      }
       const blockers = draft.qa?.blockers || draft.assessment?.reasons || ["independent_quality_gate_not_passed"];
       await env.DB.prepare(
         "UPDATE aae_execution_jobs SET status='blocked',result_text=?,eligibility_json=?,error=?,updated_at=? WHERE job_id=? AND status='running'"
