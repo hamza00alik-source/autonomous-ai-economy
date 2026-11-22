@@ -156,7 +156,7 @@ export async function executeAgentTeam(env, task, source = "unknown") {
     revised,
     agents: [
       { role: "specialist", status: "completed" },
-      { role: "independent_qa", status: review.pass ? "passed" : "failed" },
+      { role: "same_model_reviewer", status: review.pass ? "passed" : "failed" },
       ...(revised ? [{ role: "revision", status: "completed" }] : []),
     ],
     ready: review.pass,
