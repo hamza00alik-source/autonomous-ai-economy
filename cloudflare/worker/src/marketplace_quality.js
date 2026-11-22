@@ -90,8 +90,8 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
   const reviewPassed = independentReview?.pass === true &&
     Array.isArray(independentReview?.issues) && independentReview.issues.length === 0 &&
     Array.isArray(independentReview?.failedCriteria) && independentReview.failedCriteria.length === 0;
-  checks.push({ id: "independent_review", passed: reviewPassed, note: reviewPassed ? "Independent reviewer passed the exact draft" : "Missing, failed, or incomplete independent review" });
-  if (!reviewPassed) blockers.push("independent_review_not_passed");
+  checks.push({ id: "same_model_review", passed: reviewPassed, note: reviewPassed ? "A separate review call using the same model passed the exact draft; this is not independent verification" : "Missing, failed, or incomplete same-model review" });
+  if (!reviewPassed) blockers.push("same_model_review_not_passed");
 
   const requiredCriteria = Array.isArray(task?.acceptanceCriteria) ? task.acceptanceCriteria : [];
   const reviewedCriteria = Array.isArray(independentReview?.criteria) ? independentReview.criteria : [];
@@ -108,7 +108,7 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
     sourceVerificationStatus: sourceVerification?.status || (needsSources ? "not_run" : "not_required"),
     sourceEvidence: sourceContentVerified && needsSources ? sourceVerification.results : [],
     acceptanceCriteriaCount: requiredCriteria.length,
-    independentlyReviewed: reviewPassed,
+    independentlyReviewed: false, reviewMode: "same_model_second_call", reviewerCallPassed: reviewPassed,
     assessedAt: new Date().toISOString(),
     warning: "Automated QA is a screening aid. A trusted verifier attests source retrieval and claim relevance; this does not guarantee factual correctness, platform compliance, or buyer acceptance. Submission remains separately authorized."
   };
