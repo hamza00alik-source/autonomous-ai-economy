@@ -98,7 +98,7 @@ test("never submits if task terms changed, expired, staked, or allowance is not 
   for (const overrides of [
     { status: "closed" },
     { stakeRequired: true },
-    { submissionCount: 5 },
+    { submissionCount: 50 },
     { reward: "9000000" },
   ]) {
     const e = env();
