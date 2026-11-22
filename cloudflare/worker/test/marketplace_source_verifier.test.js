@@ -105,3 +105,17 @@ test("service errors fail closed", async()=>{
   assert.equal(result.verified,false);
   assert.ok(result.blockers.includes("source_verification_failed"));
 });
+
+test("oversized verifier response is rejected while streaming without content-length", async()=>{
+  const huge = "x".repeat(70000);
+  const oversizedResponse = new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(huge));
+      controller.close();
+    },
+  }), {status:200, headers:{"content-type":"application/json"}});
+  const result=await verifyResearchSources({SOURCE_VERIFIER:{fetch:async()=>oversizedResponse}},{title:"Research a software market"},draft+" "+url);
+  assert.equal(result.verified,false);
+  assert.ok(result.blockers.includes("source_verification_failed"));
+  assert.match(result.error,/too large/i);
+});
