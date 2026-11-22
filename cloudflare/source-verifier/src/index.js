@@ -136,6 +136,7 @@ export default {
   async fetch(request, env) {
     const pathname = new URL(request.url).pathname;
     if (pathname !== "/healthz" && pathname !== "/v1/verify") return json({ error: "not found" }, 404);
+    if (pathname === "/healthz" && request.method !== "GET") return json({ error: "not found" }, 404);
     if (!equalSecret(request.headers.get("x-aae-source-verifier-token"), env.INTERNAL_SERVICE_TOKEN)) {
       return json({ error: "unauthorized" }, 401);
     }
