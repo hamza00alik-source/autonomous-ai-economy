@@ -47,3 +47,25 @@ From `cloudflare/worker`:
 ```bash
 npm test
 ```
+
+## Source-verifier security architecture decision (deployment gate)
+
+A DNS preflight followed by ordinary `fetch()` is **not** sufficient to claim DNS-rebinding protection. Cloudflare Workers' global `fetch()` does not expose a supported arbitrary-destination IP-pinning control; `resolveOverride` is restricted to hostnames in the same Cloudflare zone. A separate DNS-over-HTTPS lookup followed by `fetch()` leaves a time-of-check/time-of-use gap because the connection can resolve the hostname again. Manual redirect handling is necessary but does not close that gap by itself.
+
+Therefore, do not implement or deploy the verifier as a Worker that merely resolves A/AAAA records, rejects private results, then calls global `fetch()`. Do not label that design SSRF-safe.
+
+### Required deployment topology
+
+1. The AAE marketplace Worker calls only the authenticated `SOURCE_VERIFIER` service binding; no task-supplied URL is fetched by the marketplace Worker.
+2. The verifier service validates the URL syntax and policy, then sends every outbound request through a dedicated egress fetcher/proxy with connection-time destination enforcement.
+3. The egress component resolves both A and AAAA records, rejects every non-global/reserved address, and connects to a selected validated IP without a second uncontrolled DNS lookup. It preserves the original hostname for TLS SNI and certificate verification and the HTTP Host header.
+4. Redirects are disabled at the HTTP client. The verifier parses each Location, re-applies the full URL and DNS/IP policy, and requests the next hop through the same pinned egress path. Limit redirect count.
+5. Apply strict allow/deny policy, ports 80/443 only (prefer HTTPS), no userinfo, no cookies or ambient credentials, bounded connect/read/total time, bounded decompressed response bytes, content-type restrictions, and no script execution.
+6. Record requested URL, each redirect hop, resolved addresses, selected peer IP, TLS hostname/certificate result, status, content digest, fetch timestamp, and bounded extracted evidence. Never expose internal IPs or sensitive transport details to marketplace users.
+7. Add adversarial tests for IPv4 and IPv6 loopback/private/link-local/reserved ranges, IPv4-mapped IPv6, alternate numeric IP forms, mixed public/private DNS answers, rebinding between validation and connect, redirect-to-private, redirect loops, oversized compressed bodies, slow responses, and TLS hostname mismatch.
+
+### Platform decision
+
+Cloudflare Workers remains suitable as the authenticated control plane and service-binding client. It is not, by itself, the verified arbitrary-URL egress enforcement point for this threat model. The separate fetcher must demonstrate connection-time IP pinning and network egress restrictions in a reviewed implementation before the `SOURCE_VERIFIER` binding is configured. A DNS preflight plus Workers `fetch()`, or a hostname-only blocklist, does not meet this requirement.
+
+Until that implementation and its adversarial tests are independently reviewed, `SOURCE_VERIFIER` must remain unbound and research tasks must remain blocked. This is an intentional security gate, not a completed feature.
