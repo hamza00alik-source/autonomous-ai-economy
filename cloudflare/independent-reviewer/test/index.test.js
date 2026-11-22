@@ -13,3 +13,12 @@ test('calls Google through VPC egress and truthfully labels independent provider
 test('rejects invalid payload before provider call',async()=>{const e=env();const r=await reviewer.fetch(req(TOKEN,{protocolVersion:1,task,deliverable:1,requirements,sourceEvidence:[]}),e);assert.equal(r.status,400);assert.equal(e.calls.length,0);});
 test('does not follow provider redirects',async()=>{const e=env({EGRESS:{fetch:async()=>new Response(null,{status:302,headers:{location:'https://attacker.example'}})}});assert.equal((await reviewer.fetch(req(),e)).status,502);});
 test('rejects malformed model output',async()=>{const e=env({EGRESS:{fetch:async()=>new Response(JSON.stringify({candidates:[{content:{parts:[{text:'not json'}]}}]}),{status:200})}});assert.equal((await reviewer.fetch(req(),e)).status,502);});
+
+test("authenticated health check reports configured reviewer without a Google call",async()=>{
+ const e=env();const r=await reviewer.fetch(new Request("https://internal/healthz",{headers:{"x-aae-independent-review-token":TOKEN}}),e);
+ assert.equal(r.status,200);const data=await r.json();assert.equal(data.ok,true);assert.equal(data.provider,"google");assert.equal(e.calls.length,0);
+});
+test("reviewer health check fails closed when the explicit enable flag is false",async()=>{
+ const e=env({INDEPENDENT_REVIEW_ENABLED:"false"});const r=await reviewer.fetch(new Request("https://internal/healthz",{headers:{"x-aae-independent-review-token":TOKEN}}),e);
+ assert.equal(r.status,503);assert.equal(e.calls.length,0);
+});
