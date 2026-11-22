@@ -9,7 +9,7 @@ function normalizeSwarmMemo(row) {
   const reward = parseJson(row.reward_json);
   const standing = reward?.standing && typeof reward.standing === "object" ? reward.standing : null;
   const unit = String(reward?.unit || "").toLowerCase();
-  const directValue = unit === "usdc" ? reward?.amount : reward?.usdc ?? reward?.amount_usdc ?? reward?.cash_usdc ?? null;
+  const directValue = unit === "usdc" ? reward?.amount : unit === "credit" || unit === "credits" ? null : reward?.usdc ?? reward?.amount_usdc ?? reward?.cash_usdc ?? null;
   const parseUsdc = (value) => {
     const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
     return /^\d+(?:\.\d{1,6})?$/.test(text) ? Number(text) : NaN;
@@ -25,6 +25,7 @@ function normalizeSwarmMemo(row) {
     task_id: row.task_id,
     title: row.title,
     description: row.task_text,
+    // Credits are platform points, not cash. Never route credit-only bounties into the cash-earning queue.
     eligible: row.eligible === 1 && (directValue != null || !!payableTier),
     simulated: row.simulated === 1,
     reward: rewardValue,
