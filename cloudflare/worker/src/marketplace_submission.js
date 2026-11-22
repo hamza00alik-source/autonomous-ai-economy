@@ -4,7 +4,7 @@ const ADDRESS = /^0x[a-f0-9]{40}$/i;
 const SIGNATURE = /^0x[a-f0-9]{130}$/i;
 const TX_HASH = /^0x[a-f0-9]{64}$/i;
 const MAX_DELIVERABLE_BYTES = 18000;
-const FREE_SUBMISSION_LIMIT = 5;
+const FREE_TASK_TOTAL_LIMIT = 50;
 
 function result(status, reason, extra = {}) {
   return { status, submitted: false, reason, externalActionsTaken: false, ...extra };
@@ -105,8 +105,8 @@ export async function submitTaskmarketDeliverable(env, task, deliverable, fetchI
   const liveNet = (BigInt(live.reward) * BigInt(10000 - feeBps) / 10000n).toString();
   if (liveNet !== String(task.net_reward_base_units)) return result("blocked", "live_net_reward_changed");
   const submissionCount = Number(live.submissionCount);
-  if (!Number.isInteger(submissionCount) || submissionCount < 0 || submissionCount >= FREE_SUBMISSION_LIMIT) {
-    return result("blocked", "free_submission_allowance_not_confirmed");
+  if (!Number.isInteger(submissionCount) || submissionCount < 0 || submissionCount >= FREE_TASK_TOTAL_LIMIT) {
+    return result("blocked", "task_submission_fee_threshold_reached");
   }
 
   let existing;
