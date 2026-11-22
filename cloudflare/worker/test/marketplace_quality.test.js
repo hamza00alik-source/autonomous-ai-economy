@@ -8,7 +8,7 @@ const passingReview = {
 };
 
 test("draft passes only with independent review and evidence for each acceptance criterion", () => {
-  const task = { title: "Write a concise product comparison", acceptanceCriteria: ["Include limitations"] };
+  const task = { title: "Write a concise product summary", acceptanceCriteria: ["Include limitations"] };
   const draft = "Comparison summary with useful details. Limitations are explained. Self-check: assumptions noted. Source: https://example.com/reference";
   const result = qualityCheckDraft(task, draft, passingReview);
   assert.equal(result.status, "submission_candidate");
@@ -72,6 +72,13 @@ test("research and comparison drafts require a syntactically valid source URL", 
     review,
   );
   assert.ok(invalid.blockers.includes("invalid_source_urls"));
+  const validUrlOnly = qualityCheckDraft(
+    {title:"Research a software market",description:"Investigate the market and compare current offerings"},
+    "A substantive research draft with analysis and limitations. Self-check: assumptions are stated. Source: https://example.com/report",
+    review,
+  );
+  assert.ok(validUrlOnly.blockers.includes("source_content_not_verified"));
+  assert.equal(validUrlOnly.sourceContentVerified, false);
 });
 
 test("review evidence must be an exact excerpt from the draft", () => {
