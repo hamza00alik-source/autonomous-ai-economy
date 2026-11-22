@@ -42,7 +42,7 @@ export function assessTask(task, source = "unknown") {
     textField(task?.outputFormat ?? task?.output_format, 300),
     ...safeList(task?.requiredDeliverables ?? task?.required_deliverables),
   ].join(" ");
-  if (/\.(?:pdf|docx|xlsx|pptx|zip|png|jpe?g|webp|glb|gltf|blend|mp4|wav|mp3)\b/i.test(requestedOutput) ||
+  if (/\b(?:pdf|docx|xlsx|pptx|zip|png|jpe?g|webp|glb|gltf|blend|mp4|wav|mp3)\b/i.test(requestedOutput) ||
       /\b(?:deliver|provide|attach|export) (?:a |an )?(?:pdf|docx|xlsx|pptx|zip|image|3d model|video|audio file)\b/i.test(requestedOutput)) {
     reasons.push("unsupported_artifact_format");
   }
