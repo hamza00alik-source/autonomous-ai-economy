@@ -81,3 +81,26 @@ test("criterion failure blocks submission readiness even after one revision", as
 test("rejects empty specialist output", async () => {
   await assert.rejects(()=>executePrivateDraft({AI:{run:async()=>({})}},{title:"Research",description:"Draft a research note",eligible:true,reward_usdc:"1.00"}),/specialist agent returned no usable output/);
 });
+
+test("blocks tasks that require code execution without a sandbox runner", () => {
+  const result = assessTask({
+    title:"Test the submitted Python script",
+    description:"Run the script and execute the unit tests before delivery.",
+    reward_usdc:"1.00",
+  });
+  assert.equal(result.eligible,false);
+  assert.ok(result.reasons.includes("runtime_verification_unavailable"));
+});
+
+test("blocks file formats the text-only agent cannot create or inspect", () => {
+  for (const outputFormat of ["PDF", "DOCX", "XLSX", "ZIP", "GLB"]) {
+    const result = assessTask({
+      title:"Prepare deliverable",
+      description:"Create a written summary.",
+      reward_usdc:"1.00",
+      output_format:outputFormat,
+    });
+    assert.equal(result.eligible,false,outputFormat);
+    assert.ok(result.reasons.includes("unsupported_artifact_format"),outputFormat);
+  }
+});
