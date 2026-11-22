@@ -71,6 +71,15 @@ test("rejects social engagement and first-timer-only bounties", () => {
   assert.equal(result.rejected, 2);
 });
 
+test("rejects tasks requiring an X account", () => {
+  const result = normalizeBountyFeed({
+    generated_at: "2026-11-21T04:58:00.000Z",
+    items: [{...baseItem, id:"x-account", requires:["agent_account", "wallet_evm", "x_account"]}],
+  }, now);
+  assert.equal(result.items.length, 0);
+  assert.equal(result.rejected, 1);
+});
+
 test("stores only normalized items and preserves the source snapshot", async () => {
   const calls = [];
   const env = { DB: { prepare(sql) {
