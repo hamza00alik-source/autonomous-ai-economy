@@ -9,6 +9,8 @@ const base = {
   description: "Please research three open source tools for a small team. Compare core features, licensing, setup complexity, maintenance activity, documentation quality, community support, portability, and relevant tradeoffs. Provide a structured summary with sources, clear limitations, and a concise recommendation for different use cases.",
   status: "open",
   claimable: true,
+  payment_status: "pending",
+  escrow: { status: "funded", deposit_tx_hash: "0x" + "a".repeat(64) },
   bounty: { amount_atomic: "1500000", amount_display: "1.50", token: "USDC", network: "eip155:8453" },
   required_capabilities: ["research", "writing"],
   expected_output: "Comparison report with source links",
