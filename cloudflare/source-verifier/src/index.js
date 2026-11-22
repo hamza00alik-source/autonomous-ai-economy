@@ -166,14 +166,13 @@ export default {
     } catch (error) {
       return json({ error: String(error.message || "invalid URL").slice(0, 160) }, 400);
     }
-    const results = [];
-    for (const value of urls) {
-      try { results.push(await verifyOne(new URL(value), payload.draft, env)); }
-      catch (error) {
-        return json({ protocolVersion: 1, status: "failed", results: [],
-          error: String(error?.message || "source retrieval failed").slice(0, 200) }, 502);
-      }
+    const fetched = await Promise.allSettled(urls.map(value => verifyOne(new URL(value), payload.draft, env)));
+    const failed = fetched.find(item => item.status === "rejected");
+    if (failed) {
+      return json({ protocolVersion: 1, status: "failed", results: [],
+        error: String(failed.reason?.message || "source retrieval failed").slice(0, 200) }, 502);
     }
+    const results = fetched.map(item => item.value);
     return json({
       protocolVersion: 1, status: "retrieved_unverified", retrievalVerified: true, results,
       notice: "This confirms retrieval, integrity hash and exact excerpt matching only; it does not attest claim support or factual correctness.",
