@@ -130,7 +130,7 @@ test("queued task becomes a private draft automatically without external actions
   assert.match(jobs[0].result_text, /Documentation draft/);
 });
 
-test("failed independent QA is stored as blocked with its draft, not an invalid status", async () => {
+test("failed same-model review is stored as blocked with its draft, not an invalid status", async () => {
   const { env, jobs } = fakeEnv({
     reviewerOutput: '{"pass":false,"issues":["The deliverable is not sufficiently supported."],"reason":"The deliverable is not sufficiently supported.","criteria":[]}',
     taskmarket: [{
