@@ -4,10 +4,10 @@ function safeText(value, limit = 20000) {
   return typeof value === "string" ? value.trim().slice(0, limit) : "";
 }
 
-const SOURCE_PATTERN = /https?:\\/\\/[^\\s)\\]}>,\"']+/gi;
-const TODO_PATTERN = /\\b(todo|tbd|placeholder|insert here|lorem ipsum|not completed|unable to complete)\\b/i;
-const CLAIM_PATTERN = /\\b(I verified|verified live|confirmed current|checked the website|tested successfully|ran the test)\\b/i;
-const RESEARCH_PATTERN = /\\b(research|investigate|fact[- ]check|market analysis|compare|comparison|cite|citations|sources)\\b/i;
+const SOURCE_PATTERN = /https?:\/\/[^\s)\]}>,\"']+/gi;
+const TODO_PATTERN = /\b(todo|tbd|placeholder|insert here|lorem ipsum|not completed|unable to complete)\b/i;
+const CLAIM_PATTERN = /\b(I verified|verified live|confirmed current|checked the website|tested successfully|ran the test)\b/i;
+const RESEARCH_PATTERN = /\b(research|investigate|fact[- ]check|market analysis|compare|comparison|cite|citations|sources)\b/i;
 
 function extractUrls(body) {
   const candidates = [...new Set([...body.matchAll(new RegExp(SOURCE_PATTERN.source, "gi"))].map(match => match[0].replace(/[.,;:!?]+$/, "")))];
@@ -46,7 +46,7 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
   if (hasTodo) blockers.push("unfinished_markers_found");
 
   const { valid: sourceUrls, invalid: invalidSourceUrls } = extractUrls(body);
-  const needsSources = RESEARCH_PATTERN.test(title + "\\n" + description);
+  const needsSources = RESEARCH_PATTERN.test(title + "\n" + description);
   const sourcesPass = !needsSources || sourceUrls.length > 0;
   const verifiedUrls = Array.isArray(sourceVerification?.results)
     ? sourceVerification.results.map(item => item?.requestedUrl).filter(value => typeof value === "string") : [];
@@ -79,7 +79,7 @@ export function qualityCheckDraft(task, draft, independentReview = null, sourceV
     if (!blockers.includes("source_content_not_verified") && !sourceVerification?.blockers?.length) blockers.push("source_content_not_verified");
   }
 
-  const hasSelfCheck = /\\b(self[- ]?check|quality check|qa|checklist|limitations|assumptions)\\b/i.test(body);
+  const hasSelfCheck = /\b(self[- ]?check|quality check|qa|checklist|limitations|assumptions)\b/i.test(body);
   checks.push({ id: "self_review", passed: hasSelfCheck, note: hasSelfCheck ? "Self-review/assumptions section detected" : "No explicit self-review detected" });
   if (!hasSelfCheck) blockers.push("missing_self_review");
 
