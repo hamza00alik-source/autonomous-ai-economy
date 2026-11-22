@@ -19,8 +19,10 @@ const PAYOUT_RAILS = {
   "eth-mainnet": { asset: "ETH", network: "Ethereum", kind: "crypto", priority: 2, region: "wallet_required" },
   "btc-mainnet": { asset: "BTC", network: "Bitcoin", kind: "crypto", priority: 2, region: "wallet_required" },
   "sol-solana": { asset: "SOL", network: "Solana", kind: "crypto", priority: 2, region: "wallet_required" },
-  "payoneer": { asset: "USD", network: "Payoneer", kind: "digital_payout", priority: 3, region: "supported_in_pakistan" },
-  "wise": { asset: "USD", network: "Wise", kind: "digital_payout", priority: 4, region: "account_confirmation_required" },
+  "payoneer": { assets: ["USD", "EUR", "GBP"], network: "Payoneer", kind: "digital_payout", priority: 3, region: "supported_in_pakistan" },
+  "wise": { assets: ["USD", "EUR", "GBP"], network: "Wise", kind: "digital_payout", priority: 4, region: "account_confirmation_required" },
+  "skrill": { assets: ["USD", "EUR", "GBP"], network: "Skrill", kind: "digital_payout", priority: 5, region: "account_confirmation_required" },
+  "neteller": { assets: ["USD", "EUR", "GBP"], network: "Neteller", kind: "digital_payout", priority: 5, region: "account_confirmation_required" },
 };
 
 function safeHttpsUrl(value) {
@@ -32,12 +34,29 @@ function safeHttpsUrl(value) {
   } catch { return null; }
 }
 
-function classifyPayout(reward, railValue) {
+function classifyPayout(reward, railValue, extra = {}) {
   const currency = String(reward?.currency || "").trim().toUpperCase();
   const rail = String(railValue || "").trim().toLowerCase();
   const spec = PAYOUT_RAILS[rail];
-  if (!spec || spec.asset !== currency) return null;
-  return { rail, currency, ...spec };
+  if (spec) {
+    const matches = Array.isArray(spec.assets) ? spec.assets.includes(currency) : spec.asset === currency;
+    return matches ? { rail, currency, ...spec } : null;
+  }
+  // Accept other crypto only when both asset and chain are explicit and a USD estimate is supplied.
+  const networks = {
+    base: "Base", ethereum: "Ethereum", polygon: "Polygon", arbitrum: "Arbitrum",
+    optimism: "Optimism", avalanche: "Avalanche", solana: "Solana", bitcoin: "Bitcoin",
+    tron: "Tron", bsc: "BNB Smart Chain", ton: "TON", near: "NEAR", sui: "Sui",
+    aptos: "Aptos", stellar: "Stellar", xrp: "XRP Ledger",
+  };
+  const match = rail.match(/^([a-z0-9]+)-([a-z0-9]+)$/);
+  const network = match && networks[match[2]];
+  const usdEstimate = Number(reward?.usd_estimate ?? extra?.reward_usd_estimate);
+  if (match && match[1].toUpperCase() === currency && network && currency !== "USDC" && currency !== "USDT" &&
+      Number.isFinite(usdEstimate) && usdEstimate > 0) {
+    return { rail, currency, network, kind: "crypto", priority: 2, region: "wallet_required" };
+  }
+  return null;
 }
 
 function acceptanceText(item, meta) {
@@ -52,7 +71,7 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
   for (const item of feed.items) {
     const meta = item?._jobbi;
     const reward = Number(meta?.reward?.amount);
-    const payout = classifyPayout(meta?.reward, meta?.reward?.rail);
+    const payout = classifyPayout(meta?.reward, meta?.reward?.rail, meta?.extra);
     const grade = String(meta?.payout_grade || "").toUpperCase();
     const modified = Date.parse(item?.date_modified || "");
     const url = safeHttpsUrl(item?.url);
@@ -61,7 +80,6 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
     const text = [item?.title, item?.content_text, meta?.acceptance, JSON.stringify(meta?.extra || {}), ...(Array.isArray(item?.tags) ? item.tags : [])].filter(Boolean).join(" ");
     const reasons = [];
     if (!payout) reasons.push("payout_rail_or_asset_not_explicitly_supported");
-    if (payout?.region === "account_confirmation_required") reasons.push("payout_account_availability_requires_owner_confirmation");
     if (typeof item?.id !== "string" || !item.id.trim()) reasons.push("missing_task_id");
     if (typeof item?.title !== "string" || !item.title.trim()) reasons.push("missing_title");
     if (!url) reasons.push("invalid_source_url");
