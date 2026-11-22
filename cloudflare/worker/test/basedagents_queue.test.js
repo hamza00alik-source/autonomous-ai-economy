@@ -50,6 +50,8 @@ test("BasedAgents eligible discovery queues a real Base USDC AI-only task once",
   assert.equal(DB.jobs[0].reward_text, "2.500000");
   const snapshot = JSON.parse(DB.jobs[0].task_snapshot_json);
   assert.match(snapshot.description, /Expected output/);
+  assert.ok(snapshot.description.includes("\n\n"), "task details should be separated by readable paragraphs");
+  assert.equal(snapshot.description.includes("\\n\\n"), false, "description must not contain literal escape sequences");
   assert.equal(snapshot.stake_required, false);
 });
 
