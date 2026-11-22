@@ -80,7 +80,7 @@ QA-passed Taskmarket Base bounty drafts can be submitted automatically without a
 - Re-fetches the task and checks that it remains open, unexpired, unchanged, escrow-backed, unstaked, and on chain 8453.
 - Requires a separately configured `WALLET_SIGNER` service binding. The signer must expose authenticated `GET /healthz` returning `{ok:true,address,chainId:8453,signing:"eip191"}`, and authenticated `POST /v1/sign` accepting only the exact `taskmarket:submit:<taskId>` message. The Worker pins the expected wallet address and never stores a private key.
 - Checks for an existing submission from the worker before writing.
-- Conservatively submits only while the task's total submission count is below five, avoiding Taskmarket's 0.001 USDC post-free-allowance charge. It makes no x402-paid call.
+- Submits only while the task's total submission count is below 50. Taskmarket makes each worker's first five bounty submissions free until the task reaches 50 total submissions; the adapter submits at most once per worker/task and makes no x402-paid call.
 - Sends the QA-passed Markdown deliverable with the required EIP-191 signature. An ambiguous network result is marked for reconciliation and is never automatically retried.
 - Retries stored QA-passed drafts on the five-minute schedule once the signer is available. There is no per-task approval gate after QA; the global feature flag and signer provisioning are one-time operator setup.
 
