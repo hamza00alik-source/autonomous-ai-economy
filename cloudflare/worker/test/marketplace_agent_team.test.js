@@ -178,7 +178,7 @@ test("independent reviewer accepts only a separate Google provider identity", as
 
 test("same-provider or unverified reviewer claims are rejected", async () => {
   const env = {
-    INDEPENDENT_REVIEW_TOKEN: "secret",
+    INDEPENDENT_REVIEW_TOKEN: "secret", INDEPENDENT_REVIEW_ENABLED: "true",
     INDEPENDENT_REVIEWER: { fetch: async () => new Response(JSON.stringify({
       protocolVersion: 1, provider: "cloudflare", model: "glm-4.7-flash",
       independent: true, sameProvider: false,
