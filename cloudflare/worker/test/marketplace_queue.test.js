@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "../src/marketplace_queue.js";
 
-function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.", reviewerOutput = '{"pass":true,"issues":[],"reason":"The work meets the stated requirements."}' } = {}) {
+function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.", reviewerOutput = '{"pass":true,"issues":[],"reason":"The work meets the stated requirements.","criteria":[]}' } = {}) {
   const jobs = [];
   let aiCall = 0;
   const env = {
@@ -132,7 +132,7 @@ test("queued task becomes a private draft automatically without external actions
 
 test("failed independent QA is stored as blocked with its draft, not an invalid status", async () => {
   const { env, jobs } = fakeEnv({
-    reviewerOutput: '{"pass":false,"issues":[],"reason":"The deliverable is not sufficiently supported."}',
+    reviewerOutput: '{"pass":false,"issues":["The deliverable is not sufficiently supported."],"reason":"The deliverable is not sufficiently supported.","criteria":[]}',
     taskmarket: [{
       task_id: "0xqa", title: "Prepare documentation", description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain the steps, assumptions, expected results, and limitations, then provide a short checklist.",
       eligible: 1, net_reward_usdc: "1.00", stake_required: 0,
