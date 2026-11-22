@@ -47,6 +47,8 @@ test("private execution requires review and takes no external action",async()=>{
   assert.equal(result.submissionReady,true);
   assert.match(result.deliverableSha256,/^[a-f0-9]{64}$/);
   assert.ok(result.qa.checks.some(check=>check.id==="same_model_review"&&check.passed));
+  assert.equal(result.qa.same_model_review.pass, true);
+  assert.equal(Object.hasOwn(result.qa, "independent_review"), false);
 });
 test("criterion failure blocks readiness after bounded revision",async()=>{
   const criterion="Include limitations";
