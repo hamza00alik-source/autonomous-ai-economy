@@ -2,9 +2,16 @@ import { qualityCheckDraft } from "./marketplace_quality.js";
 import { executeAgentTeam } from "./marketplace_agent_team.js";
 
 const MAX_TASK_BYTES = 12000;
+const MAX_CRITERIA = 20;
 
 function textField(value, limit) {
   return typeof value === "string" ? value.trim().slice(0, limit) : "";
+}
+
+function safeList(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter(item => typeof item === "string")
+    .map(item => item.trim().slice(0, 500)).filter(Boolean))].slice(0, MAX_CRITERIA);
 }
 
 const BLOCK_PATTERNS = [
@@ -43,6 +50,10 @@ export function assessTask(task, source = "unknown") {
     source: textField(source, 60),
     title,
     description,
+    acceptanceCriteria: safeList(task?.acceptanceCriteria ?? task?.acceptance_criteria),
+    requiredDeliverables: safeList(task?.requiredDeliverables ?? task?.required_deliverables),
+    constraints: safeList(task?.constraints),
+    outputFormat: textField(task?.outputFormat ?? task?.output_format, 300),
     reward,
     eligible: reasons.length === 0,
     reasons,
@@ -57,15 +68,21 @@ export async function executePrivateDraft(env, task, source = "unknown") {
   const team = await executeAgentTeam(env, {
     title: assessment.title,
     description: assessment.description,
+    acceptanceCriteria: assessment.acceptanceCriteria,
+    requiredDeliverables: assessment.requiredDeliverables,
+    constraints: assessment.constraints,
+    outputFormat: assessment.outputFormat,
   }, assessment.source);
-  const qa = qualityCheckDraft(assessment, team.deliverable);
+  const qa = qualityCheckDraft(assessment, team.deliverable, team.review);
   const submissionReady = team.ready === true && qa.status === "submission_candidate";
   return {
     status: "draft_ready",
     assessment,
     deliverable: team.deliverable,
+    deliverableSha256: team.deliverableSha256,
     qa: { ...qa, independent_review: team.review },
     agentTeam: team.agents,
+    reviewRounds: team.reviewRounds,
     revised: team.revised,
     submissionReady,
     externalActionsTaken: false,
