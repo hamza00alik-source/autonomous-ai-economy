@@ -125,5 +125,5 @@ export async function discoverBasedAgentsTasks(fetchImpl = fetch, now = Date.now
   if (!data || !Array.isArray(data.tasks)) throw new Error("BasedAgents task-list schema changed");
   const normalized = data.tasks.slice(0, MAX_TASKS).map(task => normalizeBasedAgentsTask(task, now)).filter(Boolean);
   const eligible = rankBasedAgentsTasks(normalized);
-  return { source: "based_agents", fetched: normalized.length, eligible_count: eligible.length, tasks: normalized, ranked: eligible };
+  return { source: "basedagents", fetched: normalized.length, eligible_count: eligible.length, tasks: normalized, ranked: eligible };
 }
