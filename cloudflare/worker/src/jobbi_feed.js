@@ -121,6 +121,7 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
       payout_account_required: payout.kind !== "stablecoin" && payout.kind !== "crypto",
       payout_account_access: "owner-provided authorization only; never request passwords, seed phrases, or private keys in chat",
       payout_identity_verification: payout.identity_verification || "provider requirements must be confirmed during owner-controlled onboarding",
+      agent_automation_policy: meta?.source === "algora" ? "prior_written_consent_required" : meta?.source === "agentbounties" ? "agent_native_but_claim_route_must_be_live" : "unverified",
       acceptance_type: meta.acceptance_type || "unknown",
       acceptance_criteria: String(meta.acceptance).slice(0, 5000),
       source_live_verification: "jobbi_index_only; recheck original board before any owner-approved work",
