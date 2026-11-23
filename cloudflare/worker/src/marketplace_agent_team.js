@@ -2,20 +2,18 @@ const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const MAX_TASK_CHARS = 12_000;
 const MAX_DELIVERABLE_CHARS = 18_000;
 
-function extractText(output) {
+function extractText(output, depth = 0) {
+  if (depth > 5 || output == null) return "";
   if (typeof output === "string") return output.trim();
-  if (!output || typeof output !== "object") return "";
+  if (Array.isArray(output)) return output.map(part => extractText(part, depth + 1)).filter(Boolean).join("").trim();
+  if (typeof output !== "object") return "";
   const candidates = [
     output.response, output.output_text, output.text, output.content,
-    output.result?.response, output.result?.output_text, output.result?.text, output.result?.content,
-    output.choices?.[0]?.message?.content, output.choices?.[0]?.text,
+    output.result, output.choices?.[0]?.message?.content, output.choices?.[0]?.text,
   ];
   for (const value of candidates) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-    if (Array.isArray(value)) {
-      const joined = value.map(part => typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "").join("").trim();
-      if (joined) return joined;
-    }
+    const extracted = extractText(value, depth + 1);
+    if (extracted) return extracted;
   }
   return "";
 }
@@ -82,7 +80,7 @@ export async function executeAgentTeam(env, task, source = "unknown") {
     if (revision.length > MAX_DELIVERABLE_CHARS) throw new Error("revision deliverable exceeded the size limit");
     reviewed = revision;
     revised = true;
-    const revisedReviewUser = "Review this work independently.\\nTASK JSON:\\n" + taskJson + "\\nDELIVERABLE:\\n" + reviewed;
+    const revisedReviewUser = "Review this work independently.\nTASK JSON:\n" + taskJson + "\nDELIVERABLE:\n" + reviewed;
     review = parseReview(await ask(env, "reviewer", reviewSystem, revisedReviewUser, 500));
   }
 
