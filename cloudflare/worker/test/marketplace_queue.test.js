@@ -134,9 +134,36 @@ test("Jobbi candidates without escrow or a Pakistan-supported payout route are n
   }] });
   const result = await enqueueMarketplaceTasks(env);
   assert.equal(result.queued, 0);
-  assert.equal(result.blocked, 2);
-  assert.equal(jobs.length, 2);
-  assert.ok(jobs.every(job => job.status === "blocked"));
+  assert.equal(result.blocked, 0);
+  assert.equal(jobs.length, 0);
+});
+
+test("Jobbi work without explicit agent permission is blocked before inference", async () => {
+  const { env, jobs } = fakeEnv({ jobbi: [{
+    gig_id: "algora:manual-review-only",
+    board_source: "algora",
+    title: "Fix a small documented API bug",
+    source_url: "https://github.com/example/project/issues/9",
+    reward_usd: 5,
+    reward_usd_estimate: 5,
+    currency: "USD",
+    payment_rail: "stripe",
+    payment_state: "escrowed",
+    payout_grade: "B",
+    payout_region_status: "supported_in_pakistan",
+    requirements_json: JSON.stringify({
+      lane: "agent", claims_open: true, payment_state: "escrowed",
+      payout_grade: "B", payout_region_status: "supported_in_pakistan",
+      agent_automation_policy: "prior_written_consent_required",
+      acceptance_criteria: "Implement the documented API behavior, add regression tests, and verify that all relevant tests pass.",
+    }),
+    snapshot_json: JSON.stringify({ content_text: "Fix the documented API behavior without breaking existing callers." }),
+  }] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 0);
+  assert.equal(result.blocked, 1);
+  assert.equal(jobs[0].status, "blocked");
+  assert.match(jobs[0].eligibility_json, /marketplace_ineligible/);
 });
 
 test("unsafe or ineligible work is blocked and never sent to the model", async () => {
