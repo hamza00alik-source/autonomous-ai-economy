@@ -94,7 +94,7 @@ export async function executeAgentTeam(env, task, source = "unknown") {
   let review = await reviewWithRetry(env, taskJson, reviewed);
   let revised = false;
 
-  if (!review.pass === false && review.issues.length) {
+  if (!review.pass && review.issues.length) {
     const revision = await ask(
       env,
       "revision",
