@@ -34,10 +34,15 @@ function safeHttpsUrl(value) {
   } catch { return null; }
 }
 
-function classifyPayout(reward, railValue, extra = {}) {
+function classifyPayout(reward, railValue, extra = {}, source = "") {
   const currency = String(reward?.currency || "").trim().toUpperCase();
   const rail = String(railValue || "").trim().toLowerCase();
   const spec = PAYOUT_RAILS[rail];
+  // Algora's official payment documentation explicitly lists Pakistan for Stripe Connect payouts.
+  // Keep this source-specific: other Stripe rails remain unsupported until their country coverage is verified.
+  if (rail === "stripe" && source === "algora" && currency === "USD") {
+    return { rail: "stripe", currency, network: "Stripe Connect", kind: "digital_payout", priority: 3, region: "supported_in_pakistan", identity_verification: "KYC required at payout" };
+  }
   if (spec) {
     const matches = Array.isArray(spec.assets) ? spec.assets.includes(currency) : spec.asset === currency;
     return matches ? { rail, currency, ...spec } : null;
@@ -72,7 +77,7 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
     const meta = item?._jobbi;
     const rewardText = String(meta?.reward?.amount ?? "").trim();
     const reward = Number(rewardText);
-    const payout = classifyPayout(meta?.reward, meta?.reward?.rail, meta?.extra);
+    const payout = classifyPayout(meta?.reward, meta?.reward?.rail, meta?.extra, meta?.source);
     const grade = String(meta?.payout_grade || "").toUpperCase();
     const modified = Date.parse(item?.date_modified || "");
     const url = safeHttpsUrl(item?.url);
@@ -115,6 +120,7 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
       payout_region_status: payout.region,
       payout_account_required: payout.kind !== "stablecoin" && payout.kind !== "crypto",
       payout_account_access: "owner-provided authorization only; never request passwords, seed phrases, or private keys in chat",
+      payout_identity_verification: payout.identity_verification || "provider requirements must be confirmed during owner-controlled onboarding",
       acceptance_type: meta.acceptance_type || "unknown",
       acceptance_criteria: String(meta.acceptance).slice(0, 5000),
       source_live_verification: "jobbi_index_only; recheck original board before any owner-approved work",
