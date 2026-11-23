@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "../src/marketplace_queue.js";
 
-function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.", reviewerOutput = '{"pass":true,"issues":[],"reason":"The work meets the stated requirements."}' } = {}) {
+function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.", reviewerOutput = '{"pass":true,"issues":[],"reason":"The work meets the stated requirements."}' } = {}) {
   const jobs = [];
   let aiCall = 0;
   const env = {
@@ -15,6 +15,7 @@ function fakeEnv({ swarm = [], taskmarket = [], aiOutput = "Documentation draft:
           async all() {
             if (sql.includes("FROM swarmmemo_work_items")) return { results: swarm };
             if (sql.includes("FROM taskmarket_work_items")) return { results: taskmarket };
+            if (sql.includes("FROM aae_jobbi_discoveries")) return { results: jobbi };
             return { results: [] };
           },
           async first() {
@@ -63,6 +64,78 @@ test("eligible marketplace work is queued once per source task", async () => {
   assert.equal(first.queued, 1);
   assert.equal(second.queued, 0);
   assert.equal(jobs.length, 1);
+});
+
+test("escrowed Algora USD work with a verified Pakistan payout route enters the agent queue", async () => {
+  const { env, jobs } = fakeEnv({ jobbi: [{
+    gig_id: "algora:small-task",
+    board_source: "algora",
+    title: "Fix a small documented API bug",
+    source_url: "https://github.com/example/project/issues/7",
+    reward_usd: 5,
+    reward_usd_estimate: 5,
+    currency: "USD",
+    payment_rail: "stripe",
+    payment_state: "escrowed",
+    payout_grade: "B",
+    payout_region_status: "supported_in_pakistan",
+    requirements_json: JSON.stringify({
+      lane: "agent",
+      claims_open: true,
+      payment_state: "escrowed",
+      payout_grade: "B",
+      payout_region_status: "supported_in_pakistan",
+      acceptance_criteria: "Implement the documented API behavior, add regression tests, and verify that all relevant tests pass.",
+    }),
+    snapshot_json: JSON.stringify({
+      content_text: "Fix the documented API behavior without breaking existing callers.",
+    }),
+  }] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 1);
+  assert.equal(result.blocked, 0);
+  assert.equal(jobs[0].source, "jobbi:algora");
+  assert.equal(jobs[0].reward_text, "5");
+  const task = JSON.parse(jobs[0].task_snapshot_json);
+  assert.match(task.description, /Acceptance criteria/);
+  assert.match(task.description, /Source listing/);
+});
+
+test("Jobbi candidates without escrow or a Pakistan-supported payout route are not queued", async () => {
+  const base = {
+    gig_id: "algora:unsafe-payout",
+    board_source: "algora",
+    title: "Fix a small documented API bug",
+    source_url: "https://github.com/example/project/issues/8",
+    reward_usd: 5,
+    reward_usd_estimate: 5,
+    currency: "USD",
+    payment_rail: "stripe",
+    payment_state: "promised",
+    payout_grade: "B",
+    payout_region_status: "supported_in_pakistan",
+    requirements_json: JSON.stringify({
+      lane: "agent", claims_open: true, payment_state: "promised",
+      payout_grade: "B", payout_region_status: "supported_in_pakistan",
+      acceptance_criteria: "Implement the documented API behavior, add regression tests, and verify that all relevant tests pass.",
+    }),
+    snapshot_json: JSON.stringify({ content_text: "Fix the documented API behavior without breaking existing callers." }),
+  };
+  const { env, jobs } = fakeEnv({ jobbi: [base, {
+    ...base, gig_id: "algora:unsupported-route",
+    payout_region_status: "account_confirmation_required",
+    requirements_json: JSON.stringify({
+      lane: "agent", claims_open: true, payment_state: "escrowed",
+      payout_grade: "B", payout_region_status: "account_confirmation_required",
+      acceptance_criteria: "Implement the documented API behavior, add regression tests, and verify that all relevant tests pass.",
+    }),
+    payment_state: "escrowed",
+  }] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 0);
+  assert.equal(result.blocked, 2);
+  assert.equal(jobs.length, 2);
+  assert.ok(jobs.every(job => job.status === "blocked"));
 });
 
 test("unsafe or ineligible work is blocked and never sent to the model", async () => {
