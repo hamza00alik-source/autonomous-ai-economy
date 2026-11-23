@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac, createHash } from "node:crypto";
-import worker, { validFacts, validateDraft, estimateNeurons, extractModelText, constantTimeEqual, DAILY_NEURON_BUDGET,
+import worker, { validFacts, validateDraft, estimateNeurons, extractModelText, validateOrRepairDraft, constantTimeEqual, DAILY_NEURON_BUDGET,
   verifyNowPaymentsSignature, paymentStatusFromWebhook } from "../src/index.js";
 
 const facts = {
@@ -23,19 +23,66 @@ const draft = {
   claims_to_verify: ["Inspect import scale and materials in Godot."]
 };
 
-test("Workers AI output adapter extracts documented and OpenAI-compatible text shapes", () => {
+test("Workers AI output adapter extracts nested content and text parts", () => {
   const json = JSON.stringify({ ok: true });
   assert.equal(extractModelText({ response: json }), json);
   assert.equal(extractModelText({ choices: [{ message: { content: json } }] }), json);
   assert.equal(extractModelText({ choices: [{ text: "plain text" }] }), "plain text");
   assert.equal(extractModelText({ output_text: "output text" }), "output text");
   assert.equal(extractModelText({ response: [{ type: "text", text: "part one" }, { type: "text", text: "part two" }] }), "part onepart two");
+  assert.equal(extractModelText({ content: [{ type: "text", text: "top-level content" }] }), "top-level content");
+  assert.equal(extractModelText({ result: { content: [{ type: "text", text: "nested result" }] } }), "nested result");
+  assert.equal(extractModelText({ output: [{ content: [{ type: "text", text: "output array" }] }] }), "output array");
   assert.equal(extractModelText({ reasoning: "internal reasoning only" }), null);
 });
 
 test("facts validator accepts the real product fact sheet", () => {
   assert.equal(validFacts(facts), null);
 });
+
+test("malformed model JSON or schema is repaired once into a validated unpublished draft", async () => {
+  const malformed = { ...draft, headline: draft.title };
+  delete malformed.title;
+  const raw = JSON.stringify(malformed);
+  let calls = 0;
+  const env = { AI: { run: async (_model, options) => {
+    calls++;
+    assert.equal(options.response_format.type, "json_object");
+    assert.equal(options.temperature, 0);
+    return { response: JSON.stringify(draft) };
+  } } };
+  const result = await validateOrRepairDraft(env, facts, raw, { response: raw });
+  assert.equal(result.status, "draft");
+  assert.equal(result.published, false);
+  assert.equal(result.title, draft.title);
+  assert.equal(calls, 1);
+});
+
+test("missing initial model text can recover, but empty repair output remains failed", async () => {
+  let calls = 0;
+  const env = { AI: { run: async () => {
+    calls++;
+    return { response: JSON.stringify(draft) };
+  } } };
+  const result = await validateOrRepairDraft(env, facts, null, { metadata: "no text payload" });
+  assert.equal(result.status, "draft");
+  assert.equal(calls, 1);
+
+  const failing = { AI: { run: async () => ({ response: "" }) } };
+  await assert.rejects(
+    () => validateOrRepairDraft(failing, facts, null, { metadata: "empty response" }),
+    /model output repair returned no usable text/,
+  );
+});
+
+test("fenced JSON is parsed without triggering an unnecessary model retry", async () => {
+  const env = { AI: { run: async () => { throw new Error("repair should not be called"); } } };
+  const raw = "\`\`\`json\n" + JSON.stringify(draft) + "\n\`\`\`";
+  const result = await validateOrRepairDraft(env, facts, raw);
+  assert.equal(result.status, "draft");
+  assert.equal(result.published, false);
+});
+
 
 test("facts validator rejects prompt injection fields and missing limitations", () => {
   assert.match(validFacts({ ...facts, publish_now: true }), /unexpected/);
