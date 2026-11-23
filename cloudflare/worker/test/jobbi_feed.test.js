@@ -57,6 +57,13 @@ test("rejects unknown, ambiguous and asset-mismatched payout rails", () => {
   assert.equal(result.rejected,4);
 });
 
+test("keeps fresh open escrowed listings when the board publishes no deadline", () => {
+  const gig = { ...baseGig, _jobbi: { ...baseGig._jobbi, expires: null } };
+  const result = normalizeJobbiFeed({ items: [gig] }, now);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].deadline, null);
+});
+
 test("rejects unescrowed, low-confidence, closed, stale, expired and incomplete listings", () => {
   const result=normalizeJobbiFeed({items:[
     {...baseGig,id:"promised",_jobbi:{...baseGig._jobbi,payment_state:"promised"}},
