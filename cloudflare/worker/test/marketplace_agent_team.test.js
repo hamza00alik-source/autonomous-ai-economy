@@ -9,7 +9,7 @@ function fakeEnv(outputs) {
     AI: { run: async (_model, options) => {
       calls.push(options.messages[0].content);
       const next = outputs.shift();
-      return { response: next ?? "" };
+      return typeof next === "string" ? { response: next } : next ?? "";
     } },
   };
 }
@@ -46,4 +46,13 @@ test("malformed reviewer output fails closed", async () => {
     () => executeAgentTeam(env, { title: "Write a guide", description: "Use supplied facts." }, "test"),
     /reviewer returned invalid JSON/,
   );
+});
+
+test("extracts reviewer content arrays and fenced JSON", async () => {
+  const env = fakeEnv([
+    { response: [{ text: "A usable draft." }] },
+    { response: { content: "Here is the review: ```json\\n{\\"pass\\":true,\\"issues\\":[],\\"reason\\":\\"Complete\\}\\n```" } },
+  ]);
+  const result = await executeAgentTeam(env, { title: "Write guide", description: "Use supplied facts." }, "test");
+  assert.equal(result.ready, true);
 });
