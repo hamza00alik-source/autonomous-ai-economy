@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assessTask, executePrivateDraft } from "../src/marketplace_executor.js";
+import { assessTask, executePrivateDraft, scoreTask } from "../src/marketplace_executor.js";
 
 const goodDraft = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.";
 const reviewerPass = '{"pass":true,"issues":[],"reason":"The deliverable directly addresses the task and avoids unsupported claims."}';
@@ -36,7 +36,7 @@ test("requires a positive USDC reward", () => {
   for (const reward of [null, undefined, 0, "0", "-1", "pending", "1 ETH"]) {
     const result = assessTask({title:"Review documentation",description:"Write a useful documentation review.",reward});
     assert.equal(result.eligible,false);
-    assert.ok(result.reasons.includes("reward_not_positive_verified_usdc"));
+    assert.ok(result.reasons.includes("reward_not_positive_verified_amount"));
   }
   assert.equal(assessTask({title:"Review documentation",description:"Write a useful documentation review.",reward:"1.000000"}).eligible,true);
 });
@@ -65,4 +65,46 @@ test("blocks Chinese video-production tasks from the text-only execution lane", 
   const task = assessTask({title:"制作一个约20分钟的视频",description:"制作完整视频成片并完成配音、字幕和剪辑。",eligible:true,reward_usdc:"1.00"});
   assert.equal(task.eligible,false);
   assert.ok(task.reasons.includes("unsupported_deliverable"));
+});
+
+
+test("blocks all excluded task requirements before execution", () => {
+  const blockedTasks = [
+    { title: "Create an account", description: "Register for the platform and log in to the account." },
+    { title: "Cold outreach", description: "Reach out to the maintainer and send an email." },
+    { title: "Personal data collection", description: "Collect personal data including email addresses and phone numbers." },
+    { title: "Production install", description: "Install this package on the third-party production server." },
+    { title: "Paid service", description: "Subscribe to a paid API plan and buy credits." },
+    { title: "Fake human identity", description: "Pretend you are a human and write from personal experience." },
+    { title: "Video deliverable", description: "Create and edit a short video with voiceover." },
+    { title: "Physical delivery", description: "Ship the product to the customer." },
+    { title: "Wallet transaction", description: "Connect a wallet and pay gas fees to claim." },
+  ];
+  for (const task of blockedTasks) {
+    const assessment = assessTask({ ...task, eligible: true, reward_usdc: "1.00" });
+    assert.equal(assessment.eligible, false, task.title);
+  }
+});
+
+test("scoreTask prioritizes higher-value, clearer, low-competition work without changing eligibility", () => {
+  const strong = scoreTask({
+    title: "Write a documented technical guide with acceptance criteria",
+    description: "Create a useful deliverable with clear requirements, include source links, provide the exact format, and verify each claim. ".repeat(5),
+    reward: "10.00", eligible: true, submission_count: 1,
+  });
+  const weak = scoreTask({
+    title: "Small task",
+    description: "Do this.",
+    reward: "0.10", eligible: true, submission_count: 50,
+  });
+  assert.ok(strong.total > weak.total);
+  assert.equal(strong.breakdown.competition, 9);
+  assert.equal(weak.breakdown.competition, 2);
+  const rejected = assessTask({
+    title: "Write a useful technical guide",
+    description: "Create a useful deliverable with acceptance criteria and source links.",
+    eligible: false, reward: "10.00", submission_count: 0,
+  });
+  assert.equal(rejected.eligible, false);
+  assert.ok(rejected.score.total > 0);
 });

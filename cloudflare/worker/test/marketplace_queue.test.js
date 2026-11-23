@@ -25,10 +25,16 @@ function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Document
           async run() {
             if (sql.startsWith("INSERT OR IGNORE INTO ai_daily_budget")) return { meta: { changes: 1 } };
             if (sql.startsWith("UPDATE ai_daily_budget")) return { meta: { changes: 1 } };
-            if (sql.startsWith("INSERT OR IGNORE INTO aae_execution_jobs")) {
+            if (sql.startsWith("INSERT INTO aae_execution_jobs")) {
               const [job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at] = values;
-              if (!jobs.some(x => x.source === source && x.external_task_id === external_task_id)) {
+              const existing = jobs.find(x => x.source === source && x.external_task_id === external_task_id);
+              if (!existing) {
                 jobs.push({job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,owner_approved:0,created_at,updated_at});
+                return { meta: { changes: 1 } };
+              }
+              const priorEligibility = (() => { try { return JSON.parse(existing.eligibility_json || "{}"); } catch { return {}; } })();
+              if (existing.status === "blocked" && existing.owner_approved === 0 && priorEligibility.eligible === false) {
+                Object.assign(existing, { title, task_snapshot_json, reward_text, eligibility_json, status, updated_at });
                 return { meta: { changes: 1 } };
               }
               return { meta: { changes: 0 } };
@@ -41,9 +47,9 @@ function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Document
             const jobId = values[values.length - 1];
             const job = jobs.find(x => x.job_id === jobId);
             if (!job) return { meta: { changes: 0 } };
-            if (sql.includes("SET status=?")) { job.status = values[0]; job.result_text = values[1]; job.error = values[3] ?? null; }
+            if (sql.includes("SET status=?")) { job.status = values[0]; job.result_text = values[1]; job.eligibility_json = values[2]; job.error = values[3] ?? null; }
             else if (sql.includes("status='failed'")) { job.status = "failed"; job.error = values[0]; }
-            else if (sql.includes("status='blocked'")) job.status = "blocked";
+            else if (sql.includes("status='blocked'")) { job.status = "blocked"; if (sql.includes("eligibility_json=?")) job.eligibility_json = values[0]; }
             return { meta: { changes: 1 } };
           },
         };
@@ -246,4 +252,61 @@ test("failed independent QA is stored as blocked with its draft, not an invalid 
   assert.equal(jobs[0].status, "blocked");
   assert.match(jobs[0].error, /quality gate did not pass/);
   assert.match(jobs[0].result_text, /Documentation draft/);
+});
+
+
+
+test("QA-blocked work is not automatically requeued by a feed refresh", async () => {
+  const { env, jobs } = fakeEnv({
+    reviewerOutput: '{"pass":false,"issues":[],"reason":"Insufficient support."}',
+    taskmarket: [{
+      task_id: "0xqa-retry", title: "Prepare documentation",
+      description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain steps, assumptions, results, limitations, and provide a short checklist.",
+      eligible: 1, net_reward_usdc: "1.00", submission_count: 1, stake_required: 0,
+    }],
+  });
+  await enqueueMarketplaceTasks(env);
+  const result = await processOneMarketplaceDraft(env);
+  assert.equal(result.status, "blocked");
+  assert.match(jobs[0].eligibility_json, /"eligible":true/);
+  const refreshed = await enqueueMarketplaceTasks(env);
+  assert.equal(refreshed.queued, 0);
+  assert.equal(jobs[0].status, "blocked");
+});
+test("blocked candidates are re-evaluated and can become queued when source eligibility changes", async () => {
+  const candidate = {
+    gig_id: "algora:reopened",
+    board_source: "algora",
+    title: "Small documented task",
+    source_url: "https://github.com/example/project/issues/11",
+    reward_usd: 5,
+    reward_usd_estimate: 5,
+    currency: "USD",
+    payment_rail: "stripe",
+    payment_state: "escrowed",
+    payout_grade: "B",
+    payout_region_status: "supported_in_pakistan",
+    requirements_json: JSON.stringify({
+      lane: "agent", claims_open: true, payment_state: "escrowed",
+      payout_grade: "B", payout_region_status: "supported_in_pakistan",
+      agent_automation_policy: "prior_written_consent_required",
+      acceptance_criteria: "Complete the documented change, include a regression test, and verify the expected behavior.",
+    }),
+    snapshot_json: JSON.stringify({ content_text: "A small, bounded change with explicit acceptance criteria." }),
+  };
+  const { env, jobs } = fakeEnv({ jobbi: [candidate] });
+  const first = await enqueueMarketplaceTasks(env);
+  assert.equal(first.blocked, 1);
+  assert.equal(jobs[0].status, "blocked");
+
+  candidate.requirements_json = JSON.stringify({
+    lane: "agent", claims_open: true, payment_state: "escrowed",
+    payout_grade: "B", payout_region_status: "supported_in_pakistan",
+    agent_automation_policy: "agent_permitted",
+    acceptance_criteria: "Complete the documented change, include a regression test, and verify the expected behavior.",
+  });
+  const second = await enqueueMarketplaceTasks(env);
+  assert.equal(second.queued, 1);
+  assert.equal(jobs[0].status, "queued");
+  assert.match(jobs[0].task_snapshot_json, /priority_score/);
 });

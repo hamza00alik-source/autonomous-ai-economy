@@ -40,12 +40,22 @@ test("reviewer rejection triggers one revision and a second independent review",
   assert.equal(env.calls.length, 4);
 });
 
-test("malformed reviewer output fails closed", async () => {
-  const env = fakeEnv(["A draft.", "not json"]);
+test("malformed reviewer output retries once and fails closed if still invalid", async () => {
+  const env = fakeEnv(["A draft.", "not json", "still not json"]);
   await assert.rejects(
     () => executeAgentTeam(env, { title: "Write a guide", description: "Use supplied facts." }, "test"),
-    /reviewer returned invalid JSON/,
+    /reviewer output remained invalid after one retry/,
   );
+  assert.equal(env.calls.length, 3);
+});
+
+test("malformed reviewer output is recovered by one fresh review", async () => {
+  const valid = '{"pass":true,"issues":[],"reason":"The deliverable is complete and makes no unsupported claims."}';
+  const env = fakeEnv(["A draft.", "not json", valid]);
+  const result = await executeAgentTeam(env, { title: "Write a guide", description: "Use supplied facts." }, "test");
+  assert.equal(result.ready, true);
+  assert.equal(result.review.pass, true);
+  assert.equal(env.calls.length, 3);
 });
 
 test("extracts content arrays and reviewer JSON from nested output", async () => {

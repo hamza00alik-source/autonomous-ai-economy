@@ -74,6 +74,7 @@ function normalizeTaskmarket(row) {
     eligible: row.eligible === 1,
     simulated: false,
     reward: row.net_reward_usdc,
+    submission_count: row.submission_count,
     stake_required: row.stake_required === 1,
   };
 }
@@ -82,9 +83,9 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
   const now = new Date().toISOString();
   const limit = Math.min(50, Math.max(1, Number(limitPerSource) || 25));
   const [swarm, taskmarket, jobbi] = await Promise.all([
-    env.DB.prepare("SELECT task_id,title,task_text,reward_json,simulated,eligible FROM swarmmemo_work_items WHERE board_state='open' AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='swarmmemo' AND j.external_task_id=swarmmemo_work_items.task_id) ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
-    env.DB.prepare("SELECT task_id,title,description,net_reward_usdc,stake_required,eligible FROM taskmarket_work_items WHERE board_state='open' AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='taskmarket' AND j.external_task_id=taskmarket_work_items.task_id) ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
-    env.DB.prepare("SELECT gig_id,board_source,title,source_url,reward_usd,reward_usd_estimate,currency,payment_rail,payment_state,payout_grade,payout_region_status,requirements_json,snapshot_json FROM aae_jobbi_discoveries WHERE payment_state='escrowed' AND payout_region_status='supported_in_pakistan' AND payout_grade IN ('A','A-','B+','B') AND julianday(last_seen_at) >= julianday('now','-24 hours') AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='jobbi:' || aae_jobbi_discoveries.board_source AND j.external_task_id=aae_jobbi_discoveries.gig_id) ORDER BY COALESCE(reward_usd_estimate,reward_usd) ASC,last_seen_at DESC LIMIT ?").bind(limit).all(),
+    env.DB.prepare("SELECT task_id,title,task_text,reward_json,simulated,eligible FROM swarmmemo_work_items WHERE board_state='open' ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
+    env.DB.prepare("SELECT task_id,title,description,net_reward_usdc,submission_count,stake_required,eligible FROM taskmarket_work_items WHERE board_state='open' ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
+    env.DB.prepare("SELECT gig_id,board_source,title,source_url,reward_usd,reward_usd_estimate,currency,payment_rail,payment_state,payout_grade,payout_region_status,requirements_json,snapshot_json FROM aae_jobbi_discoveries WHERE payment_state='escrowed' AND payout_region_status='supported_in_pakistan' AND payout_grade IN ('A','A-','B+','B') AND julianday(last_seen_at) >= julianday('now','-24 hours') ORDER BY COALESCE(reward_usd_estimate,reward_usd) ASC,last_seen_at DESC LIMIT ?").bind(limit).all(),
   ]);
   const candidates = [
     ...(swarm.results || []).map(row => ({ source: "swarmmemo", task: normalizeSwarmMemo(row) })),
@@ -97,11 +98,12 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
     const assessment = assessTask(item.task, item.source);
     const status = assessment.eligible ? "queued" : "blocked";
     const id = crypto.randomUUID();
+    const taskSnapshot = { ...item.task, priority_score: assessment.score.total, priority_breakdown: assessment.score.breakdown };
     const result = await env.DB.prepare(
-      "INSERT OR IGNORE INTO aae_execution_jobs (job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+      "INSERT INTO aae_execution_jobs (job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source,external_task_id) DO UPDATE SET title=excluded.title,task_snapshot_json=excluded.task_snapshot_json,reward_text=excluded.reward_text,eligibility_json=excluded.eligibility_json,status=excluded.status,updated_at=excluded.updated_at WHERE aae_execution_jobs.status='blocked' AND aae_execution_jobs.owner_approved=0 AND json_extract(aae_execution_jobs.eligibility_json,'$.eligible')=0 AND (aae_execution_jobs.title IS NOT excluded.title OR aae_execution_jobs.task_snapshot_json IS NOT excluded.task_snapshot_json OR aae_execution_jobs.reward_text IS NOT excluded.reward_text OR aae_execution_jobs.eligibility_json IS NOT excluded.eligibility_json OR aae_execution_jobs.status IS NOT excluded.status)"
     ).bind(id, item.source, assessment.taskId, assessment.title || "Untitled task",
-      JSON.stringify(item.task), item.task.reward == null ? null : String(item.task.reward),
-      JSON.stringify({ eligible: assessment.eligible, reasons: assessment.reasons }),
+      JSON.stringify(taskSnapshot), item.task.reward == null ? null : String(item.task.reward),
+      JSON.stringify({ eligible: assessment.eligible, reasons: assessment.reasons, score: assessment.score }),
       status, now, now).run();
     if (result.meta?.changes === 1) {
       if (status === "queued") queued++;
@@ -119,7 +121,7 @@ export async function processOneMarketplaceDraft(env) {
     "UPDATE aae_execution_jobs SET status='queued',error='Recovered expired execution lease; retrying',updated_at=? WHERE status='running' AND updated_at<?"
   ).bind(new Date().toISOString(), staleBefore).run();
   const row = await env.DB.prepare(
-    "SELECT job_id,source,external_task_id,task_snapshot_json FROM aae_execution_jobs WHERE status='queued' ORDER BY CASE WHEN source LIKE 'jobbi:%' THEN 0 ELSE 1 END,CASE WHEN source LIKE 'jobbi:%' THEN CAST(COALESCE(reward_text,'0') AS REAL) END ASC,CAST(COALESCE(reward_text,'0') AS REAL) DESC,created_at ASC LIMIT 1"
+    "SELECT job_id,source,external_task_id,task_snapshot_json FROM aae_execution_jobs WHERE status='queued' ORDER BY CAST(COALESCE(json_extract(task_snapshot_json,'$.priority_score'),0) AS REAL) DESC,created_at ASC LIMIT 1"
   ).first();
   if (!row) return { processed: false };
   const now = new Date().toISOString();
@@ -129,10 +131,10 @@ export async function processOneMarketplaceDraft(env) {
   if (reserved.meta?.changes !== 1) return { processed: false, raced: true };
   try {
     const task = JSON.parse(row.task_snapshot_json);
-    // Reserve worst-case specialist + reviewer + one revision + final review usage
-    // against the same daily cap used by the product-copy lane.
+    // Reserve for specialist, reviewer, one revision, final review, and one malformed-review retry.
+    // The shared daily cap is conservative; no model inference occurs without reservation.
     const utcDay = new Date().toISOString().slice(0, 10);
-    const estimatedNeurons = 550;
+    const estimatedNeurons = 700;
     await env.DB.prepare(
       "INSERT OR IGNORE INTO ai_daily_budget (utc_day,reserved_neurons) VALUES (?,0)"
     ).bind(utcDay).run();
