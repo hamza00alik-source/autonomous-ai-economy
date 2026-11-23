@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assessTask, executePrivateDraft } from "../src/marketplace_executor.js";
+import { assessTask, executePrivateDraft, scoreTask } from "../src/marketplace_executor.js";
 
 const goodDraft = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.";
 const reviewerPass = '{"pass":true,"issues":[],"reason":"The deliverable directly addresses the task and avoids unsupported claims."}';
