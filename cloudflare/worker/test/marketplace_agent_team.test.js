@@ -50,8 +50,8 @@ test("malformed reviewer output fails closed", async () => {
 
 test("extracts content arrays and reviewer JSON from nested output", async () => {
   const env = fakeEnv([
-    { response: [{ text: "A usable draft." }] },
-    { response: { content: JSON.stringify({ pass: true, issues: [], reason: "Complete" }) } },
+    { response: { content: [{ type: "text", text: "A usable draft." }] } },
+    { result: { content: [{ text: JSON.stringify({ pass: true, issues: [], reason: "Complete" }) }] } },
   ]);
   const result = await executeAgentTeam(env, { title: "Write guide", description: "Use supplied facts." }, "test");
   assert.equal(result.ready, true);
