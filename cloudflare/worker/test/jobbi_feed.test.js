@@ -67,6 +67,7 @@ test("accepts Algora Stripe USD only because Pakistan is on Algora's supported p
   assert.equal(result.items[0].payment_rail, "stripe");
   assert.equal(result.items[0].payout_region_status, "supported_in_pakistan");
   assert.equal(result.items[0].requirements.payout_identity_verification, "KYC required at payout");
+  assert.equal(result.items[0].requirements.agent_automation_policy, "prior_written_consent_required");
   assert.equal(result.rejected, 1);
 });
 
