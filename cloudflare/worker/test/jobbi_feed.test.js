@@ -45,6 +45,31 @@ test("accepts other explicitly identified stablecoin, crypto and Payoneer rails"
   assert.equal(result.items.find(x=>x.payment_rail==="arb-arbitrum").reward_usd_estimate,6);
 });
 
+test("accepts Algora Stripe USD only because Pakistan is on Algora's supported payout list", () => {
+  const algora = {
+    ...baseGig,
+    id: "algora:small-usd-bounty",
+    url: "https://github.com/example/project/issues/7",
+    _jobbi: {
+      ...baseGig._jobbi,
+      source: "algora",
+      reward: { amount: 5, currency: "USD", rail: "stripe" },
+      payout_grade: "B",
+    },
+  };
+  const otherStripe = {
+    ...algora,
+    id: "other:stripe",
+    _jobbi: { ...algora._jobbi, source: "other" },
+  };
+  const result = normalizeJobbiFeed({ items: [algora, otherStripe] }, now);
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].payment_rail, "stripe");
+  assert.equal(result.items[0].payout_region_status, "supported_in_pakistan");
+  assert.equal(result.items[0].requirements.payout_identity_verification, "KYC required at payout");
+  assert.equal(result.rejected, 1);
+});
+
 test("rejects unknown, ambiguous and asset-mismatched payout rails", () => {
   const make=(id,currency,rail)=>({...baseGig,id,_jobbi:{...baseGig._jobbi,reward:{amount:5,currency,rail}}});
   const result=normalizeJobbiFeed({items:[
