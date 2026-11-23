@@ -85,9 +85,11 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
   }
   const tx = typeof row.escrowTxHash === "string" && TX_HASH.test(row.escrowTxHash) ? row.escrowTxHash : null;
   if (!tx) reasons.push("escrow_transaction_missing");
+  const titleLines = description.split("\n").map(line => line.trim()).filter(Boolean);
+  const titleLine = titleLines.find(line => !/^#{1,6}\s*(?:title|任务标题)\s*$/i.test(line));
   return {
     task_id: row.id.toLowerCase(),
-    title: bounded(description.split("\n")[0] || "Untitled task", 300),
+    title: bounded(titleLine?.replace(/^#{1,6}\s*/, "") || "Untitled task", 300),
     description,
     chain_id: chainId,
     mode: bounded(row.mode, 30),
