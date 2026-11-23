@@ -111,6 +111,6 @@ test("decodes the four-word TaskCreated event and verifies the escrow reward", a
 
 
 test("derives a real title when the description starts with a placeholder heading", () => {
-  const task = normalizeTaskmarketTask({ ...eligible, description: "## Title\\n制作一个约20分钟的视频\\n\\n## Objective\\n制作视频成片。" });
+  const task = normalizeTaskmarketTask({ ...eligible, description: "## Title\n制作一个约20分钟的视频\n\n## Objective\n制作视频成片." });
   assert.equal(task.title, "制作一个约20分钟的视频");
 });
