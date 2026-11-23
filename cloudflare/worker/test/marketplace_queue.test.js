@@ -134,8 +134,9 @@ test("Jobbi candidates without escrow or a Pakistan-supported payout route are n
   }] });
   const result = await enqueueMarketplaceTasks(env);
   assert.equal(result.queued, 0);
-  assert.equal(result.blocked, 0);
-  assert.equal(jobs.length, 0);
+  assert.equal(result.blocked, 2);
+  assert.equal(jobs.length, 2);
+  assert.ok(jobs.every(job => job.status === "blocked"));
 });
 
 test("Jobbi work without explicit agent permission is blocked before inference", async () => {
