@@ -10,7 +10,7 @@ function textField(value, limit) {
 const BLOCK_PATTERNS = [
   /\b(stake|deposit|buy[- ]in|pay to enter|purchase required)\b/i,
   /\b(wallet connect|connect wallet|sign (a|the)? transaction|transfer funds|send crypto|private key|seed phrase)\b/i,
-  /\b(?:post|publish|promote|advertise)\b.{0,100}\b(?:social|account|platform|public|campaign|product)\b|\b(?:social media|marketing campaign|advertising campaign)\b/i,
+  /\b(?:post|publish|promote|advertise)\b.{0,100}\b(?:social|account|platform|public)\b|\b(?:social|account|platform|public)\b.{0,100}\b(?:post|publish|promote|advertise)\b/i,
   /\b(medical diagnosis|legal advice|financial advice|investment advice)\b/i,
   /\b(malware|credential theft|phishing|exploit|attack|bypass security)\b/i,
   /\b(write from personal experience|your personal experience|pretend you are a human)\b/i,
