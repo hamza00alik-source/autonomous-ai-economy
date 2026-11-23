@@ -44,6 +44,7 @@ function normalizeJobbi(row) {
     requirements.payment_state === "escrowed" &&
     ["A", "A-", "B+", "B"].includes(String(requirements.payout_grade || "").toUpperCase()) &&
     requirements.payout_region_status === "supported_in_pakistan" &&
+    requirements.agent_automation_policy === "agent_permitted" &&
     Number.isFinite(reward) && reward > 0 &&
     typeof requirements.acceptance_criteria === "string" &&
     requirements.acceptance_criteria.trim().length >= 45;
