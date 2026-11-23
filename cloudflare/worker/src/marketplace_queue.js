@@ -53,7 +53,7 @@ function normalizeJobbi(row) {
     "Payout terms: " + String(row.payment_rail || "") + "; " + String(row.currency || "") +
       "; " + String(row.payment_state || "") + "; Pakistan route: " + String(row.payout_region_status || ""),
     "Source listing: " + String(row.source_url || ""),
-  ].filter(Boolean).join("\\n\\n");
+  ].filter(Boolean).join("\n\n");
   return {
     task_id: row.gig_id,
     title: row.title,
@@ -118,7 +118,7 @@ export async function processOneMarketplaceDraft(env) {
     "UPDATE aae_execution_jobs SET status='queued',error='Recovered expired execution lease; retrying',updated_at=? WHERE status='running' AND updated_at<?"
   ).bind(new Date().toISOString(), staleBefore).run();
   const row = await env.DB.prepare(
-    "SELECT job_id,source,external_task_id,task_snapshot_json FROM aae_execution_jobs WHERE status='queued' ORDER BY CAST(COALESCE(reward_text,'0') AS REAL) DESC,created_at ASC LIMIT 1"
+    "SELECT job_id,source,external_task_id,task_snapshot_json FROM aae_execution_jobs WHERE status='queued' ORDER BY CASE WHEN source LIKE 'jobbi:%' THEN 0 ELSE 1 END,CASE WHEN source LIKE 'jobbi:%' THEN CAST(COALESCE(reward_text,'0') AS REAL) END ASC,CAST(COALESCE(reward_text,'0') AS REAL) DESC,created_at ASC LIMIT 1"
   ).first();
   if (!row) return { processed: false };
   const now = new Date().toISOString();
