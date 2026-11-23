@@ -6,14 +6,14 @@ function extractText(output) {
   if (typeof output === "string") return output.trim();
   if (!output || typeof output !== "object") return "";
   const candidates = [
-    output.response, output.output_text, output.text,
-    output.result?.response, output.result?.output_text, output.result?.text,
+    output.response, output.output_text, output.text, output.content,
+    output.result?.response, output.result?.output_text, output.result?.text, output.result?.content,
     output.choices?.[0]?.message?.content, output.choices?.[0]?.text,
   ];
   for (const value of candidates) {
     if (typeof value === "string" && value.trim()) return value.trim();
     if (Array.isArray(value)) {
-      const joined = value.filter(part => typeof part?.text === "string").map(part => part.text).join("").trim();
+      const joined = value.map(part => typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "").join("").trim();
       if (joined) return joined;
     }
   }
@@ -38,7 +38,9 @@ function parseReview(raw) {
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("reviewer returned invalid JSON");
-  const parsed = JSON.parse(candidate.slice(start, end + 1));
+  let parsed;
+  try { parsed = JSON.parse(candidate.slice(start, end + 1)); }
+  catch { throw new Error("reviewer returned invalid JSON"); }
   if (typeof parsed.pass !== "boolean" || !Array.isArray(parsed.issues) ||
       parsed.issues.some(issue => typeof issue !== "string") ||
       typeof parsed.reason !== "string") {
@@ -80,7 +82,8 @@ export async function executeAgentTeam(env, task, source = "unknown") {
     if (revision.length > MAX_DELIVERABLE_CHARS) throw new Error("revision deliverable exceeded the size limit");
     reviewed = revision;
     revised = true;
-    review = parseReview(await ask(env, "reviewer", reviewSystem, reviewUser.replace(deliverable, reviewed), 500));
+    const revisedReviewUser = "Review this work independently.\\nTASK JSON:\\n" + taskJson + "\\nDELIVERABLE:\\n" + reviewed;
+    review = parseReview(await ask(env, "reviewer", reviewSystem, revisedReviewUser, 500));
   }
 
   return {
