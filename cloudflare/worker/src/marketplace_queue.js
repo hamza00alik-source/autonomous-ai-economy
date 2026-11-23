@@ -35,6 +35,36 @@ function normalizeSwarmMemo(row) {
   };
 }
 
+function normalizeJobbi(row) {
+  const requirements = parseJson(row.requirements_json) || {};
+  const snapshot = parseJson(row.snapshot_json) || {};
+  const reward = Number(row.reward_usd_estimate ?? row.reward_usd);
+  const payoutVerified = requirements.lane === "agent" &&
+    requirements.claims_open === true &&
+    requirements.payment_state === "escrowed" &&
+    ["A", "A-", "B+", "B"].includes(String(requirements.payout_grade || "").toUpperCase()) &&
+    requirements.payout_region_status === "supported_in_pakistan" &&
+    Number.isFinite(reward) && reward > 0 &&
+    typeof requirements.acceptance_criteria === "string" &&
+    requirements.acceptance_criteria.trim().length >= 45;
+  const description = [
+    snapshot.content_text || "",
+    "Acceptance criteria: " + String(requirements.acceptance_criteria || ""),
+    "Payout terms: " + String(row.payment_rail || "") + "; " + String(row.currency || "") +
+      "; " + String(row.payment_state || "") + "; Pakistan route: " + String(row.payout_region_status || ""),
+    "Source listing: " + String(row.source_url || ""),
+  ].filter(Boolean).join("\\n\\n");
+  return {
+    task_id: row.gig_id,
+    title: row.title,
+    description,
+    eligible: payoutVerified,
+    simulated: false,
+    reward: Number.isFinite(reward) && reward > 0 ? reward : null,
+    credits_only: false,
+  };
+}
+
 function normalizeTaskmarket(row) {
   return {
     task_id: row.task_id,
@@ -50,13 +80,15 @@ function normalizeTaskmarket(row) {
 export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
   const now = new Date().toISOString();
   const limit = Math.min(50, Math.max(1, Number(limitPerSource) || 25));
-  const [swarm, taskmarket] = await Promise.all([
+  const [swarm, taskmarket, jobbi] = await Promise.all([
     env.DB.prepare("SELECT task_id,title,task_text,reward_json,simulated,eligible FROM swarmmemo_work_items WHERE board_state='open' AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='swarmmemo' AND j.external_task_id=swarmmemo_work_items.task_id) ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
     env.DB.prepare("SELECT task_id,title,description,net_reward_usdc,stake_required,eligible FROM taskmarket_work_items WHERE board_state='open' AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='taskmarket' AND j.external_task_id=taskmarket_work_items.task_id) ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
+    env.DB.prepare("SELECT gig_id,board_source,title,source_url,reward_usd,reward_usd_estimate,currency,payment_rail,payment_state,payout_grade,requirements_json,snapshot_json FROM aae_jobbi_discoveries WHERE payment_state='escrowed' AND payout_region_status='supported_in_pakistan' AND payout_grade IN ('A','A-','B+','B') AND last_seen_at >= datetime('now','-24 hours') AND NOT EXISTS (SELECT 1 FROM aae_execution_jobs j WHERE j.source='jobbi:' || aae_jobbi_discoveries.board_source AND j.external_task_id=aae_jobbi_discoveries.gig_id) ORDER BY COALESCE(reward_usd_estimate,reward_usd) ASC,last_seen_at DESC LIMIT ?").bind(limit).all(),
   ]);
   const candidates = [
     ...(swarm.results || []).map(row => ({ source: "swarmmemo", task: normalizeSwarmMemo(row) })),
     ...(taskmarket.results || []).map(row => ({ source: "taskmarket", task: normalizeTaskmarket(row) })),
+    ...(jobbi.results || []).map(row => ({ source: "jobbi:" + String(row.board_source || "unknown"), task: normalizeJobbi(row) })),
   ];
   let queued = 0;
   let blocked = 0;
