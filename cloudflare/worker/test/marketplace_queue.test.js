@@ -85,6 +85,7 @@ test("escrowed Algora USD work with a verified Pakistan payout route enters the 
       payment_state: "escrowed",
       payout_grade: "B",
       payout_region_status: "supported_in_pakistan",
+      agent_automation_policy: "agent_permitted",
       acceptance_criteria: "Implement the documented API behavior, add regression tests, and verify that all relevant tests pass.",
     }),
     snapshot_json: JSON.stringify({
