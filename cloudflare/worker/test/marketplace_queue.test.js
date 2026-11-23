@@ -32,7 +32,8 @@ function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Document
                 jobs.push({job_id,source,external_task_id,title,task_snapshot_json,reward_text,eligibility_json,status,owner_approved:0,created_at,updated_at});
                 return { meta: { changes: 1 } };
               }
-              if (existing.status === "blocked" && existing.owner_approved === 0) {
+              const priorEligibility = (() => { try { return JSON.parse(existing.eligibility_json || "{}"); } catch { return {}; } })();
+              if (existing.status === "blocked" && existing.owner_approved === 0 && priorEligibility.eligible === false) {
                 Object.assign(existing, { title, task_snapshot_json, reward_text, eligibility_json, status, updated_at });
                 return { meta: { changes: 1 } };
               }
@@ -48,7 +49,7 @@ function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Document
             if (!job) return { meta: { changes: 0 } };
             if (sql.includes("SET status=?")) { job.status = values[0]; job.result_text = values[1]; job.eligibility_json = values[2]; job.error = values[3] ?? null; }
             else if (sql.includes("status='failed'")) { job.status = "failed"; job.error = values[0]; }
-            else if (sql.includes("status='blocked'")) job.status = "blocked";
+            else if (sql.includes("status='blocked'")) { job.status = "blocked"; if (sql.includes("eligibility_json=?")) job.eligibility_json = values[0]; }
             return { meta: { changes: 1 } };
           },
         };
