@@ -90,7 +90,9 @@ export function normalizeJobbiFeed(feed, now = Date.now()) {
     if (!TRUSTED_GRADES.has(grade)) reasons.push("payout_confidence_below_B");
     if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(rewardText) || !Number.isFinite(reward) || reward <= 0) reasons.push("invalid_reward_amount");
     if (!Number.isFinite(modified) || modified > now + 5 * 60_000 || now - modified > 7 * 24 * 60 * 60_000) reasons.push("stale_or_invalid_listing");
-    if (!Number.isFinite(expires) || expires <= now) reasons.push("deadline_missing_or_expired");
+    // A missing deadline is not proof that an explicitly open, freshly updated escrowed gig has expired.
+    // Keep it reviewable; reject only a supplied deadline that is invalid or already past.
+    if (meta?.expires && (!Number.isFinite(expires) || expires <= now)) reasons.push("deadline_invalid_or_expired");
     if (criteria.length < 45 || !meta?.acceptance) reasons.push("acceptance_criteria_missing");
     if (BLOCKED_TEXT.test(text)) reasons.push("prohibited_or_costly_requirement");
     if (reasons.length) { rejected++; continue; }
