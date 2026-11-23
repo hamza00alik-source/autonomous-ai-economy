@@ -59,3 +59,10 @@ test("allows marketing-copy drafts but blocks external social publishing", () =>
   const publish = assessTask({title:"Publish product announcement",description:"Post the announcement on our public social account.",eligible:true,reward_usdc:"1.00"});
   assert.equal(publish.eligible,false);
 });
+
+
+test("blocks Chinese video-production tasks from the text-only execution lane", () => {
+  const task = assessTask({title:"制作一个约20分钟的视频",description:"制作完整视频成片并完成配音、字幕和剪辑。",eligible:true,reward_usdc:"1.00"});
+  assert.equal(task.eligible,false);
+  assert.ok(task.reasons.includes("unsupported_deliverable"));
+});
