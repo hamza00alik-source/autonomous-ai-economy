@@ -1,4 +1,4 @@
-import { assessTask, executePrivateDraft, scoreTask } from "./marketplace_executor.js";
+import { assessTask, executePrivateDraft } from "./marketplace_executor.js";
 
 function parseJson(value) {
   if (!value) return null;
