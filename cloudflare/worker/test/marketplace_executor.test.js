@@ -12,7 +12,7 @@ test("screens eligible tasks into private draft lane", () => {
 test("blocks stake and external publishing risks", () => {
   for (const task of [
     {title:"Deposit required",description:"Stake to enter"},
-    {title:"Post social content",description:"Publish a marketing post"},
+    {title:"Post social content",description:"Publish a post on a social platform"},
     {title:"Connect wallet",description:"Sign transaction"},
   ]) assert.equal(assessTask(task).eligible,false);
 });
@@ -51,4 +51,11 @@ test("private execution runs specialist and independent reviewer but takes no ex
 });
 test("rejects empty specialist output", async () => {
   await assert.rejects(()=>executePrivateDraft({AI:{run:async()=>({})}},{title:"Research",description:"Draft a research note",eligible:true,reward_usdc:"1.00"}),/specialist agent returned no usable output/);
+});
+
+test("allows marketing-copy drafts but blocks external social publishing", () => {
+  const draft = assessTask({title:"Write social media marketing copy",description:"Draft three promotional captions for a product.",eligible:true,reward_usdc:"1.00"});
+  assert.equal(draft.eligible,true);
+  const publish = assessTask({title:"Publish product announcement",description:"Post the announcement on our public social account.",eligible:true,reward_usdc:"1.00"});
+  assert.equal(publish.eligible,false);
 });
