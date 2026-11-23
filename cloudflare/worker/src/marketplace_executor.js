@@ -26,7 +26,7 @@ export function assessTask(task, source = "unknown") {
   if (!title || /^(?:#+\s*)?(?:title|task|untitled|unknown|n\/?a|none|null|undefined|new task)[.!:_ -]*$/i.test(title) || /^#+\s*(?:title|task)\s*$/i.test(title)) {
     reasons.push("malformed_task_title");
   }
-  if (/\b(final video|video production|full video|voiceover recording|recorded voice|ship (?:the )?(?:product|item)|physical delivery|live production deployment)\b/i.test(combined)) {
+  if (/\b(final video|video production|full video|voiceover recording|recorded voice|ship (?:the )?(?:product|item)|physical delivery|live production deployment)\b|视频|成片|配音|剪辑/i.test(combined)) {
     reasons.push("unsupported_deliverable");
   }
   for (const pattern of BLOCK_PATTERNS) if (pattern.test(combined)) reasons.push("blocked_risk_pattern:" + pattern.source);
