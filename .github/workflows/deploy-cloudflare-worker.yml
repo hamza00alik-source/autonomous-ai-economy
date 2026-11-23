@@ -27,6 +27,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Install worker dependencies
+        working-directory: cloudflare/worker
+        run: npm install --no-audit --no-fund
+      - name: Test private Cloudflare worker logic
+        run: node --test cloudflare/worker/test/*.test.js
       - name: Validate deployment secrets and D1 ID
         working-directory: cloudflare/worker
         env:
@@ -64,9 +69,6 @@ jobs:
           python -m pip install -e .
           mkdir -p cloudflare/worker/public/downloads
           economy-game-assets build --output cloudflare/worker/public/downloads/moba-objective-props.zip
-      - name: Install Wrangler
-        working-directory: cloudflare/worker
-        run: npm install --no-audit --no-fund
       - name: Apply D1 migrations
         working-directory: cloudflare/worker
         env:
