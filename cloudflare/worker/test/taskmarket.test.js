@@ -108,3 +108,9 @@ test("decodes the four-word TaskCreated event and verifies the escrow reward", a
   const result = await verifyTaskmarketEscrow({ ...normalizeTaskmarketTask(eligible), escrow_tx_hash: tx, reward_base_units: reward }, fetchImpl);
   assert.deepEqual(result, { verified: true, status: "verified", amount_base_units: reward });
 });
+
+
+test("derives a real title when the description starts with a placeholder heading", () => {
+  const task = normalizeTaskmarketTask({ ...eligible, description: "## Title\\n制作一个约20分钟的视频\\n\\n## Objective\\n制作视频成片。" });
+  assert.equal(task.title, "制作一个约20分钟的视频");
+});
