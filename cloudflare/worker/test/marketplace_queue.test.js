@@ -347,12 +347,13 @@ test("QA-blocked work is not automatically requeued by a feed refresh", async ()
   assert.equal(refreshed.queued, 0);
   assert.equal(jobs[0].status, "blocked");
 });
-test("blocked candidates are re-evaluated and can become queued when source eligibility changes", async () => {
+test("blocked candidates are re-evaluated when original-source policy is verified", async () => {
+  const sourceUrl = "https://github.com/example/project/issues/11";
   const candidate = {
     gig_id: "algora:reopened",
     board_source: "algora",
     title: "Small documented task",
-    source_url: "https://github.com/example/project/issues/11",
+    source_url: sourceUrl,
     reward_usd: 5,
     reward_usd_estimate: 5,
     currency: "USD",
@@ -363,8 +364,8 @@ test("blocked candidates are re-evaluated and can become queued when source elig
     requirements_json: JSON.stringify({
       lane: "agent", claims_open: true, payment_state: "escrowed",
       payout_grade: "B", payout_region_status: "supported_in_pakistan",
-      agent_automation_policy: "prior_written_consent_required",
       acceptance_criteria: "Complete the documented change, include a regression test, and verify the expected behavior.",
+      source_verification: verifiedOriginalSource(sourceUrl),
     }),
     snapshot_json: JSON.stringify({ content_text: "A small, bounded change with explicit acceptance criteria." }),
   };
@@ -376,8 +377,8 @@ test("blocked candidates are re-evaluated and can become queued when source elig
   candidate.requirements_json = JSON.stringify({
     lane: "agent", claims_open: true, payment_state: "escrowed",
     payout_grade: "B", payout_region_status: "supported_in_pakistan",
-    agent_automation_policy: "agent_permitted",
     acceptance_criteria: "Complete the documented change, include a regression test, and verify the expected behavior.",
+    source_verification: verifiedOriginalSource(sourceUrl, { prior_written_consent_verified: true, consent_reference: "written-permission-123" }),
   });
   const second = await enqueueMarketplaceTasks(env);
   assert.equal(second.queued, 1);
