@@ -67,7 +67,7 @@ export function assessTask(task, source = "unknown") {
   if (task?.stake_required === true) reasons.push("stake_required");
   const submissions = Number(task?.submission_count);
   if (task?.submission_fee_required === true ||
-      (String(source).toLowerCase().startsWith("taskmarket") && Number.isInteger(submissions) && submissions >= 5)) {
+      (String(source).toLowerCase().startsWith("taskmarket") && Number.isInteger(submissions) && submissions >= 50)) {
     reasons.push("submission_fee_required");
   }
   if (String(source).toLowerCase().startsWith("taskmarket")) {
