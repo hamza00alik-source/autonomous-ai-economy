@@ -25,7 +25,7 @@ export function scoreTask(task) {
   const payoutPoints = task?.payout_verified === true ? 20 : task?.eligible === true ? 15 : 0;
   const submissions = Number(task?.submission_count);
   const competitionPoints = Number.isFinite(submissions) && submissions >= 0
-    ? submissions === 0 ? 10 : submissions <= 2 ? 9 : submissions <= 5 ? 7 : submissions <= 10 ? 5 : 2
+    ? submissions === 0 ? 10 : submissions <= 2 ? 9 : submissions <= 5 ? 7 : submissions <= 10 ? 5 : submissions <= 25 ? 3 : submissions <= 50 ? 2 : submissions <= 100 ? 1 : 0
     : 5;
   const breakdown = { reward: rewardPoints, scope: scopePoints, clarity: clarityPoints, payout: payoutPoints, competition: competitionPoints };
   return { total: Math.min(100, Object.values(breakdown).reduce((sum, value) => sum + value, 0)), breakdown };
@@ -65,6 +65,11 @@ export function assessTask(task, source = "unknown") {
   if (task?.eligible === false) reasons.push("marketplace_ineligible");
   if (task?.simulated === true) reasons.push("simulated_task");
   if (task?.stake_required === true) reasons.push("stake_required");
+  const submissions = Number(task?.submission_count);
+  if (task?.submission_fee_required === true ||
+      (String(source).toLowerCase().startsWith("taskmarket") && Number.isInteger(submissions) && submissions >= 5)) {
+    reasons.push("submission_fee_required");
+  }
   const reward = task?.reward ?? task?.reward_usdc ?? task?.reward_amount ?? null;
   const rewardText = typeof reward === "number" ? String(reward) : typeof reward === "string" ? reward.trim() : "";
   const rewardAmount = /^\d+(?:\.\d{1,6})?$/.test(rewardText) ? Number(rewardText) : NaN;
