@@ -18,17 +18,32 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+      - name: Check Gumroad token availability
+        id: token
+        env:
+          GUMROAD_ACCESS_TOKEN: ${{ secrets.GUMROAD_ACCESS_TOKEN }}
+        run: |
+          if [ -n "$GUMROAD_ACCESS_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Gumroad sales reconciliation skipped; GUMROAD_ACCESS_TOKEN is not configured."
+          fi
       - name: Set up Python
+        if: steps.token.outputs.available == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Set up Node.js
+        if: steps.token.outputs.available == 'true' '
         uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Install report tool
+        if: steps.token.outputs.available == 'true' '
         run: python -m pip install -e .
       - name: Download and verify official Gumroad CLI
+        if: steps.token.outputs.available == 'true' '
         run: |
           set -euo pipefail
           version="v0.20261106.1"
@@ -42,6 +57,7 @@ jobs:
           test -n "$binary"
           sudo install -m 0755 "$binary" /usr/local/bin/gumroad
       - name: Fetch aggregate sales and payout records
+        if: steps.token.outputs.available == 'true' '
         env:
           GUMROAD_ACCESS_TOKEN: ${{ secrets.GUMROAD_ACCESS_TOKEN }}
         run: |
@@ -50,8 +66,10 @@ jobs:
           gumroad sales summary --group-by product --json --no-input --quiet > sales-summary.json
           gumroad payouts list --all --json --no-input --quiet > payouts.json
       - name: Build privacy-minimal reconciliation report
+        if: steps.token.outputs.available == 'true' '
         run: python tools/build_gumroad_revenue_report.py --sales sales-summary.json --payouts payouts.json --output revenue-report.json
       - name: Upload aggregate report
+        if: steps.token.outputs.available == 'true' '
         uses: actions/upload-artifact@v4
         with:
           name: gumroad-revenue-report
