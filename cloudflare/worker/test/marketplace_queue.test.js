@@ -72,16 +72,32 @@ test("eligible marketplace work is queued once per source task", async () => {
   assert.equal(jobs.length, 1);
 });
 
-test("escrowed Algora USD work with a verified Pakistan payout route enters the agent queue", async () => {
+function verifiedOriginalSource(sourceUrl, extra = {}) {
+  return {
+    verified: true,
+    checked_at: new Date().toISOString(),
+    original_source_url: sourceUrl,
+    terms_url: "https://example.com/terms",
+    live_status: "open",
+    reward_verified: true,
+    acceptance_criteria_verified: true,
+    payout_eligibility_verified: true,
+    agent_automation_policy: "agent_permitted",
+    ...extra,
+  };
+}
+
+test("source-verified agent-permitted work enters the agent queue", async () => {
+  const sourceUrl = "https://github.com/example/project/issues/7";
   const { env, jobs } = fakeEnv({ jobbi: [{
-    gig_id: "algora:small-task",
-    board_source: "algora",
+    gig_id: "agentbounties:small-task",
+    board_source: "agentbounties",
     title: "Fix a small documented API bug",
-    source_url: "https://github.com/example/project/issues/7",
+    source_url: sourceUrl,
     reward_usd: 5,
     reward_usd_estimate: 5,
     currency: "USD",
-    payment_rail: "stripe",
+    payment_rail: "usdc-base",
     payment_state: "escrowed",
     payout_grade: "B",
     payout_region_status: "supported_in_pakistan",
@@ -91,8 +107,8 @@ test("escrowed Algora USD work with a verified Pakistan payout route enters the 
       payment_state: "escrowed",
       payout_grade: "B",
       payout_region_status: "supported_in_pakistan",
-      agent_automation_policy: "agent_permitted",
       acceptance_criteria: "Implement the documented API behavior, add regression tests, and verify that all relevant tests pass.",
+      source_verification: verifiedOriginalSource(sourceUrl),
     }),
     snapshot_json: JSON.stringify({
       content_text: "Fix the documented API behavior without breaking existing callers.",
@@ -101,19 +117,75 @@ test("escrowed Algora USD work with a verified Pakistan payout route enters the 
   const result = await enqueueMarketplaceTasks(env);
   assert.equal(result.queued, 1);
   assert.equal(result.blocked, 0);
-  assert.equal(jobs[0].source, "jobbi:algora");
+  assert.equal(jobs[0].source, "jobbi:agentbounties");
   assert.equal(jobs[0].reward_text, "5");
   const task = JSON.parse(jobs[0].task_snapshot_json);
   assert.match(task.description, /Acceptance criteria/);
   assert.match(task.description, /Source listing/);
+  assert.match(task.description, /Original-source verification: verified/);
 });
 
+test("aggregator lane and payout labels alone remain discovery-only", async () => {
+  const { env, jobs } = fakeEnv({ jobbi: [{
+    gig_id: "algora:unverified",
+    board_source: "algora",
+    title: "Fix a small documented API bug",
+    source_url: "https://github.com/example/project/issues/8",
+    reward_usd: 5,
+    reward_usd_estimate: 5,
+    currency: "USD",
+    payment_rail: "stripe",
+    payment_state: "escrowed",
+    payout_grade: "B",
+    payout_region_status: "supported_in_pakistan",
+    requirements_json: JSON.stringify({
+      lane: "agent", claims_open: true, payment_state: "escrowed",
+      payout_grade: "B", payout_region_status: "supported_in_pakistan",
+      agent_automation_policy: "agent_permitted",
+      acceptance_criteria: "Implement the documented API behavior, add regression tests, and verify that all relevant tests pass.",
+    }),
+    snapshot_json: JSON.stringify({ content_text: "Fix the documented API behavior without breaking existing callers." }),
+  }] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 0);
+  assert.equal(result.blocked, 1);
+  assert.ok(JSON.parse(jobs[0].eligibility_json).reasons.includes("source_policy_unverified"));
+});
+
+test("Algora requires original-source verification and prior written consent", async () => {
+  const sourceUrl = "https://github.com/example/project/issues/9";
+  const { env, jobs } = fakeEnv({ jobbi: [{
+    gig_id: "algora:consent-required",
+    board_source: "algora",
+    title: "Fix a small documented API bug",
+    source_url: sourceUrl,
+    reward_usd: 5,
+    reward_usd_estimate: 5,
+    currency: "USD",
+    payment_rail: "stripe",
+    payment_state: "escrowed",
+    payout_grade: "B",
+    payout_region_status: "supported_in_pakistan",
+    requirements_json: JSON.stringify({
+      lane: "agent", claims_open: true, payment_state: "escrowed",
+      payout_grade: "B", payout_region_status: "supported_in_pakistan",
+      acceptance_criteria: "Implement the documented API behavior, add regression tests, and verify that all relevant tests pass.",
+      source_verification: verifiedOriginalSource(sourceUrl),
+    }),
+    snapshot_json: JSON.stringify({ content_text: "Fix the documented API behavior without breaking existing callers." }),
+  }] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 0);
+  assert.equal(result.blocked, 1);
+  assert.ok(JSON.parse(jobs[0].eligibility_json).reasons.includes("source_policy_unverified"));
+});
 test("Jobbi candidates without escrow or a Pakistan-supported payout route are not queued", async () => {
+  const baseUrl = "https://github.com/example/project/issues/8";
   const base = {
     gig_id: "algora:unsafe-payout",
     board_source: "algora",
     title: "Fix a small documented API bug",
-    source_url: "https://github.com/example/project/issues/8",
+    source_url: baseUrl,
     reward_usd: 5,
     reward_usd_estimate: 5,
     currency: "USD",
@@ -125,16 +197,19 @@ test("Jobbi candidates without escrow or a Pakistan-supported payout route are n
       lane: "agent", claims_open: true, payment_state: "promised",
       payout_grade: "B", payout_region_status: "supported_in_pakistan",
       acceptance_criteria: "Implement the documented API behavior, add regression tests, and verify that all relevant tests pass.",
+      source_verification: verifiedOriginalSource(baseUrl, { prior_written_consent_verified: true, consent_reference: "written-permission-123" }),
     }),
     snapshot_json: JSON.stringify({ content_text: "Fix the documented API behavior without breaking existing callers." }),
   };
+  const unsupportedUrl = "https://github.com/example/project/issues/10";
   const { env, jobs } = fakeEnv({ jobbi: [base, {
-    ...base, gig_id: "algora:unsupported-route",
+    ...base, gig_id: "algora:unsupported-route", source_url: unsupportedUrl,
     payout_region_status: "account_confirmation_required",
     requirements_json: JSON.stringify({
       lane: "agent", claims_open: true, payment_state: "escrowed",
       payout_grade: "B", payout_region_status: "account_confirmation_required",
       acceptance_criteria: "Implement the documented API behavior, add regression tests, and verify that all relevant tests pass.",
+      source_verification: verifiedOriginalSource(unsupportedUrl, { prior_written_consent_verified: true, consent_reference: "written-permission-123" }),
     }),
     payment_state: "escrowed",
   }] });
@@ -144,7 +219,6 @@ test("Jobbi candidates without escrow or a Pakistan-supported payout route are n
   assert.equal(jobs.length, 2);
   assert.ok(jobs.every(job => job.status === "blocked"));
 });
-
 test("Jobbi work without explicit agent permission is blocked before inference", async () => {
   const { env, jobs } = fakeEnv({ jobbi: [{
     gig_id: "algora:manual-review-only",
