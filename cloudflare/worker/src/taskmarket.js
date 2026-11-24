@@ -73,7 +73,8 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
   if (!/^[0-9]+$/.test(netReward) || BigInt(netReward || "0") < 1000000n) reasons.push("net_reward_below_1_usdc");
   if (row.stakeRequired === true || stakeBps > 0) reasons.push("deposit_or_stake_required");
   if (!expiry) reasons.push("expiry_missing");
-  if (count >= 50) reasons.push("submission_fee_threshold_reached");
+  // Taskmarket's first five bounty submissions are free; the next submission incurs a paid action.
+  if (count >= 5) reasons.push("submission_fee_threshold_reached");
   if (!description || description.length < 120) reasons.push("insufficient_task_details");
   if (/split equally|share the full pool|first\s+\d+\s+(?:qualifying\s+)?agents|one award per|up to\s+\d+\s+(?:accepted|qualifying)|split.{0,80}\b\d+\s*%|split.{0,80}\b\d+\s*\/\s*\d+/i.test(description)) reasons.push("split_reward_pool");
   if (/public (?:post|reply|conversation)|paid promotion|promotional post|social media|post on your own account|\b(?:threads?|comments?)\b.{0,160}\b(?:X|Twitter|Reddit|Instagram|TikTok|Facebook|LinkedIn)\b/i.test(description)) reasons.push("public_promotion_required");
