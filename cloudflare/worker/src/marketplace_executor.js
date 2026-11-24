@@ -74,10 +74,10 @@ export function assessTask(task, source = "unknown") {
     for (const reason of Array.isArray(task?.taskmarket_qualification_reasons) ? task.taskmarket_qualification_reasons : []) {
       if (typeof reason === "string" && reason.length <= 100 && !reasons.includes(reason)) reasons.push(reason);
     }
-    if (task?.taskmarket_freshness_verified === false) reasons.push("taskmarket_snapshot_stale");
-    if (task?.taskmarket_escrow_verified !== true) reasons.push("taskmarket_escrow_unverified");
-    if (task?.taskmarket_submission_window_open !== true) reasons.push("taskmarket_submission_window_closed");
-    if (task?.taskmarket_no_stake_verified === false) reasons.push("stake_required");
+    if (task?.taskmarket_freshness_verified !== true && !reasons.includes("taskmarket_snapshot_stale")) reasons.push("taskmarket_snapshot_stale");
+    if (task?.taskmarket_escrow_verified !== true && !reasons.includes("taskmarket_escrow_unverified")) reasons.push("taskmarket_escrow_unverified");
+    if (task?.taskmarket_submission_window_open !== true && !reasons.includes("taskmarket_submission_window_closed")) reasons.push("taskmarket_submission_window_closed");
+    if (task?.taskmarket_no_stake_verified !== true && !reasons.includes("stake_required")) reasons.push("stake_required");
   }
   const reward = task?.reward ?? task?.reward_usdc ?? task?.reward_amount ?? null;
   const rewardText = typeof reward === "number" ? String(reward) : typeof reward === "string" ? reward.trim() : "";
