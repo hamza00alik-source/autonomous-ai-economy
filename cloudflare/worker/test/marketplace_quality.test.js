@@ -27,3 +27,12 @@ test("claims of live verification require evidence review", () => {
   const result = qualityCheckDraft({ title: "Task" }, "This draft is long enough for the automated checker to inspect. Self-check: I verified this claim. Source: https://example.com");
   assert.ok(result.blockers.includes("verification_claims_require_evidence"));
 });
+
+
+test("QA blocks unsupported tool receipts and unverifiable live-check claims", () => {
+  const draft = "I used the fetch_page tool and received receipt-1732389600-verified. I verified the checked date is older than 14 days. Source: https://example.com/page. Self-check: these claims require actual tool output that was not provided.";
+  const result = qualityCheckDraft({ title: "Re-check one public listing" }, draft);
+  assert.equal(result.status, "needs_revision");
+  assert.ok(result.blockers.includes("unsupported_tool_claims_require_evidence"));
+  assert.ok(result.blockers.includes("verification_claims_require_evidence"));
+});
