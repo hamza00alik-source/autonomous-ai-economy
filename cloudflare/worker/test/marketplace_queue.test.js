@@ -441,7 +441,7 @@ test("Taskmarket queue requires verified escrow, a live submission window, and n
 });
 
 test("Taskmarket global free cap allows a new worker at 49 total submissions", async () => {
-  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({ submission_count: 49 })] });
+  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({ task_id: "0x49", title: "Write a short documented research note", submission_count: 49 })] });
   const result = await enqueueMarketplaceTasks(env);
   assert.equal(result.queued, 1);
   assert.equal(result.blocked, 0);
@@ -449,7 +449,7 @@ test("Taskmarket global free cap allows a new worker at 49 total submissions", a
 });
 
 test("Taskmarket global free cap blocks 50 total submissions", async () => {
-  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({ submission_count: 50 })] });
+  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({ task_id: "0x50", title: "Write a short documented research note", submission_count: 50 })] });
   const result = await enqueueMarketplaceTasks(env);
   assert.equal(result.queued, 0);
   assert.equal(result.blocked, 1);
