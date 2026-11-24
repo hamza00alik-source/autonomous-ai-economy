@@ -29,6 +29,16 @@ test("allows a well-formed text task", () => {
   const result=assessTask({title:"Review open source documentation",description:"Write a concise documentation review and list actionable improvements.",eligible:true,reward_usdc:"1.00"});
   assert.equal(result.eligible,true);
 });
+test("aggregator source-policy verification is a separate hard gate", () => {
+  const result = assessTask({
+    title: "Write a documented technical guide",
+    description: "Create a clear guide with acceptance criteria and source links.",
+    eligible: false, source_policy_verified: false, reward: "5.00",
+  });
+  assert.equal(result.eligible, false);
+  assert.ok(result.reasons.includes("source_policy_unverified"));
+});
+
 test("blocks credits-only task", () => {
   assert.ok(assessTask({title:"task",description:"work",reward_credits:20,credits_only:true}).reasons.includes("non_cash_reward"));
 });
