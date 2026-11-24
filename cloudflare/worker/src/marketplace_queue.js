@@ -35,16 +35,41 @@ function normalizeSwarmMemo(row) {
   };
 }
 
+function validHttpsUrl(value) {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password;
+  } catch { return false; }
+}
 function normalizeJobbi(row) {
   const requirements = parseJson(row.requirements_json) || {};
   const snapshot = parseJson(row.snapshot_json) || {};
   const reward = Number(row.reward_usd_estimate ?? row.reward_usd);
-  const payoutVerified = requirements.lane === "agent" &&
+  const source = String(row.board_source || "").toLowerCase();
+  const sourceVerification = requirements.source_verification && typeof requirements.source_verification === "object"
+    ? requirements.source_verification : {};
+  const checkedAt = Date.parse(sourceVerification.checked_at || "");
+  const sourcePolicyVerified = sourceVerification.verified === true &&
+    sourceVerification.original_source_url === row.source_url &&
+    validHttpsUrl(sourceVerification.terms_url) &&
+    sourceVerification.live_status === "open" &&
+    sourceVerification.reward_verified === true &&
+    sourceVerification.acceptance_criteria_verified === true &&
+    sourceVerification.payout_eligibility_verified === true &&
+    sourceVerification.agent_automation_policy === "agent_permitted" &&
+    Number.isFinite(checkedAt) && checkedAt <= Date.now() + 5 * 60 * 1000 &&
+    Date.now() - checkedAt <= 24 * 60 * 60 * 1000;
+  const priorWrittenConsentVerified = source !== "algora" ||
+    (sourceVerification.prior_written_consent_verified === true &&
+      typeof sourceVerification.consent_reference === "string" &&
+      sourceVerification.consent_reference.trim().length >= 8);
+  const payoutVerified = sourcePolicyVerified && priorWrittenConsentVerified &&
+    requirements.lane === "agent" &&
     requirements.claims_open === true &&
     requirements.payment_state === "escrowed" &&
     ["A", "A-", "B+", "B"].includes(String(requirements.payout_grade || "").toUpperCase()) &&
     requirements.payout_region_status === "supported_in_pakistan" &&
-    requirements.agent_automation_policy === "agent_permitted" &&
     Number.isFinite(reward) && reward > 0 &&
     typeof requirements.acceptance_criteria === "string" &&
     requirements.acceptance_criteria.trim().length >= 45;
@@ -54,12 +79,14 @@ function normalizeJobbi(row) {
     "Payout terms: " + String(row.payment_rail || "") + "; " + String(row.currency || "") +
       "; " + String(row.payment_state || "") + "; Pakistan route: " + String(row.payout_region_status || ""),
     "Source listing: " + String(row.source_url || ""),
+    "Original-source verification: " + (sourcePolicyVerified && priorWrittenConsentVerified ? "verified" : "not verified; aggregator feed is discovery only"),
   ].filter(Boolean).join("\n\n");
   return {
     task_id: row.gig_id,
     title: row.title,
     description,
     eligible: payoutVerified,
+    source_policy_verified: sourcePolicyVerified && priorWrittenConsentVerified,
     simulated: false,
     reward: Number.isFinite(reward) && reward > 0 ? reward : null,
     credits_only: false,
