@@ -47,16 +47,22 @@ test("rejects percentage-split prize pools as less than a single-worker dollar",
   assert.ok(task.qualification_reasons.includes("split_reward_pool"));
 });
 
-test("rejects deposits, low rewards, expired tasks and crowded tasks", () => {
+test("rejects deposits, low rewards, expired tasks and tasks past the free submission allowance", () => {
   const task = normalizeTaskmarketTask({
     ...eligible, reward: "500000", stakeRequired: true,
-    expiryTime: new Date(Date.now() - 1000).toISOString(), submissionCount: 50,
+    expiryTime: new Date(Date.now() - 1000).toISOString(), submissionCount: 5,
   });
   assert.equal(task.eligible, 0);
   assert.ok(task.qualification_reasons.includes("gross_reward_below_1_usdc"));
   assert.ok(task.qualification_reasons.includes("deposit_or_stake_required"));
   assert.ok(task.qualification_reasons.includes("expired"));
   assert.ok(task.qualification_reasons.includes("submission_fee_threshold_reached"));
+});
+
+test("keeps a Taskmarket bounty eligible while the next submission is still free", () => {
+  const task = normalizeTaskmarketTask({ ...eligible, submissionCount: 4 });
+  assert.equal(task.eligible, 1);
+  assert.deepEqual(task.qualification_reasons, []);
 });
 
 test("rejects tasks without a valid requester address", () => {
