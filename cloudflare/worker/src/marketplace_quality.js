@@ -6,7 +6,8 @@ function safeText(value, limit = 20000) {
 
 const SOURCE_PATTERN = /https?:\/\/[^\s)\]}>,]+/gi;
 const TODO_PATTERN = /\b(todo|tbd|placeholder|insert here|lorem ipsum|not completed|unable to complete)\b/i;
-const CLAIM_PATTERN = /\b(I verified|verified live|confirmed current|checked the website|tested successfully|ran the test)\b/i;
+const CLAIM_PATTERN = /\b(I verified|verified live|verified (?:the|this)|confirmed current|checked the website|checked (?:the|this) (?:date|page|source|website|line|field|record)|confirmed (?:the|this) (?:date|page|source|website|line|field|record)|tested successfully|tested (?:the|this)|ran the test)\b/i;
+const UNSUPPORTED_TOOL_CLAIM_PATTERN = /\b(?:I|we)\s+(?:used|ran|called|invoked|executed|fetched|tested)\s+(?:the\s+)?(?:fetch_page|tool|api|command|browser|test)\b|\b(?:receipt[-_ ]?id|receipt[-_ ]\d+|fetch_page\s+(?:tool|result|receipt)|(?:tool|api|command)\s+(?:output|result|receipt)\b)/i;
 
 /**
  * Deterministic quality gate for private task drafts.
@@ -38,6 +39,10 @@ export function qualityCheckDraft(task, draft) {
   const hasVerificationClaims = CLAIM_PATTERN.test(body);
   checks.push({ id: "verification_claims", passed: !hasVerificationClaims, note: hasVerificationClaims ? "Contains verification claims that require evidence review" : "No obvious unsupported verification claims detected" });
   if (hasVerificationClaims) blockers.push("verification_claims_require_evidence");
+
+  const hasUnsupportedToolClaims = UNSUPPORTED_TOOL_CLAIM_PATTERN.test(body);
+  checks.push({ id: "tool_claims", passed: !hasUnsupportedToolClaims, note: hasUnsupportedToolClaims ? "Tool execution or receipt claims require evidence not supplied to this worker" : "No unsupported tool execution or receipt claims detected" });
+  if (hasUnsupportedToolClaims) blockers.push("unsupported_tool_claims_require_evidence");
 
   return {
     status: blockers.length === 0 ? "submission_candidate" : "needs_revision",

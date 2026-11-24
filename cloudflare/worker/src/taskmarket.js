@@ -73,6 +73,7 @@ export function normalizeTaskmarketTask(row, now = Date.now()) {
   if (!/^[0-9]+$/.test(netReward) || BigInt(netReward || "0") < 1000000n) reasons.push("net_reward_below_1_usdc");
   if (row.stakeRequired === true || stakeBps > 0) reasons.push("deposit_or_stake_required");
   if (!expiry) reasons.push("expiry_missing");
+  // Taskmarket's first five bounty submissions are free; the next submission incurs a paid action.
   if (count >= 50) reasons.push("submission_fee_threshold_reached");
   if (!description || description.length < 120) reasons.push("insufficient_task_details");
   if (/split equally|share the full pool|first\s+\d+\s+(?:qualifying\s+)?agents|one award per|up to\s+\d+\s+(?:accepted|qualifying)|split.{0,80}\b\d+\s*%|split.{0,80}\b\d+\s*\/\s*\d+/i.test(description)) reasons.push("split_reward_pool");

@@ -118,3 +118,29 @@ test("scoreTask prioritizes higher-value, clearer, low-competition work without 
   assert.equal(rejected.eligible, false);
   assert.ok(rejected.score.total > 0);
 });
+
+
+test("competition score differentiates crowded tasks without treating competition as a safety gate", () => {
+  const counts = [0, 2, 5, 10, 25, 50, 100, 101];
+  const points = counts.map(submission_count => scoreTask({
+    title: "Documented research task", description: "Create a source-backed report with clear acceptance criteria.",
+    reward: "1.00", eligible: true, submission_count,
+  }).breakdown.competition);
+  assert.deepEqual(points, [10, 9, 7, 5, 3, 2, 1, 0]);
+  const crowded = assessTask({
+    title: "Review public documentation",
+    description: "Write a concise evidence-backed review of public documentation and its limitations.",
+    eligible: true, reward: "1.00", submission_count: 80,
+  }, "non-taskmarket");
+  assert.equal(crowded.eligible, true);
+});
+
+test("Taskmarket submission fee gate blocks listings past the global free cap", () => {
+  const result = assessTask({
+    title: "Write a short documented research note",
+    description: "Create a source-backed note with clear acceptance criteria and no external costs.",
+    eligible: true, reward: "1.00", submission_count: 50,
+  }, "taskmarket");
+  assert.equal(result.eligible, false);
+  assert.ok(result.reasons.includes("submission_fee_required"));
+});

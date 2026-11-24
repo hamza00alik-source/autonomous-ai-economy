@@ -25,7 +25,7 @@ export function scoreTask(task) {
   const payoutPoints = task?.payout_verified === true ? 20 : task?.eligible === true ? 15 : 0;
   const submissions = Number(task?.submission_count);
   const competitionPoints = Number.isFinite(submissions) && submissions >= 0
-    ? submissions === 0 ? 10 : submissions <= 2 ? 9 : submissions <= 5 ? 7 : submissions <= 10 ? 5 : 2
+    ? submissions === 0 ? 10 : submissions <= 2 ? 9 : submissions <= 5 ? 7 : submissions <= 10 ? 5 : submissions <= 25 ? 3 : submissions <= 50 ? 2 : submissions <= 100 ? 1 : 0
     : 5;
   const breakdown = { reward: rewardPoints, scope: scopePoints, clarity: clarityPoints, payout: payoutPoints, competition: competitionPoints };
   return { total: Math.min(100, Object.values(breakdown).reduce((sum, value) => sum + value, 0)), breakdown };
@@ -65,6 +65,20 @@ export function assessTask(task, source = "unknown") {
   if (task?.eligible === false) reasons.push("marketplace_ineligible");
   if (task?.simulated === true) reasons.push("simulated_task");
   if (task?.stake_required === true) reasons.push("stake_required");
+  const submissions = Number(task?.submission_count);
+  if (task?.submission_fee_required === true ||
+      (String(source).toLowerCase().startsWith("taskmarket") && Number.isInteger(submissions) && submissions >= 50)) {
+    reasons.push("submission_fee_required");
+  }
+  if (String(source).toLowerCase().startsWith("taskmarket")) {
+    for (const reason of Array.isArray(task?.taskmarket_qualification_reasons) ? task.taskmarket_qualification_reasons : []) {
+      if (typeof reason === "string" && reason.length <= 100 && !reasons.includes(reason)) reasons.push(reason);
+    }
+    if (task?.taskmarket_freshness_verified !== true && !reasons.includes("taskmarket_snapshot_stale")) reasons.push("taskmarket_snapshot_stale");
+    if (task?.taskmarket_escrow_verified !== true && !reasons.includes("taskmarket_escrow_unverified")) reasons.push("taskmarket_escrow_unverified");
+    if (task?.taskmarket_submission_window_open !== true && !reasons.includes("taskmarket_submission_window_closed")) reasons.push("taskmarket_submission_window_closed");
+    if (task?.taskmarket_no_stake_verified !== true && !reasons.includes("stake_required")) reasons.push("stake_required");
+  }
   const reward = task?.reward ?? task?.reward_usdc ?? task?.reward_amount ?? null;
   const rewardText = typeof reward === "number" ? String(reward) : typeof reward === "string" ? reward.trim() : "";
   const rewardAmount = /^\d+(?:\.\d{1,6})?$/.test(rewardText) ? Number(rewardText) : NaN;
