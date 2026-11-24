@@ -135,11 +135,11 @@ test("competition score differentiates crowded tasks without treating competitio
   assert.equal(crowded.eligible, true);
 });
 
-test("Taskmarket submission fee gate blocks a stale eligible listing at the sixth submission", () => {
+test("Taskmarket submission fee gate blocks listings past the global free cap", () => {
   const result = assessTask({
     title: "Write a short documented research note",
     description: "Create a source-backed note with clear acceptance criteria and no external costs.",
-    eligible: true, reward: "1.00", submission_count: 5,
+    eligible: true, reward: "1.00", submission_count: 50,
   }, "taskmarket");
   assert.equal(result.eligible, false);
   assert.ok(result.reasons.includes("submission_fee_required"));
