@@ -106,7 +106,8 @@ const TASKMARKET_CLOCK_SKEW_MS = 5 * 60 * 1000;
 function normalizeTaskmarket(row, nowMs = Date.now()) {
   const submissionCount = Number(row.submission_count);
   const countKnown = Number.isInteger(submissionCount) && submissionCount >= 0;
-  const submissionFeeRequired = !countKnown || submissionCount >= 5;
+  // A new worker's first five submissions per task are free. The global free cap is 50 total submissions per task; block only when that cap is reached (or the count is unknown).
+  const submissionFeeRequired = !countKnown || submissionCount >= 50;
   const lastSeen = Date.parse(row.last_seen_at || "");
   const freshnessVerified = Number.isFinite(lastSeen) &&
     lastSeen <= nowMs + TASKMARKET_CLOCK_SKEW_MS &&
