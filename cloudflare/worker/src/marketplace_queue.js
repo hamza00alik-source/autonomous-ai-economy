@@ -100,16 +100,47 @@ function normalizeJobbi(row) {
   };
 }
 
-function normalizeTaskmarket(row) {
+const TASKMARKET_FRESHNESS_MS = 10 * 60 * 1000;
+const TASKMARKET_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+function normalizeTaskmarket(row, nowMs = Date.now()) {
+  const submissionCount = Number(row.submission_count);
+  const countKnown = Number.isInteger(submissionCount) && submissionCount >= 0;
+  const submissionFeeRequired = !countKnown || submissionCount >= 5;
+  const lastSeen = Date.parse(row.last_seen_at || "");
+  const freshnessVerified = Number.isFinite(lastSeen) &&
+    lastSeen <= nowMs + TASKMARKET_CLOCK_SKEW_MS &&
+    nowMs - lastSeen <= TASKMARKET_FRESHNESS_MS;
+  const expiry = Date.parse(row.expiry_time || "");
+  const submissionWindowOpen = row.submission_window_open === 1 &&
+    Number.isFinite(expiry) && expiry > nowMs;
+  const escrowVerified = row.escrow_verified === 1 && row.escrow_verification_status === "verified";
+  const noStakeVerified = row.stake_required === 0;
+  const reward = Number(row.net_reward_usdc);
+  const rewardAtLeastOneUsdc = Number.isFinite(reward) && reward >= 1;
+  const qualificationReasons = [];
+  if (row.eligible !== 1) qualificationReasons.push("taskmarket_source_ineligible");
+  if (!freshnessVerified) qualificationReasons.push("taskmarket_snapshot_stale");
+  if (!escrowVerified) qualificationReasons.push("taskmarket_escrow_unverified");
+  if (!submissionWindowOpen) qualificationReasons.push("taskmarket_submission_window_closed");
+  if (submissionFeeRequired) qualificationReasons.push("submission_fee_required");
+  if (!noStakeVerified) qualificationReasons.push("stake_required");
+  if (!rewardAtLeastOneUsdc) qualificationReasons.push("reward_below_1_usdc");
   return {
     task_id: row.task_id,
     title: row.title,
     description: row.description,
-    eligible: row.eligible === 1,
+    eligible: qualificationReasons.length === 0,
     simulated: false,
     reward: row.net_reward_usdc,
-    submission_count: row.submission_count,
+    submission_count: countKnown ? submissionCount : null,
     stake_required: row.stake_required === 1,
+    submission_fee_required: submissionFeeRequired,
+    taskmarket_freshness_verified: freshnessVerified,
+    taskmarket_escrow_verified: escrowVerified,
+    taskmarket_submission_window_open: submissionWindowOpen,
+    taskmarket_no_stake_verified: noStakeVerified,
+    taskmarket_qualification_reasons: qualificationReasons,
   };
 }
 
@@ -118,12 +149,12 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
   const limit = Math.min(50, Math.max(1, Number(limitPerSource) || 25));
   const [swarm, taskmarket, jobbi] = await Promise.all([
     env.DB.prepare("SELECT task_id,title,task_text,reward_json,simulated,eligible FROM swarmmemo_work_items WHERE board_state='open' ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
-    env.DB.prepare("SELECT task_id,title,description,net_reward_usdc,submission_count,stake_required,eligible FROM taskmarket_work_items WHERE board_state='open' ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
+    env.DB.prepare("SELECT task_id,title,description,net_reward_usdc,submission_count,stake_required,eligible,escrow_verified,escrow_verification_status,submission_window_open,expiry_time,last_seen_at FROM taskmarket_work_items WHERE board_state='open' ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
     env.DB.prepare("SELECT gig_id,board_source,title,source_url,reward_amount,reward_usd,reward_usd_estimate,currency,payment_rail,payout_network,payment_state,payout_grade,payout_region_status,requirements_json,snapshot_json FROM aae_jobbi_discoveries WHERE payment_state='escrowed' AND payout_region_status='supported_in_pakistan' AND payout_grade IN ('A','A-','B+','B') AND julianday(last_seen_at) >= julianday('now','-24 hours') ORDER BY COALESCE(reward_usd_estimate,reward_usd) ASC,last_seen_at DESC LIMIT ?").bind(limit).all(),
   ]);
   const candidates = [
     ...(swarm.results || []).map(row => ({ source: "swarmmemo", task: normalizeSwarmMemo(row) })),
-    ...(taskmarket.results || []).map(row => ({ source: "taskmarket", task: normalizeTaskmarket(row) })),
+    ...(taskmarket.results || []).map(row => ({ source: "taskmarket", task: normalizeTaskmarket(row, Date.parse(now)) })),
     ...(jobbi.results || []).map(row => ({ source: "jobbi:" + String(row.board_source || "unknown"), task: normalizeJobbi(row) })),
   ];
   let queued = 0;
