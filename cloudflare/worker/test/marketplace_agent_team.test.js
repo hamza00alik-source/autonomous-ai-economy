@@ -14,29 +14,42 @@ function fakeEnv(outputs) {
   };
 }
 
+const goodDraft = "A complete guide explains the supplied facts, practical steps, limitations, and assumptions without inventing details. Source: https://example.com/docs. Self-check: the claims are limited to the supplied material and the steps are clearly described.";
+
 test("specialist deliverable is independently reviewed and approved", async () => {
   const env = fakeEnv([
-    "A complete guide with steps and assumptions.",
+    goodDraft,
     '{"pass":true,"issues":[],"reason":"The deliverable addresses the task and avoids unsupported claims."}',
   ]);
   const result = await executeAgentTeam(env, { title: "Write a guide", description: "Write a concise guide using supplied facts." }, "test");
   assert.equal(result.ready, true);
   assert.equal(result.review.pass, true);
+  assert.equal(result.quality.status, "submission_candidate");
   assert.equal(result.agents.length, 2);
   assert.equal(env.calls.length, 2);
 });
-
 test("reviewer rejection triggers one revision and a second independent review", async () => {
   const env = fakeEnv([
-    "Initial draft missing limitations.",
+    goodDraft,
     '{"pass":false,"issues":["Add a limitations section."],"reason":"The task requires limitations."}',
-    "Revised draft. Limitations: only supplied facts are covered.",
+    "A complete guide explains the supplied facts, practical steps, limitations, and assumptions without inventing details. Source: https://example.com/docs. Limitations: only supplied material is covered. Self-check: all required sections are present and unsupported claims are avoided.",
     '{"pass":true,"issues":[],"reason":"The revised deliverable addresses the identified gap."}',
   ]);
   const result = await executeAgentTeam(env, { title: "Write a guide", description: "Include limitations." }, "test");
   assert.equal(result.ready, true);
   assert.equal(result.revised, true);
   assert.equal(result.agents.some(agent => agent.role === "revision"), true);
+  assert.equal(env.calls.length, 4);
+});
+test("deterministic QA blockers trigger a revision even when the reviewer passes", async () => {
+  const initial = "This draft has substantive content and a source link, but it does not include the required self-review section. Source: https://example.com/docs.";
+  const pass = '{"pass":true,"issues":[],"reason":"The content is factually bounded and useful."}';
+  const env = fakeEnv([initial, pass, goodDraft, pass]);
+  const result = await executeAgentTeam(env, { title: "Write a guide", description: "Include a self-check." }, "test");
+  assert.equal(result.ready, true);
+  assert.equal(result.revised, true);
+  assert.equal(result.quality.status, "submission_candidate");
+  assert.equal(result.quality.blockers.length, 0);
   assert.equal(env.calls.length, 4);
 });
 
@@ -51,18 +64,20 @@ test("malformed reviewer output retries once and fails closed if still invalid",
 
 test("malformed reviewer output is recovered by one fresh review", async () => {
   const valid = '{"pass":true,"issues":[],"reason":"The deliverable is complete and makes no unsupported claims."}';
-  const env = fakeEnv(["A draft.", "not json", valid]);
+  const env = fakeEnv([goodDraft, "not json", valid]);
   const result = await executeAgentTeam(env, { title: "Write a guide", description: "Use supplied facts." }, "test");
   assert.equal(result.ready, true);
   assert.equal(result.review.pass, true);
+  assert.equal(result.quality.status, "submission_candidate");
   assert.equal(env.calls.length, 3);
 });
-
 test("extracts content arrays and reviewer JSON from nested output", async () => {
   const env = fakeEnv([
-    { response: { content: [{ type: "text", text: "A usable draft." }] } },
+    { response: { content: [{ type: "text", text: goodDraft }] } },
     { result: { content: [{ text: JSON.stringify({ pass: true, issues: [], reason: "Complete" }) }] } },
   ]);
   const result = await executeAgentTeam(env, { title: "Write guide", description: "Use supplied facts." }, "test");
   assert.equal(result.ready, true);
+  assert.equal(result.quality.status, "submission_candidate");
+  assert.equal(env.calls.length, 2);
 });

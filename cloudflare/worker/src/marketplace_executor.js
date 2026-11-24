@@ -61,6 +61,7 @@ export function assessTask(task, source = "unknown") {
     reasons.push("unsupported_deliverable");
   }
   for (const pattern of BLOCK_PATTERNS) if (pattern.test(combined)) reasons.push("blocked_risk_pattern:" + pattern.source);
+  if (task?.source_policy_verified === false) reasons.push("source_policy_unverified");
   if (task?.eligible === false) reasons.push("marketplace_ineligible");
   if (task?.simulated === true) reasons.push("simulated_task");
   if (task?.stake_required === true) reasons.push("stake_required");

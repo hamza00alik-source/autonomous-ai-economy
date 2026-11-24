@@ -1,3 +1,5 @@
+import { qualityCheckDraft } from "./marketplace_quality.js";
+
 const MODEL_ID = "@cf/zai-org/glm-4.7-flash";
 const MAX_TASK_CHARS = 12_000;
 const MAX_DELIVERABLE_CHARS = 18_000;
@@ -92,31 +94,42 @@ export async function executeAgentTeam(env, task, source = "unknown") {
 
   let reviewed = deliverable;
   let review = await reviewWithRetry(env, taskJson, reviewed);
+  let quality = qualityCheckDraft(safeTask, reviewed);
   let revised = false;
 
-  if (!review.pass && review.issues.length) {
+  const revisionIssues = [
+    ...review.issues,
+    ...quality.blockers.map(blocker => "Deterministic QA blocker: " + blocker),
+  ];
+  if (!review.pass && revisionIssues.length === 0) {
+    revisionIssues.push("Independent reviewer did not pass; identify and correct material gaps.");
+  }
+  if (!review.pass || quality.blockers.length) {
     const revision = await ask(
       env,
       "revision",
-      "You are a revision specialist. Fix only the concrete issues identified by the independent reviewer. Preserve correct content. Do not invent missing facts, sources, tests, or verification. If an issue cannot be resolved from supplied information, state the limitation clearly. Return the complete revised deliverable only.",
-      "TASK JSON:\n" + taskJson + "\nCURRENT DELIVERABLE:\n" + reviewed + "\nREVIEW ISSUES:\n" + JSON.stringify(review.issues),
+      "You are a revision specialist. Fix every concrete issue identified by the independent reviewer and deterministic QA. Preserve correct content. Do not invent missing facts, sources, tests, or verification. Add an explicit Self-check section when missing. If source evidence or verification is unavailable, state that limitation and do not claim it was checked. Return the complete revised deliverable only.",
+      "TASK JSON:\n" + taskJson + "\nCURRENT DELIVERABLE:\n" + reviewed + "\nREVIEW AND QA ISSUES:\n" + JSON.stringify(revisionIssues),
       1200,
     );
     if (revision.length > MAX_DELIVERABLE_CHARS) throw new Error("revision deliverable exceeded the size limit");
     reviewed = revision;
     revised = true;
     review = await reviewWithRetry(env, taskJson, reviewed);
+    quality = qualityCheckDraft(safeTask, reviewed);
   }
 
+  const ready = review.pass && quality.status === "submission_candidate";
   return {
     deliverable: reviewed,
     review,
+    quality,
     revised,
     agents: [
       { role: "specialist", status: "completed" },
-      { role: "independent_qa", status: review.pass ? "passed" : "failed" },
+      { role: "independent_qa", status: ready ? "passed" : "failed" },
       ...(revised ? [{ role: "revision", status: "completed" }] : []),
     ],
-    ready: review.pass,
+    ready,
   };
 }
