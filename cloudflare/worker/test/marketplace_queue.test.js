@@ -60,11 +60,25 @@ function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Document
   return { env, jobs };
 }
 
+function taskmarketRow(overrides = {}) {
+  return {
+    eligible: 1,
+    net_reward_usdc: "1.00",
+    submission_count: 1,
+    stake_required: 0,
+    escrow_verified: 1,
+    escrow_verification_status: "verified",
+    submission_window_open: 1,
+    expiry_time: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    last_seen_at: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
 test("eligible marketplace work is queued once per source task", async () => {
-  const { env, jobs } = fakeEnv({ taskmarket: [{
+  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({
     task_id: "0xabc", title: "Write a concise technical guide", description: "Create a clear technical guide explaining a public software feature, with steps and examples. Include relevant sources and limitations. Keep the work offline and deliver a written document.",
-    eligible: 1, net_reward_usdc: "1.00", stake_required: 0,
-  }] });
+  })] });
   const first = await enqueueMarketplaceTasks(env);
   const second = await enqueueMarketplaceTasks(env);
   assert.equal(first.queued, 1);
@@ -313,10 +327,9 @@ test("SwarmMemo USDC tiers are rejected when the USDC cap has no room", async ()
 });
 
 test("queued task becomes a private draft automatically without external actions", async () => {
-  const { env, jobs } = fakeEnv({ taskmarket: [{
+  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({
     task_id: "0xdef", title: "Prepare documentation", description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain the steps, assumptions, expected results, and limitations, then provide a short checklist.",
-    eligible: 1, net_reward_usdc: "1.00", stake_required: 0,
-  }] });
+  })] });
   await enqueueMarketplaceTasks(env);
   const result = await processOneMarketplaceDraft(env);
   assert.equal(result.status, "draft_ready");
@@ -328,10 +341,9 @@ test("queued task becomes a private draft automatically without external actions
 test("failed independent QA is stored as blocked with its draft, not an invalid status", async () => {
   const { env, jobs } = fakeEnv({
     reviewerOutput: '{"pass":false,"issues":[],"reason":"The deliverable is not sufficiently supported."}',
-    taskmarket: [{
+    taskmarket: [taskmarketRow({
       task_id: "0xqa", title: "Prepare documentation", description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain the steps, assumptions, expected results, and limitations, then provide a short checklist.",
-      eligible: 1, net_reward_usdc: "1.00", stake_required: 0,
-    }],
+    })],
   });
   await enqueueMarketplaceTasks(env);
   const result = await processOneMarketplaceDraft(env);
@@ -346,11 +358,10 @@ test("failed independent QA is stored as blocked with its draft, not an invalid 
 test("QA-blocked work is not automatically requeued by a feed refresh", async () => {
   const { env, jobs } = fakeEnv({
     reviewerOutput: '{"pass":false,"issues":[],"reason":"Insufficient support."}',
-    taskmarket: [{
+    taskmarket: [taskmarketRow({
       task_id: "0xqa-retry", title: "Prepare documentation",
       description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain steps, assumptions, results, limitations, and provide a short checklist.",
-      eligible: 1, net_reward_usdc: "1.00", submission_count: 1, stake_required: 0,
-    }],
+    })],
   });
   await enqueueMarketplaceTasks(env);
   const result = await processOneMarketplaceDraft(env);
@@ -399,4 +410,31 @@ test("blocked candidates are re-evaluated when original-source policy is verifie
   assert.equal(second.queued, 1);
   assert.equal(jobs[0].status, "queued");
   assert.match(jobs[0].task_snapshot_json, /priority_score/);
+});
+
+test("stale Taskmarket records cannot enter the draft queue", async () => {
+  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({
+    task_id: "0xstale",
+    last_seen_at: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+  })] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 0);
+  assert.equal(result.blocked, 1);
+  assert.ok(JSON.parse(jobs[0].eligibility_json).reasons.includes("taskmarket_snapshot_stale"));
+});
+
+test("Taskmarket queue requires verified escrow, a live submission window, and no stake", async () => {
+  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({
+    task_id: "0xunsafe",
+    escrow_verified: 0,
+    escrow_verification_status: "not_checked",
+    submission_window_open: 0,
+    expiry_time: new Date(Date.now() - 1000).toISOString(),
+  })] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 0);
+  assert.equal(result.blocked, 1);
+  const reasons = JSON.parse(jobs[0].eligibility_json).reasons;
+  assert.ok(reasons.includes("taskmarket_escrow_unverified"));
+  assert.ok(reasons.includes("taskmarket_submission_window_closed"));
 });
