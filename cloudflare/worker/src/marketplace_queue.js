@@ -57,6 +57,13 @@ function normalizeJobbi(row) {
     sourceVerification.reward_verified === true &&
     sourceVerification.acceptance_criteria_verified === true &&
     sourceVerification.payout_eligibility_verified === true &&
+    sourceVerification.reward_amount === String(row.reward_amount ?? "") &&
+    sourceVerification.reward_currency === String(row.currency || "") &&
+    sourceVerification.payout_rail === String(row.payment_rail || "") &&
+    sourceVerification.payout_network === String(row.payout_network || "") &&
+    sourceVerification.payout_region_status === String(row.payout_region_status || "") &&
+    sourceVerification.zero_upfront_cost_verified === true &&
+    sourceVerification.account_or_credential_actions_required === false &&
     sourceVerification.agent_automation_policy === "agent_permitted" &&
     Number.isFinite(checkedAt) && checkedAt <= Date.now() + 5 * 60 * 1000 &&
     Date.now() - checkedAt <= 24 * 60 * 60 * 1000;
@@ -112,7 +119,7 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
   const [swarm, taskmarket, jobbi] = await Promise.all([
     env.DB.prepare("SELECT task_id,title,task_text,reward_json,simulated,eligible FROM swarmmemo_work_items WHERE board_state='open' ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
     env.DB.prepare("SELECT task_id,title,description,net_reward_usdc,submission_count,stake_required,eligible FROM taskmarket_work_items WHERE board_state='open' ORDER BY last_seen_at DESC LIMIT ?").bind(limit).all(),
-    env.DB.prepare("SELECT gig_id,board_source,title,source_url,reward_usd,reward_usd_estimate,currency,payment_rail,payment_state,payout_grade,payout_region_status,requirements_json,snapshot_json FROM aae_jobbi_discoveries WHERE payment_state='escrowed' AND payout_region_status='supported_in_pakistan' AND payout_grade IN ('A','A-','B+','B') AND julianday(last_seen_at) >= julianday('now','-24 hours') ORDER BY COALESCE(reward_usd_estimate,reward_usd) ASC,last_seen_at DESC LIMIT ?").bind(limit).all(),
+    env.DB.prepare("SELECT gig_id,board_source,title,source_url,reward_amount,reward_usd,reward_usd_estimate,currency,payment_rail,payout_network,payment_state,payout_grade,payout_region_status,requirements_json,snapshot_json FROM aae_jobbi_discoveries WHERE payment_state='escrowed' AND payout_region_status='supported_in_pakistan' AND payout_grade IN ('A','A-','B+','B') AND julianday(last_seen_at) >= julianday('now','-24 hours') ORDER BY COALESCE(reward_usd_estimate,reward_usd) ASC,last_seen_at DESC LIMIT ?").bind(limit).all(),
   ]);
   const candidates = [
     ...(swarm.results || []).map(row => ({ source: "swarmmemo", task: normalizeSwarmMemo(row) })),
