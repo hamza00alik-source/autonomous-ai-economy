@@ -63,6 +63,7 @@ function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Document
 function taskmarketRow(overrides = {}) {
   return {
     eligible: 1,
+    description: "Create a concise, evidence-backed digital deliverable with clear acceptance criteria and no external costs.",
     net_reward_usdc: "1.00",
     submission_count: 1,
     stake_required: 0,
@@ -437,4 +438,20 @@ test("Taskmarket queue requires verified escrow, a live submission window, and n
   const reasons = JSON.parse(jobs[0].eligibility_json).reasons;
   assert.ok(reasons.includes("taskmarket_escrow_unverified"));
   assert.ok(reasons.includes("taskmarket_submission_window_closed"));
+});
+
+test("Taskmarket global free cap allows a new worker at 49 total submissions", async () => {
+  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({ submission_count: 49 })] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 1);
+  assert.equal(result.blocked, 0);
+  assert.deepEqual(JSON.parse(jobs[0].eligibility_json).reasons, []);
+});
+
+test("Taskmarket global free cap blocks 50 total submissions", async () => {
+  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({ submission_count: 50 })] });
+  const result = await enqueueMarketplaceTasks(env);
+  assert.equal(result.queued, 0);
+  assert.equal(result.blocked, 1);
+  assert.ok(JSON.parse(jobs[0].eligibility_json).reasons.includes("submission_fee_required"));
 });
