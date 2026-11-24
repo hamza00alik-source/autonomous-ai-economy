@@ -81,3 +81,10 @@ test("extracts content arrays and reviewer JSON from nested output", async () =>
   assert.equal(result.quality.status, "submission_candidate");
   assert.equal(env.calls.length, 2);
 });
+
+test("agent prompts explicitly prohibit invented tool results and receipts", async () => {
+  const env = fakeEnv([goodDraft, '{"pass":true,"issues":[],"reason":"Complete."}']);
+  await executeAgentTeam(env, { title: "Write a guide", description: "Use supplied facts." }, "test");
+  assert.match(env.calls[0], /no browser, shell, HTTP, API, filesystem, or external tools/i);
+  assert.match(env.calls[1], /no tool outputs are supplied/i);
+});
