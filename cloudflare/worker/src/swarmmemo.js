@@ -48,7 +48,7 @@ export function usdcNextRows(payload) {
   });
 }
 
-export function normalizeSwarmMemoFeed(payload) {
+export function normalizeSwarmMemoFeed(payload, now = Date.now()) {
   const rows = workRows(payload);
   if (!rows) throw new Error("SwarmMemo feed schema did not contain a works array");
   return rows.flatMap((row) => {
@@ -72,6 +72,11 @@ export function normalizeSwarmMemoFeed(payload) {
     };
     const requesterRecord = row.requester_record && typeof row.requester_record === "object"
       ? row.requester_record : null;
+    const deadline = normalizeDeadline(row.deadline || row.deadline_at);
+    const deadlineMs = deadline ? Date.parse(deadline) : NaN;
+    const deadlineReason = !deadline ? "deadline_missing"
+      : !Number.isFinite(deadlineMs) ? "deadline_invalid"
+      : deadlineMs <= now ? "expired" : null;
     return [{
       task_id: taskId,
       title,
@@ -82,12 +87,13 @@ export function normalizeSwarmMemoFeed(payload) {
       simulated: row.simulated === true ? 1 : 0,
       reward_json: JSON.stringify(rewardSnapshot),
       requester_record_json: requesterRecord ? JSON.stringify(requesterRecord).slice(0, 16_000) : null,
-      deadline: normalizeDeadline(row.deadline || row.deadline_at),
+      deadline,
       board_state: safeString(row.state || "open", 40).toLowerCase(),
       eligible: row.simulated !== true && !requestTruncated && row.state === "open"
+        && !deadlineReason
         && (typeof row.claimable === "boolean" ? row.claimable
           : row.eligibility === "open" || row.eligible === true) ? 1 : 0,
-      eligibility_reason: safeString(row.eligible_reason || row.eligibility, 500) || null,
+      eligibility_reason: deadlineReason || safeString(row.eligible_reason || row.eligibility, 500) || null,
     }];
   });
 }
@@ -113,9 +119,25 @@ async function fetchFullWork(taskId, fetchImpl) {
   return work;
 }
 
-export async function pollSwarmMemo(env, fetchImpl = fetch) {
-  const now = new Date().toISOString();
+export async function pollSwarmMemo(env, fetchImpl = fetch, nowDate = new Date()) {
+  const now = nowDate.toISOString();
   try {
+    // Expire stale rows even when the incremental feed is unchanged or omits
+    // previously open tasks. A past deadline must never remain claimable in D1.
+    const expiredResult = await env.DB.prepare(
+      `UPDATE swarmmemo_work_items
+       SET eligible=0,
+         eligibility_reason=CASE
+           WHEN deadline IS NULL OR julianday(deadline) IS NULL THEN 'deadline_missing_or_invalid'
+           ELSE 'expired' END,
+         execution_state=CASE
+           WHEN execution_state IN ('awaiting_owner_approval','approved_awaiting_executor','blocked') THEN
+             CASE WHEN deadline IS NULL OR julianday(deadline) IS NULL THEN 'blocked' ELSE 'expired' END
+           ELSE execution_state END,
+         updated_at=?
+       WHERE eligible=1 AND (deadline IS NULL OR julianday(deadline) IS NULL OR julianday(deadline)<=julianday(?))`
+    ).bind(now, now).run();
+    const expired = Number(expiredResult.meta?.changes || 0);
     const previous = await env.DB.prepare(
       "SELECT since_cursor,page_cursor FROM swarmmemo_poll_state WHERE source='rewarded'"
     ).first();
@@ -142,7 +164,7 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
     const unchanged = feedUnchanged(payload);
     const rows = unchanged ? [] : workRows(payload);
     if (!unchanged && !rows) throw new Error("SwarmMemo feed schema did not contain a works array");
-    const normalized = normalizeSwarmMemoFeed({ works: rows || [] });
+    const normalized = normalizeSwarmMemoFeed({ works: rows || [] }, nowDate.getTime());
     const previewById = new Map(normalized.map((preview) => [preview.task_id, preview]));
     let schedulePayload = payload;
     // Incremental "unchanged" responses omit usdc_next. Fetch an unconditioned
@@ -187,6 +209,7 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
           id: fetchedWork.id || preview.task_id,
           simulated: typeof fetchedWork.simulated === "boolean" ? fetchedWork.simulated : preview.simulated === 1,
           state: isScheduledUsdc && !fetchedClaimable ? "scheduled" : fetchedWork.state || preview.board_state,
+          deadline: fetchedWork.deadline ?? preview.deadline,
           eligibility: fetchedWork.eligibility || preview.eligibility_reason,
           claimable: fetchedClaimable,
           ...(preview.usdc_next ? { usdc_next: preview.usdc_next } : {}),
@@ -194,7 +217,7 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
             ? { ...fetchedWork.request, truncated: fetchedWork.request.truncated === true }
             : { text: preview.task_text, truncated: preview.request_truncated === 1 },
         };
-        const fullRows = normalizeSwarmMemoFeed({ works: [fullWork] });
+        const fullRows = normalizeSwarmMemoFeed({ works: [fullWork] }, nowDate.getTime());
         if (fullRows.length && fullRows[0].request_truncated === 0) return fullRows[0];
       } catch {
         // A scheduled USDC item without its full brief is skipped; never queue a title-only task.
@@ -227,7 +250,7 @@ export async function pollSwarmMemo(env, fetchImpl = fetch) {
         last_error=NULL,last_count=excluded.last_count,last_http_status=excluded.last_http_status,
         since_cursor=excluded.since_cursor,page_cursor=excluded.page_cursor,updated_at=excluded.updated_at`
     ).bind(now, tasks.length, response.status, pollCursor, pageCursor, now).run();
-    return { ok: true, unchanged, discovered: tasks.length, checked_at: now };
+    return { ok: true, unchanged, discovered: tasks.length, expired, checked_at: now };
   } catch (error) {
     const message = safeString(error?.message || "SwarmMemo poll failed", 500);
     await env.DB.prepare(
