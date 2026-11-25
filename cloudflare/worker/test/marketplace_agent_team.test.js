@@ -4,10 +4,13 @@ import { executeAgentTeam } from "../src/marketplace_agent_team.js";
 
 function fakeEnv(outputs) {
   const calls = [];
+  const requests = [];
   return {
     calls,
+    requests,
     AI: { run: async (_model, options) => {
       calls.push(options.messages[0].content);
+      requests.push(options);
       const next = outputs.shift();
       return typeof next === "string" ? { response: next } : next ?? "";
     } },
@@ -28,6 +31,16 @@ test("specialist deliverable is independently reviewed and approved", async () =
   assert.equal(result.agents.length, 2);
   assert.equal(env.calls.length, 2);
 });
+test("reviewer requests deterministic JSON mode without forcing specialist prose into JSON", async () => {
+  const valid = '{"pass":true,"issues":[],"reason":"The deliverable is complete and makes no unsupported claims."}';
+  const env = fakeEnv([goodDraft, valid]);
+  await executeAgentTeam(env, { title: "Write a guide", description: "Use supplied facts." }, "test");
+  assert.equal(env.requests[0].temperature, 0.1);
+  assert.equal(env.requests[0].response_format, undefined);
+  assert.equal(env.requests[1].temperature, 0);
+  assert.deepEqual(env.requests[1].response_format, { type: "json_object" });
+});
+
 test("reviewer rejection triggers one revision and a second independent review", async () => {
   const env = fakeEnv([
     goodDraft,

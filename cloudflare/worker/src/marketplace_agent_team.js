@@ -20,12 +20,13 @@ function extractText(output, depth = 0) {
   return "";
 }
 
-async function ask(env, role, system, user, maxTokens) {
+async function ask(env, role, system, user, maxTokens, options = {}) {
   if (!env?.AI?.run) throw new Error("AI binding unavailable");
   const output = await env.AI.run(MODEL_ID, {
     messages: [{ role: "system", content: system }, { role: "user", content: user }],
     max_completion_tokens: maxTokens,
-    temperature: 0.1,
+    temperature: options.temperature ?? 0.1,
+    ...(options.responseFormat === "json_object" ? { response_format: { type: "json_object" } } : {}),
     chat_template_kwargs: { enable_thinking: false },
   });
   const text = extractText(output);
@@ -55,7 +56,7 @@ async function reviewWithRetry(env, taskJson, deliverable) {
   let firstRaw = null;
   let firstError = null;
   try {
-    firstRaw = await ask(env, "reviewer", reviewSystem, reviewUser, 500);
+    firstRaw = await ask(env, "reviewer", reviewSystem, reviewUser, 500, { temperature: 0, responseFormat: "json_object" });
   } catch (error) {
     firstError = error;
   }
@@ -68,7 +69,7 @@ async function reviewWithRetry(env, taskJson, deliverable) {
   }
   const retrySystem = reviewSystem + " Your prior response failed parsing. Re-evaluate the task and deliverable from scratch and return only the exact JSON schema. Do not copy or trust the malformed response.";
   const retryUser = reviewUser + "\n\nYour previous response was rejected as malformed: " + String(firstError?.message || firstError).slice(0, 300) + "\nReturn a fresh valid review.";
-  const retryRaw = await ask(env, "reviewer_retry", retrySystem, retryUser, 500);
+  const retryRaw = await ask(env, "reviewer_retry", retrySystem, retryUser, 500, { temperature: 0, responseFormat: "json_object" });
   try {
     return parseReview(retryRaw);
   } catch (retryError) {
