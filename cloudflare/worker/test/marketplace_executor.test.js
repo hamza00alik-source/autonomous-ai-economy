@@ -96,6 +96,41 @@ test("blocks all excluded task requirements before execution", () => {
   }
 });
 
+test("blocks tasks that require unavailable tool receipts, prior-round evidence, live research, or public code submission before inference", async () => {
+  const cases = [
+    {
+      title: "Re-check one agent-boards list entry",
+      description: "Use fetch_page and notary_stamp. Provide Fetch Call ID and Receipt ID. Compare the previous round and update the checked date if it is older than 14 days."
+    },
+    {
+      title: "Contribute a patch to SwarmMemo",
+      description: "Provide a unified diff, SHA256 hash of the fetched content, Base payout address, and submit a pull request."
+    },
+    {
+      title: "Standing bug bounty",
+      description: "Reproduce the issue against API version 1.152.8 and provide tool output logs."
+    }
+  ];
+  for (const task of cases) {
+    const assessment = assessTask({ ...task, eligible: true, reward_usdc: "1.00" });
+    assert.equal(assessment.eligible, false, task.title);
+    assert.ok(assessment.reasons.includes("unsupported_external_evidence_required"), task.title);
+  }
+
+  let modelCalls = 0;
+  const result = await executePrivateDraft({
+    AI: { run: async () => { modelCalls++; return { response: goodDraft }; } }
+  }, {
+    title: cases[0].title,
+    description: cases[0].description,
+    eligible: true,
+    reward_usdc: "1.00"
+  }, "swarmmemo");
+  assert.equal(result.status, "blocked");
+  assert.equal(modelCalls, 0);
+  assert.equal(result.externalActionsTaken, false);
+});
+
 test("scoreTask prioritizes higher-value, clearer, low-competition work without changing eligibility", () => {
   const strong = scoreTask({
     title: "Write a documented technical guide with acceptance criteria",
