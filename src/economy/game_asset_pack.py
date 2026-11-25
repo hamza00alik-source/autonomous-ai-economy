@@ -151,12 +151,80 @@ def _coin_stack():
     return p
 
 
+
+def _ward_totem():
+    p=_new_parts()
+    _cylinder(p,(0,0.12,0),0.58,0.24,"dark_stone",10)
+    _cylinder(p,(0,0.28,0),0.42,0.12,"gold",8)
+    _cylinder(p,(0,0.88,0),0.24,1.12,"wood",8,top_radius=0.18)
+    _box(p,(0,0.88,0.24),(0.12,0.82,0.04),"gold")
+    _cylinder(p,(0,1.55,0),0.38,0.14,"dark_stone",8)
+    _crystal(p,(0,2.02,0),0.27,0.82)
+    return p
+
+
+def _battle_banner():
+    p=_new_parts()
+    _cylinder(p,(0,0.12,0),0.48,0.22,"dark_stone",10)
+    _cylinder(p,(0,1.18,0),0.075,2.05,"iron",8)
+    _box(p,(0.36,1.82,0),(0.78,0.78,0.055),"ruby")
+    _box(p,(0.36,2.18,0.035),(0.78,0.08,0.035),"gold")
+    _box(p,(0.36,1.46,0.035),(0.78,0.08,0.035),"gold")
+    _box(p,(0.36,1.82,0.055),(0.10,0.42,0.025),"gold")
+    _cylinder(p,(0,2.28,0),0.12,0.18,"gold",8)
+    return p
+
+
+def _jungle_brazier():
+    p=_new_parts()
+    _cylinder(p,(0,0.12,0),0.62,0.24,"dark_stone",10)
+    _cylinder(p,(0,0.62,0),0.24,0.82,"stone",8)
+    _cylinder(p,(0,1.12,0),0.48,0.20,"iron",10,top_radius=0.62)
+    _cylinder(p,(0,1.28,0),0.52,0.12,"gold",10)
+    _cone(p,(0,1.72,0),0.34,0.82,"crystal_light",8)
+    _crystal(p,(0,1.82,0),0.16,0.72,"crystal","crystal_light",6)
+    return p
+
+
+def _lane_turret():
+    p=_new_parts()
+    _cylinder(p,(0,0.14,0),0.82,0.28,"dark_stone",12)
+    _cylinder(p,(0,0.82,0),0.50,1.18,"stone",8,top_radius=0.38)
+    _cylinder(p,(0,1.48,0),0.62,0.30,"dark_stone",8)
+    for i in range(4):
+        import math
+        angle=math.pi*i/2
+        x,z=0.48*math.cos(angle),0.48*math.sin(angle)
+        _box(p,(x,1.72,z),(0.22,0.42,0.22),"stone")
+    _cylinder(p,(0,1.76,0),0.30,0.16,"gold",8)
+    _crystal(p,(0,2.25,0),0.25,0.88)
+    return p
+
+
+def _rune_gate():
+    p=_new_parts()
+    _box(p,(0,0.10,0),(2.05,0.20,0.62),"dark_stone")
+    for x in (-0.78,0.78):
+        _box(p,(x,1.05,0),(0.34,1.72,0.42),"stone")
+        _box(p,(x,1.90,0),(0.48,0.18,0.54),"gold")
+        _cylinder(p,(x,2.10,0),0.14,0.22,"gold",8)
+    _box(p,(0,2.02,0),(1.92,0.34,0.48),"dark_stone")
+    _box(p,(0,2.20,0),(1.66,0.10,0.40),"gold")
+    _crystal(p,(0,1.20,0),0.22,0.74,"crystal","crystal_light",6)
+    return p
+
+
 _ASSETS = [
     ("mana_crystal", "Mana Crystal", _mana_crystal),
     ("health_vial", "Health Vial", _health_vial),
     ("rune_altar", "Rune Altar", _rune_altar),
     ("supply_chest", "Supply Chest", _supply_chest),
     ("coin_stack", "Ancient Coin Stack", _coin_stack),
+    ("ward_totem", "Arcane Ward Totem", _ward_totem),
+    ("battle_banner", "Battle Banner", _battle_banner),
+    ("jungle_brazier", "Jungle Brazier", _jungle_brazier),
+    ("lane_turret", "Lane Turret", _lane_turret),
+    ("rune_gate", "Rune Gate", _rune_gate),
 ]
 
 
@@ -268,11 +336,11 @@ def build_game_asset_pack(output: str | Path) -> dict:
         data=_glb([(name,parts,(0,0,0))])
         summaries[slug]=_read_glb_summary(data)
         files.append((f"assets/{slug}.glb",data))
-        objects.append((name,parts,((index-2)*2.6,0,0)))
+        objects.append((name,parts,((index % 5 - 2)*2.8,0,(index // 5 - 0.5)*5.0)))
     preview=_glb(objects)
     summaries["preview"]=_read_glb_summary(preview)
     files.append(("preview.glb",preview))
-    scene_lines=["[gd_scene load_steps=9 format=3]",""]
+    scene_lines=[f"[gd_scene load_steps={len(_ASSETS)+4} format=3]",""]
     for i,(slug,name,_) in enumerate(_ASSETS,1):
         scene_lines.append(f'[ext_resource type="PackedScene" path="res://assets/{slug}.glb" id="{i}"]')
     scene_lines.extend([
@@ -284,7 +352,7 @@ def build_game_asset_pack(output: str | Path) -> dict:
         "ambient_light_color = Color(0.45, 0.52, 0.68, 1)",
         "ambient_light_energy = 0.75","",
         '[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]',
-        "size = Vector2(24, 12)","",
+        "size = Vector2(24, 22)","",
         '[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_floor"]',
         "albedo_color = Color(0.06, 0.08, 0.12, 1)",
         "roughness = 0.92","",
@@ -296,8 +364,8 @@ def build_game_asset_pack(output: str | Path) -> dict:
         "light_energy = 1.6",
         "shadow_enabled = true","",
         '[node name="Camera3D" type="Camera3D" parent="."]',
-        "position = Vector3(0, 4.4, 15.5)",
-        "rotation_degrees = Vector3(-14, 0, 0)",
+        "position = Vector3(0, 12.5, 23.0)",
+        "rotation_degrees = Vector3(-28, 0, 0)",
         "current = true","",
         '[node name="Floor" type="MeshInstance3D" parent="."]',
         "position = Vector3(0, -0.04, 0)",
@@ -306,9 +374,9 @@ def build_game_asset_pack(output: str | Path) -> dict:
     ])
     for i,(slug,name,_) in enumerate(_ASSETS,1):
         node_name="".join(part.title() for part in slug.split("_"))
-        x=(i-3)*2.6
+        x=((i-1) % 5 - 2)*2.8
         scene_lines.extend([f'[node name="{node_name}" parent="." instance=ExtResource("{i}")]',
-                           f"position = Vector3({x:.2f}, 0, 0)",""])
+                           f"position = Vector3({x:.2f}, 0, {(i-1)//5*5.0-2.5:.2f})",""])
     files.append(("godot/MOBAObjectiveProps.tscn",("\n".join(scene_lines)+"\n").encode("utf-8")))
     project_config="""config_version=5
 
@@ -324,12 +392,17 @@ renderer/rendering_method.mobile="gl_compatibility"
     files.append(("project.godot",project_config.encode("utf-8")))
     readme="""# MOBA Objective Props — Low-Poly 3D Asset Pack
 
-Five original, procedurally generated low-poly fantasy props for game prototypes:
+Ten original, procedurally generated low-poly fantasy props for game prototypes:
 - Mana Crystal
 - Health Vial
 - Rune Altar
 - Supply Chest
 - Ancient Coin Stack
+- Arcane Ward Totem
+- Battle Banner
+- Jungle Brazier
+- Lane Turret
+- Rune Gate
 
 ## Formats and use
 - Individual glTF 2.0 binary models (.glb), one object per file.
@@ -345,6 +418,8 @@ These are low-poly static props, not rigged characters. They include no animatio
 All meshes are original procedural geometry created for this pack. The pack is not affiliated with Mobile Legends, Unity, Godot, or any game publisher.
 """
 
+    files.append(("README.md",readme.encode("utf-8")))
+
     license_text="""# License
 
 Original project-created 3D mesh assets. The purchaser may use and modify the assets in personal and commercial games and interactive projects. The assets may not be resold, redistributed, sublicensed, or shared as standalone source files or as a competing asset pack. No trademark or affiliation rights are granted. This is a draft license; confirm marketplace and local legal requirements before sale.
@@ -356,19 +431,27 @@ Original project-created 3D mesh assets. The purchaser may use and modify the as
 
 ## Title
 
-MOBA Objective Props — 5 Low-Poly Fantasy 3D Models for Godot
+MOBA Objective Props — 10 Low-Poly Fantasy 3D Models for Godot
 
 ## Description
 
-Add five original low-poly fantasy props to a game prototype: a mana crystal, health vial, rune altar, supply chest, and ancient coin stack. Each asset is supplied as an individual glTF 2.0 binary model (.glb), with a combined preview scene and a Godot 4 demo scene.
+Add a cohesive set of ten original low-poly fantasy props to an indie game prototype. The collection covers resource pickups, consumables, objectives, map utilities, defensive structures and environment dressing:
+- Mana Crystal and Health Vial
+- Rune Altar and Ancient Coin Stack
+- Supply Chest
+- Arcane Ward Totem and Battle Banner
+- Jungle Brazier and Lane Turret
+- Rune Gate
+
+Every prop is delivered as an individual glTF 2.0 binary model (.glb). A combined ten-object preview and a ready-to-open Godot 4.7+ demo project are included to make inspection and prototyping easier.
 
 ## Included
 
-- 5 individual GLB models
-- 1 combined preview GLB
-- 1 complete Godot 4.7+ project with a camera-lit demo scene, floor and project.godot
-- PBR material definitions
-- README and draft license
+- 10 individual GLB models with named files
+- 1 combined preview GLB containing all ten props
+- 1 Godot 4.7+ project with camera, lighting, floor and demo scene
+- PBR material definitions embedded in the GLB assets
+- README, SHA-256 integrity manifest and draft license
 
 ## Technical limits
 

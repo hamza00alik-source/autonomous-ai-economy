@@ -4,7 +4,7 @@ Status: **original 3D asset source and runnable Godot project implemented; autom
 
 ## Current product candidate: MOBA Objective Props
 
-Five original procedural low-poly fantasy props:
+Ten original procedural low-poly fantasy props:
 - Mana Crystal
 - Health Vial
 - Rune Altar
