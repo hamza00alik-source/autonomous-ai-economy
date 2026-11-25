@@ -1,0 +1,76 @@
+# AAE crypto checkout provider decision (2026-11-18)
+
+## Decision
+
+Do not enable the current NOWPayments-only storefront as a worldwide checkout. The current integration is technically useful, but provider terms exclude US, UK and EU residents/citizens. A single NOWPayments integration therefore conflicts with AAE's worldwide-buyer requirement.
+
+No provider reviewed in this pass is approved for production. Keep public checkout and outbound transfers disabled. Pakistan's Virtual Assets Act, 2026 and PVARA regulations now create a specific licensing framework for Virtual Asset Service Providers; obtain a qualified Pakistan legal opinion or written PVARA clarification on whether AAE's exact merchant-receipt model and chosen processor arrangement fall within any regulated service before enabling live crypto checkout.
+
+## Provider comparison
+
+| Provider | Useful capabilities | Material blocker / caveat | Decision |
+|---|---|---|---|
+| NOWPayments | Existing Worker integration; hosted invoice; signed HMAC-SHA512 IPN; USDT/USDC options; 1% standard service fee stated by provider | Current terms say services are not rendered to EU, UK and US residents/citizens; provider can also restrict markets. | Do not use as sole worldwide provider. Keep adapter dormant as a possible jurisdiction-limited route only after legal review. |
+| Cryptomus | Hosted merchant API and payment notifications | Its terms exclude US persons; its published AML prohibited-country list includes Pakistan. | Reject for this merchant. |
+| CoinPayments (new platform) | REST API; hosted invoices; signed/retried webhooks; regional merchant instances; KYC onboarding | Current FAQ says it is not serving EU/EEA clients since 2026-07-01; compliance list includes US and other restricted jurisdictions. Pakistan instance eligibility needs explicit confirmation. | Not a worldwide single-provider fit; do not integrate until Pakistan instance and target-country coverage are confirmed. |
+| CPAY | Advertises non-custodial wallet settlement, Base, USDT/USDC, API and signed webhooks | Its terms say it may act as agent to receive, hold and disburse funds, which conflicts with the non-custodial marketing claim. Merchant jurisdiction/contracting entity and actual custody model need written confirmation. | Hold; do not entrust funds or integrate based on marketing claims. |
+| Plisio | Invoice API and signed callback verification; broad crypto support; claims 0.5% API fee | Its service appears custodial/balance-based in independent review; no reliable official evidence found here proving Pakistan merchant eligibility and worldwide buyer access. | Hold pending written eligibility, custody and settlement confirmation. |
+| DepiPay | Wallet-connected non-custodial design; per-invoice deposit addresses; EVM-style signed API requests; event polling; published restricted-country list does not list Pakistan, US, UK or EU | Current developer/FAQ docs conflict on authentication; supported network documentation lists Ethereum, BSC and TRON (Solana described as coming soon), not Base. Existing AAE public Base address alone cannot authorize a new smart-wallet setup or API signatures. | Unverified candidate only; no account, wallet signature or integration authorized. |\n| DePay (distinct from DepiPay) | Base support; direct wallet payments; USDC/USDT; callbacks and payment tracking | Official documentation announces permanent service discontinuation on 2026-12-31. | Reject for production. |
+
+## Evidence links
+
+- NOWPayments terms: https://nowpayments.io/doc/fd-tos.pdf?v=1.3
+- NOWPayments IPN signature setup: https://nowpayments.zendesk.com/hc/en-us/articles/21395546303389-IPN-and-how-to-setup
+- NOWPayments supported assets: https://nowpayments.io/supported-coins
+- Cryptomus terms: https://cryptomus.com/tos
+- Cryptomus AML prohibited-country list: https://storage.cryptomus.com/docs/aml.pdf
+- CoinPayments compliance: https://www.coinpayments.net/compliance
+- CoinPayments FAQ (EU/EEA service change): https://www.coinpayments.net/faq
+- CoinPayments regional instances: https://docs.coinpayments.net/instances/
+- CoinPayments onboarding/KYC: https://docs.coinpayments.net/api/getting-started/
+- CPAY terms: https://docs.cpay.world/policies-and-compliance/terms-of-service/
+- CPAY API checkout: https://docs.cpay.world/for-developers/api/using-api-for-checkout/
+- Plisio invoice API and callback verification: https://plisio.net/documentation/endpoints/create-an-invoice
+- DepiPay legal restrictions: https://depipay.com/legal.html
+- DepiPay FAQ: https://depipay.com/faq.html
+- DepiPay API: https://depipay.com/docs.html
+- DePay shutdown notice: https://depay.com/docs/payments/integrate/link
+- DePay Base support: https://depay.com/docs/payments/supported/blockchains/
+- DePay payment tracking/callbacks: https://depay.com/docs/apis/payments/tracking/
+
+## Pakistan regulatory gate
+
+The Virtual Assets Act, 2026 applies to VASPs providing virtual-asset services in or from Pakistan. Its Schedule I includes transfer and settlement services performed on behalf of customers, as well as custody, exchange and broker-dealer services. The Act also contains a narrow own-account dealing exemption where a person deals solely on its own account, does not execute customer orders and does not hold or control customer assets. This does not, by itself, settle whether AAE's proposed merchant checkout or a processor's role is regulated. The distinction depends on the actual flow, custody and contractual roles. Before accepting live crypto payments from Pakistan, obtain a qualified local legal opinion or written PVARA clarification; do not assume that a non-custodial marketing claim or a merchant label creates an exemption. Official sources: https://pvara.gov.pk/regulations and https://pvara.gov.pk/licensing. The Act text is at https://pvara.gov.pk/documents/Virtual%20assets%20Act%202026%20passed%20by%20NA.pdf.
+
+## New finding: DePay retirement
+
+DePay's official documentation now announces that its services will be permanently discontinued on 2026-12-31. Although its technical model fits Base and direct wallet payments, it is not a viable foundation for AAE's production checkout with only weeks remaining. Do not build a new dependency on it. See https://depay.com/docs/payments/integrate/link.
+
+## AAE implementation rules
+
+1. Keep NOWPayments routes, current webhook verifier and D1 invoice tables behind existing flags. Do not weaken authorization.
+2. Do not treat a provider's marketing statement ("global", "no KYC", "non-custodial") as proof of merchant eligibility, buyer coverage, custody, or legal compliance.
+3. Before implementing a new provider, require official documentation for:
+   - Pakistan-based merchant eligibility and actual contracting entity;
+   - supported buyer countries, including US, UK, EU/EEA and other intended markets;
+   - USDT/USDC token contract and network identifiers;
+   - hosted invoice creation and expiry;
+   - signed webhook verification, retry policy, terminal paid state and over/underpayment behavior;
+   - wallet settlement/custody model, fees, withdrawal and refund mechanics;
+   - key ownership and recovery.
+4. The payment adapter must map provider-specific events into a common internal state machine. Only independently verified full payment may unlock the download. Duplicate/out-of-order notifications must be idempotent.
+5. Do not add a payout signer or store the owner's wallet private key in Worker secrets. A wallet signature, smart-wallet creation or key delegation is a separate security-sensitive setup and must be explicitly authorized.
+6. Do not activate public checkout, run a live payment, publish a product, move funds, or deploy production code without separate owner approval.
+7. Do not report revenue until the on-chain receipt or provider settlement is verified and reconciled against fees/refunds.
+8. Treat the Pakistan Virtual Assets Act, 2026 / PVARA classification as a pre-launch legal gate for the exact merchant and processor arrangement. Do not provide virtual-asset services to third parties unless the applicable authorization is confirmed.
+
+## Current readiness
+
+- Existing NOWPayments invoice/IPN/store-download code: present on main.
+- Provider API credentials and IPN secret: not verified as configured.
+- Public checkout: must remain disabled.
+- Production test payment: not performed.
+- Product publication: not performed.
+- Verified sales/revenue: zero.
+- Pakistan legal classification for the proposed crypto checkout: not yet confirmed; no live crypto acceptance until reviewed.
+- Next engineering step: implement a provider-neutral payment state interface and automated tests, then add a provider only after the above eligibility and custody gates pass. DePay is disqualified by its announced shutdown; DepiPay remains an unverified candidate and must not be confused with DePay.
