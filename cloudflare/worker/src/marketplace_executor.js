@@ -43,9 +43,19 @@ const BLOCK_PATTERNS = [
   /\b(?:pretend (?:you are|to be) (?:a )?human|claim (?:to be|you are) human|impersonate|fake identity|write from personal experience|your personal experience|personally tested|as a customer|as an employee)\b/i,
   /\b(?:medical diagnosis|legal advice|financial advice|investment advice)\b/i,
   /\b(?:malware|credential theft|phishing|exploit|attack|bypass security)\b/i,
+  /\b(?:payout|wallet)\s+address\b/i,
+  /\b(?:contribute a patch|open a pull request|submit a pull request|create a pull request|push (?:a|the) (?:patch|commit|branch) to (?:the )?(?:public )?repository)\b/i,
 ];
 
 const UNSUPPORTED_DELIVERABLE_PATTERN = /\b(?:final video|video production|full video|voiceover recording|recorded voice|voice recording|audio recording|podcast production|physical delivery|in[- ]person|on[- ]site|onsite|ship (?:the )?(?:product|item)|live production deployment)\b|\b(?:create|make|produce|edit|record|film|render|deliver)\b.{0,80}\b(?:video|film|movie|podcast|voiceover|voice recording|audio recording)\b|\b(?:video|film|movie|podcast|voiceover|voice recording|audio recording)\b.{0,80}\b(?:production|create|make|produce|edit|record|film|render|deliver)\b|视频|成片|配音|剪辑/i;
+
+const UNAVAILABLE_EXTERNAL_EVIDENCE_PATTERNS = [
+  /\b(?:fetch_page|notary_stamp|fetch call id|receipt[-_ ]?id|receipt id|notary receipt)\b/i,
+  /\b(?:previous|prior)\s+(?:round|submission|verdict|result)\b/i,
+  /\b(?:checked|last checked)\s+date\b|\bolder than\s+\d+\s+days\b/i,
+  /\b(?:live research|live verification|current live status|re-check|recheck|browse the web|fetch the page|open the website)\b/i,
+  /\b(?:sha-?256|hash of the fetched content|unified diff|api version|tool output|command output|api response logs)\b/i,
+];
 
 export function assessTask(task, source = "unknown") {
   const title = textField(task?.title, 1000);
@@ -59,6 +69,9 @@ export function assessTask(task, source = "unknown") {
   }
   if (UNSUPPORTED_DELIVERABLE_PATTERN.test(combined)) {
     reasons.push("unsupported_deliverable");
+  }
+  if (UNAVAILABLE_EXTERNAL_EVIDENCE_PATTERNS.some(pattern => pattern.test(combined))) {
+    reasons.push("unsupported_external_evidence_required");
   }
   for (const pattern of BLOCK_PATTERNS) if (pattern.test(combined)) reasons.push("blocked_risk_pattern:" + pattern.source);
   if (task?.source_policy_verified === false) reasons.push("source_policy_unverified");
