@@ -34,6 +34,36 @@ test("normalizes the actual SwarmMemo rewarded feed envelope", () => {
   assert.equal(tasks[0].requester_record_json.includes('"paid":10'), true);
 });
 
+test("expired and deadline-less open work is not claimable", () => {
+  const now = Date.parse("2026-11-25T08:00:00.000Z");
+  const tasks = normalizeSwarmMemoFeed({
+    works: [
+      {
+        id: "expired-work",
+        title: "Expired work",
+        request: { text: "A complete task brief.", truncated: false },
+        state: "open",
+        eligibility: "open",
+        claimable: true,
+        deadline: Math.floor(now / 1000) - 1
+      },
+      {
+        id: "no-deadline-work",
+        title: "No deadline",
+        request: { text: "A complete task brief.", truncated: false },
+        state: "open",
+        eligibility: "open",
+        claimable: true
+      }
+    ]
+  }, now);
+  assert.equal(tasks.length, 2);
+  assert.equal(tasks[0].eligible, 0);
+  assert.equal(tasks[0].eligibility_reason, "expired");
+  assert.equal(tasks[1].eligible, 0);
+  assert.equal(tasks[1].eligibility_reason, "deadline_missing");
+});
+
 test("extracts scheduled USDC tasks separately from the rewarded work list", () => {
   const rows = usdcNextRows({
     data: {
@@ -162,6 +192,40 @@ test("poller refreshes scheduled USDC work on an unchanged incremental response"
   const reward = JSON.parse(workInsert.values[7]);
   assert.equal(reward.standing.usdc_room, "1.9");
   assert.equal(reward.usdc_next.usdc_per_result, "1");
+});
+
+test("poller expires stale open rows even when the incremental feed omits them", async () => {
+  const writes = [];
+  const env = {
+    DB: {
+      prepare(sql) {
+        let values = [];
+        const statement = {
+          bind(...args) { values = args; return statement; },
+          async first() { return null; },
+          async run() { writes.push({ sql, values }); return { meta: { changes: sql.includes("UPDATE swarmmemo_work_items") ? 6 : 1 } }; },
+          sql,
+          get values() { return values; },
+        };
+        return statement;
+      },
+      async batch() { return []; },
+    },
+  };
+  const now = new Date("2026-11-25T08:00:00.000Z");
+  const fetchImpl = async () => new Response(JSON.stringify({
+    ok: true,
+    data: { since: "cursor-now", works: [], has_more: false }
+  }), { status: 200, headers: { "content-type": "application/json" } });
+
+  const result = await pollSwarmMemo(env, fetchImpl, now);
+  assert.equal(result.ok, true);
+  assert.equal(result.discovered, 0);
+  assert.equal(result.expired, 6);
+  const sweep = writes.find(write => write.sql.includes("UPDATE swarmmemo_work_items"));
+  assert.ok(sweep);
+  assert.match(sweep.sql, /julianday\(deadline\)/);
+  assert.deepEqual(sweep.values, [now.toISOString(), now.toISOString()]);
 });
 
 test("recognizes the incremental poll cursor and unchanged responses", () => {
