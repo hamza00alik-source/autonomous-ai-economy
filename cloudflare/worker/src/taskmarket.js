@@ -160,12 +160,28 @@ export async function verifyTaskmarketEscrow(task, fetchImpl = fetch) {
     funded.amount.toString() === task.reward_base_units && funded.component === 0n;
   return { verified: matches, status: matches ? "verified" : "task_or_escrow_event_mismatch", amount_base_units: funded.amount.toString() };
 }
-export async function pollTaskmarket(env, fetchImpl = fetch) {
-  const now = new Date().toISOString();
+export async function pollTaskmarket(env, fetchImpl = fetch, nowDate = new Date()) {
+  const now = nowDate.toISOString();
   try {
+    // The source feed is incremental in practice: tasks that disappear from its
+    // open list otherwise retain stale eligible=1 records in D1 indefinitely.
+    const expiredResult = await env.DB.prepare(
+      `UPDATE taskmarket_work_items
+       SET eligible=0,submission_window_open=0,
+         eligibility_reasons_json=CASE
+           WHEN expiry_time IS NULL OR julianday(expiry_time) IS NULL THEN '["expiry_missing_or_invalid"]'
+           ELSE '["expired"]' END,
+         execution_state=CASE
+           WHEN execution_state IN ('awaiting_owner_approval','approved_awaiting_executor','blocked') THEN
+             CASE WHEN expiry_time IS NULL OR julianday(expiry_time) IS NULL THEN 'blocked' ELSE 'expired' END
+           ELSE execution_state END,
+         updated_at=?
+       WHERE eligible=1 AND (expiry_time IS NULL OR julianday(expiry_time) IS NULL OR julianday(expiry_time)<=julianday(?))`
+    ).bind(now, now).run();
+    const expired = Number(expiredResult.meta?.changes || 0);
     const list = await fetchJson(API + "/api/tasks?chainId=8453&status=open&limit=100&sort=newest", {}, fetchImpl);
     if (!list || !Array.isArray(list.tasks)) throw new Error("Taskmarket task-list schema changed");
-    const candidates = list.tasks.map(row => normalizeTaskmarketTask(row)).filter(Boolean)
+    const candidates = list.tasks.map(row => normalizeTaskmarketTask(row, nowDate.getTime())).filter(Boolean)
       .sort((a,b) => Number(b.eligible) - Number(a.eligible) || Number(b.net_reward_base_units || 0) - Number(a.net_reward_base_units || 0))
       .slice(0, MAX_TASKS_PER_POLL);
     const records = [];
@@ -174,7 +190,7 @@ export async function pollTaskmarket(env, fetchImpl = fetch) {
       try {
         const detail = await fetchJson(API + "/api/tasks/" + encodeURIComponent(preview.task_id), {}, fetchImpl);
         if (!detail || detail.id?.toLowerCase() !== preview.task_id) throw new Error("task detail ID mismatch");
-        task = normalizeTaskmarketTask(detail) || preview;
+        task = normalizeTaskmarketTask(detail, nowDate.getTime()) || preview;
         if (task.escrow_tracked !== 1 || task.escrow_booked_base_units !== task.reward_base_units) {
           task.eligible = 0;
           task.qualification_reasons.push("taskmarket_escrow_record_mismatch");
@@ -231,7 +247,7 @@ export async function pollTaskmarket(env, fetchImpl = fetch) {
        VALUES ('base-mainnet',?,NULL,?,200,?) ON CONFLICT(source) DO UPDATE SET last_success_at=excluded.last_success_at,
        last_error=NULL,last_count=excluded.last_count,last_http_status=200,updated_at=excluded.updated_at`
     ).bind(now,records.length,now).run();
-    return { ok: true, discovered: records.length, qualified: records.filter(x=>x.eligible).length, checked_at: now };
+    return { ok: true, discovered: records.length, qualified: records.filter(x=>x.eligible).length, expired, checked_at: now };
   } catch (error) {
     await env.DB.prepare(
       `INSERT INTO taskmarket_poll_state (source,last_success_at,last_error,last_count,last_http_status,updated_at)
@@ -246,7 +262,7 @@ export async function listTaskmarketWork(env, limit = 50, qualifiedOnly = false)
     `SELECT task_id,title,description,chain_id,mode,board_state,reward_usdc,net_reward_usdc,escrow_tx_hash,
       escrow_verified,escrow_verification_status,submission_count,stake_required,submission_window_open,expiry_time,
       requester,tags_json,eligible,eligibility_reasons_json,owner_approved,execution_state,first_seen_at,last_seen_at,updated_at
-     FROM taskmarket_work_items ${qualifiedOnly ? "WHERE eligible=1" : ""} ORDER BY eligible DESC,last_seen_at DESC LIMIT ?`
+     FROM taskmarket_work_items ${qualifiedOnly ? "WHERE eligible=1 AND expiry_time IS NOT NULL AND julianday(expiry_time)>julianday('now')" : ""} ORDER BY eligible DESC,last_seen_at DESC LIMIT ?`
   ).bind(boundedLimit).all();
   const poll = await env.DB.prepare("SELECT * FROM taskmarket_poll_state WHERE source='base-mainnet'").first();
   return { items: (rows.results || []).map(row => ({ ...row, tags: JSON.parse(row.tags_json || "[]"), qualification_reasons: JSON.parse(row.eligibility_reasons_json || "[]"), tags_json: undefined, eligibility_reasons_json: undefined })), poll: poll || null,
