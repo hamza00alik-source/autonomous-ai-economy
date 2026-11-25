@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeTaskmarketTask, verifyTaskmarketEscrow } from "../src/taskmarket.js";
+import { normalizeTaskmarketTask, verifyTaskmarketEscrow, pollTaskmarket } from "../src/taskmarket.js";
 
 const id = "0x" + "1".repeat(64);
 const tx = "0x" + "2".repeat(64);
@@ -119,4 +119,36 @@ test("decodes the four-word TaskCreated event and verifies the escrow reward", a
 test("derives a real title when the description starts with a placeholder heading", () => {
   const task = normalizeTaskmarketTask({ ...eligible, description: "## Title\n制作一个约20分钟的视频\n\n## Objective\n制作视频成片." });
   assert.equal(task.title, "制作一个约20分钟的视频");
+});
+
+test("poller expires stale eligible records omitted from the current open feed", async () => {
+  const writes = [];
+  const env = {
+    DB: {
+      prepare(sql) {
+        let values = [];
+        const statement = {
+          bind(...args) { values = args; return statement; },
+          async run() { writes.push({ sql, values }); return { meta: { changes: sql.includes("UPDATE taskmarket_work_items") ? 2 : 1 } }; },
+          async all() { return { results: [] }; },
+          sql,
+          get values() { return values; },
+        };
+        return statement;
+      },
+      async batch(statements) { writes.push(...statements); return []; },
+    },
+  };
+  const now = new Date("2026-11-25T08:00:00.000Z");
+  const fetchImpl = async () => new Response(JSON.stringify({ tasks: [] }), {
+    status: 200, headers: { "content-type": "application/json" }
+  });
+
+  const result = await pollTaskmarket(env, fetchImpl, now);
+  assert.equal(result.ok, true);
+  assert.equal(result.expired, 2);
+  const sweep = writes.find(write => write.sql.includes("UPDATE taskmarket_work_items"));
+  assert.ok(sweep);
+  assert.match(sweep.sql, /julianday\(expiry_time\)/);
+  assert.deepEqual(sweep.values, [now.toISOString(), now.toISOString()]);
 });
