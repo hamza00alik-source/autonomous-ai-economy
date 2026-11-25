@@ -1,0 +1,39 @@
+name: Taskmarket Opportunity Scout
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Maximum public tasks to scan
+        required: false
+        default: "50"
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install AAE CLI
+        run: pip install -e .
+      - name: Read-only Taskmarket scan
+        run: |
+          economy-ai scan-taskmarket-tasks --limit "${{ github.event.inputs.limit || '50' }}" --minimum-reward 1.00 --maximum-submissions 5 --verify-limit 25
+      - name: Save scan leads
+        run: |
+          mkdir -p taskmarket-scout-output
+          economy-ai list-taskmarket-tasks --qualified-only --limit 20 > taskmarket-scout-output/qualified.txt || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: taskmarket-qualified-leads
+          path: taskmarket-scout-output/qualified.txt
+          if-no-files-found: warn
+          retention-days: 3
