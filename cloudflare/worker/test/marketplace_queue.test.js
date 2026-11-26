@@ -4,6 +4,7 @@ import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "../src/mark
 
 function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.", reviewerOutput = '{"pass":true,"issues":[],"reason":"The work meets the stated requirements."}' } = {}) {
   const jobs = [];
+  const events = [];
   let aiCall = 0;
   const env = {
     AI: { run: async () => ({ response: aiCall++ % 2 === 0 ? aiOutput : reviewerOutput }) },
@@ -23,6 +24,13 @@ function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Document
             return null;
           },
           async run() {
+            if (sql.startsWith("INSERT OR IGNORE INTO aae_task_lifecycle_events")) {
+              const [event_id,source,external_task_id,job_id,status,participation_class,evidence_json,evidence_hash,recorded_at] = values;
+              const duplicate = events.some(x => x.source === source && x.external_task_id === external_task_id && x.status === status && x.evidence_hash === evidence_hash);
+              if (duplicate) return { meta: { changes: 0 } };
+              events.push({event_id,source,external_task_id,job_id,status,participation_class,evidence_json,evidence_hash,recorded_at});
+              return { meta: { changes: 1 } };
+            }
             if (sql.startsWith("INSERT OR IGNORE INTO ai_daily_budget")) return { meta: { changes: 1 } };
             if (sql.startsWith("UPDATE ai_daily_budget")) return { meta: { changes: 1 } };
             if (sql.startsWith("INSERT INTO aae_execution_jobs")) {
@@ -57,7 +65,7 @@ function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Document
       },
     },
   };
-  return { env, jobs };
+  return { env, jobs, events };
 }
 
 function taskmarketRow(overrides = {}) {
@@ -77,7 +85,7 @@ function taskmarketRow(overrides = {}) {
 }
 
 test("eligible marketplace work is queued once per source task", async () => {
-  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({
+  const { env, jobs, events } = fakeEnv({ taskmarket: [taskmarketRow({
     task_id: "0xabc", title: "Write a concise technical guide", description: "Create a clear technical guide explaining a public software feature, with steps and examples. Include relevant sources and limitations. Keep the work offline and deliver a written document.",
   })] });
   const first = await enqueueMarketplaceTasks(env);
@@ -85,6 +93,9 @@ test("eligible marketplace work is queued once per source task", async () => {
   assert.equal(first.queued, 1);
   assert.equal(second.queued, 0);
   assert.equal(jobs.length, 1);
+  assert.deepEqual(events.map(event => event.status), ["discovered", "qualified", "selected"]);
+  assert.ok(events.every(event => event.participation_class === "discovery_only"));
+  assert.equal(events.length, 3, "repeat feed polls must not duplicate lifecycle evidence");
 });
 
 function verifiedOriginalSource(sourceUrl, extra = {}) {
@@ -150,7 +161,7 @@ test("source-verified agent-permitted work enters the agent queue", async () => 
 });
 
 test("aggregator lane and payout labels alone remain discovery-only", async () => {
-  const { env, jobs } = fakeEnv({ jobbi: [{
+  const { env, jobs, events } = fakeEnv({ jobbi: [{
     gig_id: "algora:unverified",
     board_source: "algora",
     title: "Fix a small documented API bug",
@@ -174,6 +185,7 @@ test("aggregator lane and payout labels alone remain discovery-only", async () =
   assert.equal(result.queued, 0);
   assert.equal(result.blocked, 1);
   assert.ok(JSON.parse(jobs[0].eligibility_json).reasons.includes("source_policy_unverified"));
+  assert.ok(events.every(event => event.participation_class === "discovery_only"));
 });
 
 test("Algora requires original-source verification and prior written consent", async () => {
@@ -276,7 +288,7 @@ test("Jobbi work without explicit agent permission is blocked before inference",
 });
 
 test("unsafe or ineligible work is blocked and never sent to the model", async () => {
-  const { env, jobs } = fakeEnv({ swarm: [{
+  const { env, jobs, events } = fakeEnv({ swarm: [{
     task_id: "unsafe-123", title: "Publish marketing post", task_text: "Publish a promotional social media post for this product.",
     reward_json: '{"usdc":"1"}', simulated: 0, eligible: 1,
   }] });
@@ -285,6 +297,7 @@ test("unsafe or ineligible work is blocked and never sent to the model", async (
   assert.equal(jobs[0].status, "blocked");
   const processed = await processOneMarketplaceDraft(env);
   assert.equal(processed.processed, false);
+  assert.deepEqual(events.map(event => event.status), ["discovered", "blocked"]);
 });
 
 test("SwarmMemo credit-denominated rewards are blocked as non-cash", async () => {
@@ -337,10 +350,12 @@ test("queued task becomes a private draft automatically without external actions
   assert.equal(result.externalActionsTaken, false);
   assert.equal(jobs[0].status, "draft_ready");
   assert.match(jobs[0].result_text, /Documentation draft/);
+  assert.ok(events.some(event => event.status === "blocked" && event.evidence_json.includes("quality")));
+  assert.ok(!events.some(event => event.status === "qa_passed"));
 });
 
 test("failed independent QA is stored as blocked with its draft, not an invalid status", async () => {
-  const { env, jobs } = fakeEnv({
+  const { env, jobs, events } = fakeEnv({
     reviewerOutput: '{"pass":false,"issues":[],"reason":"The deliverable is not sufficiently supported."}',
     taskmarket: [taskmarketRow({
       task_id: "0xqa", title: "Prepare documentation", description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain the steps, assumptions, expected results, and limitations, then provide a short checklist.",
@@ -396,7 +411,7 @@ test("blocked candidates are re-evaluated when original-source policy is verifie
     }),
     snapshot_json: JSON.stringify({ content_text: "A small, bounded change with explicit acceptance criteria." }),
   };
-  const { env, jobs } = fakeEnv({ jobbi: [candidate] });
+  const { env, jobs, events } = fakeEnv({ jobbi: [candidate] });
   const first = await enqueueMarketplaceTasks(env);
   assert.equal(first.blocked, 1);
   assert.equal(jobs[0].status, "blocked");
@@ -411,6 +426,7 @@ test("blocked candidates are re-evaluated when original-source policy is verifie
   assert.equal(second.queued, 1);
   assert.equal(jobs[0].status, "queued");
   assert.match(jobs[0].task_snapshot_json, /priority_score/);
+  assert.ok(events.some(event => event.status === "selected" && event.participation_class === "agent_permitted"));
 });
 
 test("stale Taskmarket records cannot enter the draft queue", async () => {
