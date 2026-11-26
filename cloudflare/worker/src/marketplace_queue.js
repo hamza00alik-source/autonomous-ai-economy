@@ -1,4 +1,5 @@
 import { assessTask, executePrivateDraft } from "./marketplace_executor.js";
+import { classifyTaskParticipation, recordTaskLifecycle } from "./task_lifecycle.js";
 
 function parseJson(value) {
   if (!value) return null;
@@ -94,6 +95,8 @@ function normalizeJobbi(row) {
     description,
     eligible: payoutVerified,
     source_policy_verified: sourcePolicyVerified && priorWrittenConsentVerified,
+    agent_automation_policy: sourcePolicyVerified && priorWrittenConsentVerified ? "agent_permitted" : "discovery_only",
+    human_led_only: requirements.human_led_only === true || requirements.agent_automation_policy === "human_led" || requirements.agent_automation_policy === "human_only",
     simulated: false,
     reward: Number.isFinite(reward) && reward > 0 ? reward : null,
     credits_only: false,
@@ -163,6 +166,25 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
   for (const item of candidates) {
     const assessment = assessTask(item.task, item.source);
     const status = assessment.eligible ? "queued" : "blocked";
+    const participationClass = classifyTaskParticipation(item.task);
+    const evidence = {
+      title: assessment.title,
+      reward: assessment.reward ?? null,
+      deadline: item.task.deadline ?? item.task.expiry_time ?? null,
+      source_policy_verified: item.task.source_policy_verified === true,
+    };
+    await recordTaskLifecycle(env, {
+      source: item.source, externalTaskId: assessment.taskId, status: "discovered",
+      participationClass, evidence, recordedAt: now,
+    });
+    await recordTaskLifecycle(env, {
+      source: item.source, externalTaskId: assessment.taskId, status: assessment.eligible ? "qualified" : "blocked",
+      participationClass,
+      evidence: assessment.eligible
+        ? { reward: assessment.reward ?? null, score: assessment.score, reasons: assessment.reasons, qualification: "private_draft_only" }
+        : { reward: assessment.reward ?? null, score: assessment.score, reasons: assessment.reasons },
+      recordedAt: now,
+    });
     const id = crypto.randomUUID();
     const taskSnapshot = { ...item.task, priority_score: assessment.score.total, priority_breakdown: assessment.score.breakdown };
     const result = await env.DB.prepare(
@@ -172,8 +194,14 @@ export async function enqueueMarketplaceTasks(env, limitPerSource = 25) {
       JSON.stringify({ eligible: assessment.eligible, reasons: assessment.reasons, score: assessment.score }),
       status, now, now).run();
     if (result.meta?.changes === 1) {
-      if (status === "queued") queued++;
-      else blocked++;
+      if (status === "queued") {
+        await recordTaskLifecycle(env, {
+          source: item.source, externalTaskId: assessment.taskId, jobId: id, status: "selected",
+          participationClass, evidence: { job_id: id, priority_score: assessment.score.total, private_draft_only: true },
+          recordedAt: now,
+        });
+        queued++;
+      } else blocked++;
     }
   }
   return { examined: candidates.length, queued, blocked };
@@ -195,8 +223,16 @@ export async function processOneMarketplaceDraft(env) {
     "UPDATE aae_execution_jobs SET status='running',updated_at=? WHERE job_id=? AND status='queued'"
   ).bind(now, row.job_id).run();
   if (reserved.meta?.changes !== 1) return { processed: false, raced: true };
+  let participationClass = "discovery_only";
   try {
     const task = JSON.parse(row.task_snapshot_json);
+    participationClass = classifyTaskParticipation(task);
+    await recordTaskLifecycle(env, {
+      source: row.source, externalTaskId: row.external_task_id, jobId: row.job_id,
+      status: "in_progress", participationClass,
+      evidence: { job_id: row.job_id, started_at: now, private_draft_only: true },
+      recordedAt: now,
+    });
     // Reserve for specialist, reviewer, one revision, final review, and one malformed-review retry.
     // The shared daily cap is conservative; no model inference occurs without reservation.
     const utcDay = new Date().toISOString().slice(0, 10);
@@ -208,28 +244,80 @@ export async function processOneMarketplaceDraft(env) {
       "UPDATE ai_daily_budget SET reserved_neurons=reserved_neurons+? WHERE utc_day=? AND reserved_neurons+?<=?"
     ).bind(estimatedNeurons, utcDay, estimatedNeurons, 6500).run();
     if (budget.meta?.changes !== 1) {
+      const blockedAt = new Date().toISOString();
       await env.DB.prepare(
         "UPDATE aae_execution_jobs SET status='blocked',error=?,updated_at=? WHERE job_id=? AND status='running'"
-      ).bind("Shared daily Workers AI safety budget reached; no agent inference was made", new Date().toISOString(), row.job_id).run();
+      ).bind("Shared daily Workers AI safety budget reached; no agent inference was made", blockedAt, row.job_id).run();
+      await recordTaskLifecycle(env, {
+        source: row.source, externalTaskId: row.external_task_id, jobId: row.job_id,
+        status: "blocked", participationClass,
+        evidence: { job_id: row.job_id, reason: "daily_ai_safety_budget_reached", estimated_neurons: estimatedNeurons, inference_made: false },
+        recordedAt: blockedAt,
+      });
       return { processed: true, status: "blocked_budget", job_id: row.job_id, estimated_neurons: estimatedNeurons };
     }
     const draft = await executePrivateDraft(env, task, row.source);
     if (draft.status !== "draft_ready") {
+      const blockedAt = new Date().toISOString();
       await env.DB.prepare(
         "UPDATE aae_execution_jobs SET status='blocked',eligibility_json=?,updated_at=? WHERE job_id=? AND status='running'"
-      ).bind(JSON.stringify({ eligible: false, reasons: draft.assessment?.reasons || ["screened_out"] }), new Date().toISOString(), row.job_id).run();
+      ).bind(JSON.stringify({ eligible: false, reasons: draft.assessment?.reasons || ["screened_out"] }), blockedAt, row.job_id).run();
+      await recordTaskLifecycle(env, {
+        source: row.source, externalTaskId: row.external_task_id, jobId: row.job_id,
+        status: "blocked", participationClass,
+        evidence: { job_id: row.job_id, reasons: draft.assessment?.reasons || ["screened_out"] },
+        recordedAt: blockedAt,
+      });
       return { processed: true, status: "blocked", job_id: row.job_id };
+    }
+    const qaEvidence = {
+      job_id: row.job_id,
+      qa_status: draft.qa?.status || "unknown",
+      checks_count: Array.isArray(draft.qa?.checks) ? draft.qa.checks.length : 0,
+      blockers: Array.isArray(draft.qa?.blockers) ? draft.qa.blockers.slice(0, 20) : [],
+      independent_review_pass: draft.qa?.independent_review?.pass === true,
+    };
+    if (draft.qa?.status === "submission_candidate") {
+      await recordTaskLifecycle(env, {
+        source: row.source, externalTaskId: row.external_task_id, jobId: row.job_id,
+        status: "qa_passed", participationClass,
+        evidence: qaEvidence, recordedAt: new Date().toISOString(),
+      });
     }
     const finalStatus = draft.submissionReady === true ? "draft_ready" : "blocked";
     const qaError = draft.submissionReady === true ? null : "Independent QA or deterministic quality gate did not pass";
+    const finishedAt = new Date().toISOString();
     await env.DB.prepare(
       "UPDATE aae_execution_jobs SET status=?,result_text=?,eligibility_json=?,error=?,updated_at=? WHERE job_id=? AND status='running'"
-    ).bind(finalStatus, draft.deliverable, JSON.stringify({ eligible: true, reasons: [], qa: draft.qa, agentTeam: draft.agentTeam, revised: draft.revised, submissionReady: draft.submissionReady === true }), qaError, new Date().toISOString(), row.job_id).run();
+    ).bind(finalStatus, draft.deliverable, JSON.stringify({ eligible: true, reasons: [], qa: draft.qa, agentTeam: draft.agentTeam, revised: draft.revised, submissionReady: draft.submissionReady === true }), qaError, finishedAt, row.job_id).run();
+    if (finalStatus === "draft_ready") {
+      await recordTaskLifecycle(env, {
+        source: row.source, externalTaskId: row.external_task_id, jobId: row.job_id,
+        status: "submission_ready", participationClass,
+        evidence: { ...qaEvidence, ready: true, private_draft_only: true, external_submission: false },
+        recordedAt: finishedAt,
+      });
+    } else {
+      await recordTaskLifecycle(env, {
+        source: row.source, externalTaskId: row.external_task_id, jobId: row.job_id,
+        status: "blocked", participationClass,
+        evidence: { ...qaEvidence, reason: "submission_readiness_not_passed", ready: false },
+        recordedAt: finishedAt,
+      });
+    }
     return { processed: true, status: finalStatus, job_id: row.job_id, externalActionsTaken: false };
   } catch (error) {
+    const message = String(error?.message || "draft generation failed").slice(0, 500);
+    const failedAt = new Date().toISOString();
     await env.DB.prepare(
       "UPDATE aae_execution_jobs SET status='failed',error=?,updated_at=? WHERE job_id=? AND status='running'"
-    ).bind(String(error?.message || "draft generation failed").slice(0, 500), new Date().toISOString(), row.job_id).run();
+    ).bind(message, failedAt, row.job_id).run();
+    await recordTaskLifecycle(env, {
+      source: row.source, externalTaskId: row.external_task_id, jobId: row.job_id,
+      status: "failed", participationClass,
+      evidence: { job_id: row.job_id, error: message },
+      recordedAt: failedAt,
+    });
     return { processed: true, status: "failed", job_id: row.job_id };
   }
 }
