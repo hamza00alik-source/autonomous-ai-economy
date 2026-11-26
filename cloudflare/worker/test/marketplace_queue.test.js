@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { enqueueMarketplaceTasks, processOneMarketplaceDraft } from "../src/marketplace_queue.js";
+import { recordTaskLifecycle } from "../src/task_lifecycle.js";
 
 function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Documentation draft: This guide explains the supplied software feature, its setup steps, expected behavior, and practical limitations. Source: https://example.com/docs. Self-check: verify every step against the current official documentation before use.", reviewerOutput = '{"pass":true,"issues":[],"reason":"The work meets the stated requirements."}' } = {}) {
   const jobs = [];
@@ -67,6 +68,16 @@ function fakeEnv({ swarm = [], taskmarket = [], jobbi = [], aiOutput = "Document
   };
   return { env, jobs, events };
 }
+
+test("lifecycle events require concrete evidence", async () => {
+  const { env } = fakeEnv();
+  await assert.rejects(recordTaskLifecycle(env, {
+    source: "taskmarket",
+    externalTaskId: "empty-evidence",
+    status: "discovered",
+    evidence: {},
+  }), /Lifecycle evidence is required/);
+});
 
 function taskmarketRow(overrides = {}) {
   return {
