@@ -31,7 +31,10 @@ export async function recordTaskLifecycle(env, {
   }
   if (!LIFECYCLE_STATUSES.has(status)) throw new Error("Invalid lifecycle status");
   if (!PARTICIPATION_CLASSES.has(participationClass)) throw new Error("Invalid lifecycle participation class");
-  const evidenceJson = stableJson(evidence ?? {});
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence) || Object.keys(evidence).length === 0) {
+    throw new Error("Lifecycle evidence is required");
+  }
+  const evidenceJson = stableJson(evidence);
   if (evidenceJson.length > 6000) throw new Error("Lifecycle evidence exceeds the safe storage limit");
   const fingerprintInput = [source, externalTaskId, status, participationClass, evidenceJson].join("\n");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(fingerprintInput));
