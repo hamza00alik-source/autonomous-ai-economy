@@ -122,7 +122,7 @@ function verifiedOriginalSource(sourceUrl, extra = {}) {
 
 test("source-verified agent-permitted work enters the agent queue", async () => {
   const sourceUrl = "https://github.com/example/project/issues/7";
-  const { env, jobs } = fakeEnv({ jobbi: [{
+  const { env, jobs, events } = fakeEnv({ jobbi: [{
     gig_id: "agentbounties:small-task",
     board_source: "agentbounties",
     title: "Fix a small documented API bug",
@@ -158,6 +158,7 @@ test("source-verified agent-permitted work enters the agent queue", async () => 
   assert.match(task.description, /Acceptance criteria/);
   assert.match(task.description, /Source listing/);
   assert.match(task.description, /Original-source verification: verified/);
+  assert.ok(events.some(event => event.status === "selected" && event.participation_class === "agent_permitted"));
 });
 
 test("aggregator lane and payout labels alone remain discovery-only", async () => {
@@ -341,7 +342,7 @@ test("SwarmMemo USDC tiers are rejected when the USDC cap has no room", async ()
 });
 
 test("queued task becomes a private draft automatically without external actions", async () => {
-  const { env, jobs } = fakeEnv({ taskmarket: [taskmarketRow({
+  const { env, jobs, events } = fakeEnv({ taskmarket: [taskmarketRow({
     task_id: "0xdef", title: "Prepare documentation", description: "Prepare a concise offline documentation draft about the supplied public software feature. Explain the steps, assumptions, expected results, and limitations, then provide a short checklist.",
   })] });
   await enqueueMarketplaceTasks(env);
@@ -350,8 +351,8 @@ test("queued task becomes a private draft automatically without external actions
   assert.equal(result.externalActionsTaken, false);
   assert.equal(jobs[0].status, "draft_ready");
   assert.match(jobs[0].result_text, /Documentation draft/);
-  assert.ok(events.some(event => event.status === "blocked" && event.evidence_json.includes("quality")));
-  assert.ok(!events.some(event => event.status === "qa_passed"));
+  assert.deepEqual(events.map(event => event.status), ["discovered", "qualified", "selected", "in_progress", "qa_passed", "submission_ready"]);
+  assert.ok(events.every(event => event.participation_class === "discovery_only"));
 });
 
 test("failed independent QA is stored as blocked with its draft, not an invalid status", async () => {
@@ -367,6 +368,8 @@ test("failed independent QA is stored as blocked with its draft, not an invalid 
   assert.equal(jobs[0].status, "blocked");
   assert.match(jobs[0].error, /quality gate did not pass/);
   assert.match(jobs[0].result_text, /Documentation draft/);
+  assert.ok(events.some(event => event.status === "blocked" && event.evidence_json.includes("submission_readiness_not_passed")));
+  assert.ok(!events.some(event => event.status === "qa_passed"));
 });
 
 
