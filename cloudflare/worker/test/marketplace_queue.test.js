@@ -380,7 +380,10 @@ test("failed independent QA is stored as blocked with its draft, not an invalid 
   assert.match(jobs[0].error, /quality gate did not pass/);
   assert.match(jobs[0].result_text, /Documentation draft/);
   assert.ok(events.some(event => event.status === "blocked" && event.evidence_json.includes("submission_readiness_not_passed")));
-  assert.ok(!events.some(event => event.status === "qa_passed"));
+  const qaPassed = events.find(event => event.status === "qa_passed");
+  assert.ok(qaPassed, "deterministic QA passed even though independent review failed");
+  assert.equal(JSON.parse(qaPassed.evidence_json).independent_review_pass, false);
+  assert.ok(!events.some(event => event.status === "submission_ready"));
 });
 
 
