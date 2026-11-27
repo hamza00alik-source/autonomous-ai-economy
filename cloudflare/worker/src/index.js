@@ -691,10 +691,27 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/health" && request.method === "GET") {
       try {
-        const [counts, lastExecution] = await Promise.all([
+        const [counts, lastExecution, taskmarketPoll, swarmmemoPoll, feedRuns] = await Promise.all([
           env.DB.prepare("SELECT status,COUNT(*) AS total FROM aae_execution_jobs GROUP BY status").all(),
           env.DB.prepare("SELECT MAX(updated_at) AS last_activity_at FROM aae_execution_jobs").first(),
+          env.DB.prepare("SELECT source,last_success_at,last_error,last_count,last_http_status,updated_at FROM taskmarket_poll_state").all(),
+          env.DB.prepare("SELECT source,last_success_at,last_error,last_count,last_http_status,updated_at FROM swarmmemo_poll_state").all(),
+          env.DB.prepare("SELECT source,status,fetched,stored,rejected,feed_generated_at,error,started_at,finished_at FROM aae_external_bounty_feed_runs ORDER BY started_at DESC LIMIT 20").all(),
         ]);
+        const latestFeeds = [];
+        const seenFeedSources = new Set();
+        for (const run of feedRuns.results || []) {
+          if (seenFeedSources.has(run.source)) continue;
+          seenFeedSources.add(run.source);
+          latestFeeds.push(run);
+        }
+        const pollTimestamps = [
+          ...(taskmarketPoll.results || []).map(row => row.updated_at),
+          ...(swarmmemoPoll.results || []).map(row => row.updated_at),
+          ...latestFeeds.map(row => row.finished_at),
+        ].filter(value => typeof value === "string" && Number.isFinite(Date.parse(value)));
+        const lastPollAt = pollTimestamps.sort((a, b) => Date.parse(b) - Date.parse(a))[0] || null;
+        const lastJobUpdateAt = lastExecution?.last_activity_at || null;
         return json({
           service: "autonomous-ai-economy",
           status: "ready",
@@ -702,8 +719,15 @@ export default {
           scheduled_cron: "*/5 * * * *",
           marketplace_execution: {
             counts: counts.results || [],
-            last_activity_at: lastExecution?.last_activity_at || null,
+            last_activity_at: lastJobUpdateAt,
+            last_job_update_at: lastJobUpdateAt,
             external_submission_enabled: false,
+          },
+          polling: {
+            last_poll_at: lastPollAt,
+            taskmarket: (taskmarketPoll.results || [])[0] || null,
+            swarmmemo: (swarmmemoPoll.results || [])[0] || null,
+            external_feeds: latestFeeds,
           },
         });
       } catch (error) {
