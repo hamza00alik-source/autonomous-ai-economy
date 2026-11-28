@@ -170,6 +170,16 @@ test("competition score differentiates crowded tasks without treating competitio
   assert.equal(crowded.eligible, true);
 });
 
+test("Taskmarket platform wallet and signed-write requirement blocks otherwise eligible work", () => {
+  const result = assessTask({
+    title: "Write a short documented research note",
+    description: "Create a source-backed note with clear acceptance criteria and no external costs.",
+    eligible: true, reward: "1.00", submission_count: 1,
+  }, "taskmarket");
+  assert.equal(result.eligible, false);
+  assert.ok(result.reasons.includes("taskmarket_wallet_identity_and_signed_submission_required"));
+});
+
 test("Taskmarket submission fee gate blocks listings past the global free cap", () => {
   const result = assessTask({
     title: "Write a short documented research note",
