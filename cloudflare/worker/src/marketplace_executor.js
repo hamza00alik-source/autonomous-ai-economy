@@ -62,6 +62,10 @@ export function assessTask(task, source = "unknown") {
   const description = textField(task?.description ?? task?.task_text, MAX_TASK_BYTES);
   const combined = (title + "\n" + description).trim();
   const reasons = [];
+  // Taskmarket writes require a registered agent wallet and signed submissions; AAE's owner policy forbids wallet setup/signing.
+  if (String(source).toLowerCase().startsWith("taskmarket")) {
+    reasons.push("taskmarket_wallet_identity_and_signed_submission_required");
+  }
   if (!combined) reasons.push("empty_task");
   if (combined.length > MAX_TASK_BYTES) reasons.push("task_too_large");
   if (!title || /^(?:#+\s*)?(?:title|task|untitled|unknown|n\/?a|none|null|undefined|new task)[.!:_ -]*$/i.test(title) || /^#+\s*(?:title|task)\s*$/i.test(title)) {
